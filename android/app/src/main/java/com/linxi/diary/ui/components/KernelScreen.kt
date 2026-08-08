@@ -33,6 +33,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 @Composable
 fun KernelScreen(
     title: String,
+    navigationIcon: @Composable () -> Unit = {},
     actions: @Composable () -> Unit = {},
     enableBlur: Boolean = true,
     bottomPadding: androidx.compose.ui.unit.Dp = 12.dp,
@@ -50,6 +51,7 @@ fun KernelScreen(
                 TopAppBar(
                     title = title,
                     color = barColor,
+                    navigationIcon = { navigationIcon() },
                     actions = { actions() },
                     scrollBehavior = scrollBehavior
                 )
