@@ -44,14 +44,15 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
 
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.7.0'
 
-      - name: 校验并构建 Debug APK
+      - name: 构建 Debug APK（先生成 wrapper 再构建）
         run: |
-          # 生成 Gradle wrapper（含可执行脚本与 jar），保证后续 CI/本地一致
-          gradle wrapper --gradle-version 8.9 --no-daemon
+          gradle wrapper --gradle-version 9.7.0 --no-daemon
           ./gradlew :app:assembleDebug --no-daemon
 
       - name: 上传 gradle wrapper

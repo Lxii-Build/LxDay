@@ -1,20 +1,21 @@
+@file:Suppress("UnstableApiUsage")
+
 plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
-    id("org.jetbrains.kotlin.plugin.compose")
+    alias(libs.plugins.agp.app)
+    alias(libs.plugins.kotlin)
+    alias(libs.plugins.compose.compiler)
 }
+
+val androidMinSdkVersion = rootProject.extra["androidMinSdkVersion"] as Int
+val androidTargetSdkVersion = rootProject.extra["androidTargetSdkVersion"] as Int
+val androidCompileSdkVersion = rootProject.extra["androidCompileSdkVersion"] as Int
+val androidCompileSdkVersionMinor = rootProject.extra["androidCompileSdkVersionMinor"] as Int
+val androidBuildToolsVersion = rootProject.extra["androidBuildToolsVersion"] as String
+val androidSourceCompatibility = rootProject.extra["androidSourceCompatibility"] as JavaVersion
+val androidTargetCompatibility = rootProject.extra["androidTargetCompatibility"] as JavaVersion
 
 android {
     namespace = "com.linxi.diary"
-    compileSdk = 34
-
-    defaultConfig {
-        applicationId = "com.linxi.diary"
-        minSdk = 29
-        targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
-    }
 
     buildTypes {
         release {
@@ -25,28 +26,84 @@ android {
             )
         }
     }
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
+
     buildFeatures {
+        buildConfig = true
         compose = true
+    }
+
+    androidResources {
+        generateLocaleConfig = true
+    }
+
+    compileSdk {
+        version = release(androidCompileSdkVersion) {
+            minorApiLevel = androidCompileSdkVersionMinor
+        }
+    }
+    buildToolsVersion = androidBuildToolsVersion
+
+    defaultConfig {
+        applicationId = "com.linxi.diary"
+        minSdk = androidMinSdkVersion
+        targetSdk = androidTargetSdkVersion
+        versionCode = 1
+        versionName = "1.0.0"
+    }
+
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
+    }
+
+    compileOptions {
+        sourceCompatibility = androidSourceCompatibility
+        targetCompatibility = androidTargetCompatibility
+    }
+
+    packaging {
+        resources {
+            excludes += setOf("META-INF/**", "kotlin/**", "**.bin")
+        }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        freeCompilerArgs.addAll(
+            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
+        )
     }
 }
 
 dependencies {
-    implementation(platform("androidx.compose:compose-bom:2024.09.03"))
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.activity:activity-compose:1.9.2")
-    implementation("androidx.core:core-ktx:1.13.1")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("org.json:json:20240303")
+    implementation(libs.androidx.activity.compose)
+
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.compose.material.icons.extended)
+    implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.ui)
+    implementation(libs.androidx.compose.ui.tooling.preview)
+
+    debugImplementation(libs.androidx.compose.ui.tooling)
+
+    implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+
+    implementation(libs.kotlinx.coroutines.android)
+
+    implementation(libs.okhttp)
+
+    // miuix（小米 HyperOS 风格组件）
+    implementation(libs.miuix.ui)
+    implementation(libs.miuix.icons)
+    implementation(libs.miuix.preference)
+    implementation(libs.miuix.squircle)
+
+    // KernelSU 同款动态取色
+    implementation(libs.material.kolor)
+
+    // AndroidLiquidGlass 液态玻璃
+    implementation(libs.backdrop)
+    implementation(libs.shapes)
 }
