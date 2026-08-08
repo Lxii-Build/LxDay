@@ -16,7 +16,7 @@ import java.util.Locale
  */
 object CrashHandler {
 
-    private const val TAG = "LinxiCrash"
+    private const val TAG = "Linxi/Crash"
     private var logDir: File? = null
     private var defaultHandler: Thread.UncaughtExceptionHandler? = null
 

@@ -4,9 +4,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.rounded.CheckCircleOutline
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -51,7 +51,7 @@ fun NowScreen(
             Spacer(Modifier.weight(1f))
             BasicComponent(
                 title = "历史",
-                startAction = { Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.padding(end = 6.dp)) },
+                startAction = { Icon(Icons.Filled.DateRange, contentDescription = null, modifier = Modifier.padding(end = 6.dp)) },
                 onClick = onOpenHistory
             )
         }
@@ -61,7 +61,7 @@ fun NowScreen(
             StatusCard(
                 title = "等待 ${partnerName} 同步",
                 subtitle = "对方的 App 保持运行并开启状态共享后显示",
-                icon = Icons.Rounded.CheckCircleOutline,
+                icon = Icons.Filled.CheckCircle,
                 iconColor = MiuixTheme.colorScheme.primary.copy(alpha = 0.8f),
                 containerColor = MiuixTheme.colorScheme.secondaryContainer
             )
@@ -76,7 +76,7 @@ fun NowScreen(
                 subtitle = "电量 ${partner.batteryLevel}%${if (partner.isCharging) " · 充电中" else ""} · " +
                         "${if (partner.screenOn) "亮屏${if (partner.isLocked) "·锁定" else "·解锁"}" else "灭屏"}" +
                         " · ${partner.ssid?.takeIf { it.isNotBlank() }?.let { "WiFi: $it" } ?: "移动网络"}",
-                icon = Icons.Rounded.CheckCircleOutline,
+                icon = Icons.Filled.CheckCircle,
                 iconColor = if (partner.batteryLevel < 15) Color(0xFFF44336) else MiuixTheme.colorScheme.primary.copy(alpha = 0.8f),
                 containerColor = if (partner.batteryLevel < 15) MiuixTheme.colorScheme.errorContainer else MiuixTheme.colorScheme.secondaryContainer,
                 onClick = { }
@@ -114,7 +114,7 @@ fun NowScreen(
                     Modifier.fillMaxWidth().padding(vertical = 20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Icon(Icons.Rounded.CheckCircleOutline, contentDescription = null,
+                    Icon(Icons.Filled.CheckCircle, contentDescription = null,
                         tint = MiuixTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
                     Spacer(Modifier.height(6.dp))
                     Text("求冷静", color = contentColor)

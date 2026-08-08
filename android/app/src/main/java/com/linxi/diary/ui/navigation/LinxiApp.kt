@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -36,7 +37,7 @@ private data class TabItem(val route: String, val label: String, val icon: Image
 private val tabs = listOf(
     TabItem("now", "此刻", Icons.Default.Favorite),
     TabItem("todo", "待办", Icons.Default.CheckCircle),
-    TabItem("diary", "日记", Icons.Default.MenuBook),
+    TabItem("diary", "日记", Icons.AutoMirrored.Filled.List),
     TabItem("mine", "我的", Icons.Default.Person)
 )
 
