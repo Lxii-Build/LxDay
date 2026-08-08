@@ -96,6 +96,7 @@ dependencies {
 
     // miuix（小米 HyperOS 风格组件）
     implementation(libs.miuix.ui)
+    implementation(libs.miuix.icons)
     implementation(libs.miuix.preference)
     implementation(libs.miuix.squircle)
     implementation(libs.miuix.blur)

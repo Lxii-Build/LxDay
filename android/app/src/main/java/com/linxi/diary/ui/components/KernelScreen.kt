@@ -2,9 +2,8 @@ package com.linxi.diary.ui.components
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.foundation.layout.WindowInsets
+import top.yukonga.miuix.kmp.icon.MiuixIcons
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.displayCutout
@@ -78,7 +77,7 @@ fun KernelScreen(
 fun BackAction(onBack: () -> Unit) {
     top.yukonga.miuix.kmp.basic.IconButton(onClick = onBack) {
         androidx.compose.material3.Icon(
-            Close,
+            MiuixIcons.Close,
             contentDescription = "返回"
         )
     }
