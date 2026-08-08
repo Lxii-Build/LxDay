@@ -98,6 +98,7 @@ dependencies {
     implementation(libs.miuix.ui)
     implementation(libs.miuix.preference)
     implementation(libs.miuix.squircle)
+    implementation(libs.miuix.blur)
 
     // KernelSU 同款动态取色
     implementation(libs.material.kolor)
