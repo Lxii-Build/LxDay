@@ -5,8 +5,9 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
@@ -51,7 +52,7 @@ fun KernelScreen(
                 )
             }
         },
-        contentWindowInsets = WindowInsets.systemBars.add(WindowInsets.displayCutout)
+        contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
     ) { innerPadding ->
         Box(modifier = if (backdrop != null) Modifier.layerBackdrop(backdrop) else Modifier) {
             LazyColumn(
@@ -73,7 +74,7 @@ fun KernelScreen(
 fun BackAction(onBack: () -> Unit) {
     top.yukonga.miuix.kmp.basic.IconButton(onClick = onBack) {
         androidx.compose.material3.Icon(
-            androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack,
+            androidx.compose.material.icons.automirrored.filled.ArrowBack,
             contentDescription = "返回"
         )
     }

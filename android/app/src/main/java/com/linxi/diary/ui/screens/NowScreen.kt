@@ -129,10 +129,10 @@ private fun PartnerStatusCard(partner: DeviceStatus?, partnerName: String) {
                 contentAlignment = Alignment.BottomEnd
             ) {
                 Icon(
-                    Modifier.size(110.dp),
                     imageVector = Icons.Filled.CheckCircle,
+                    contentDescription = null,
                     tint = colorScheme.primary.copy(alpha = 0.8f),
-                    contentDescription = null
+                    modifier = Modifier.size(110.dp)
                 )
             }
             // 左上标题
