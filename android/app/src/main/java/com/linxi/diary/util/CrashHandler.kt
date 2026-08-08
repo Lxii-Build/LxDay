@@ -33,7 +33,7 @@ object CrashHandler {
         extLogDir = app.getExternalFilesDir("crash")
         registerHandler()
         // 标记：进程已启动到 attachBaseContext（证明 CrashHandler 已注册）
-        writeMark(app, "attach_pid_${android.os.Process.myPid()}-${System.currentTimeMillis()}.txt", "attachBaseContext OK")
+        runCatching { write("attach_pid_${android.os.Process.myPid()}-${System.currentTimeMillis()}.txt", "attachBaseContext OK") }
         Log.i(TAG, "initEarly 完成，内部=$logDir 外部=$extLogDir")
     }
 
