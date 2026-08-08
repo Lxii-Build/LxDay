@@ -1,28 +1,36 @@
 package com.linxi.diary.ui.screens
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material3.*
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.dp
 import com.linxi.diary.core.TodoAlarmScheduler
 import com.linxi.diary.data.ApiClient
 import com.linxi.diary.data.TodoItem
-import com.linxi.diary.ui.components.GlassCard
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import top.yukonga.miuix.kmp.basic.BasicComponent
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.FloatingActionButton
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.SmallTitle
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.overlay.OverlayDialog
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * Tab ② 待办：双方待办列表 + 给对方添加（可选普通/强提醒，含本地 AlarmManager 兜底）。
+ * Tab ② 待办（miuix 布局）：双方待办列表 + 给对方添加（可选普通/强提醒）。
+ * 结构：Scaffold + SmallTitle 分组标题 + Card 包裹的 BasicComponent 列表行。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TodoScreen() {
     val scope = rememberCoroutineScope()
@@ -46,76 +54,50 @@ fun TodoScreen() {
 
     Scaffold(
         floatingActionButton = {
-            FloatingActionButton(onClick = { showAdd = true }) { Text("+") }
-        },
-        containerColor = MaterialTheme.colorScheme.background
-    ) { padding ->
-        Column(
-            Modifier
-                .padding(padding)
-                .fillMaxSize()
-                .background(Brush.verticalGradient(
-                    listOf(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-                        MaterialTheme.colorScheme.background)))
-        ) {
-            Text("待办", style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.padding(16.dp))
-            if (todos.isNotEmpty() && !loading) {
-                Text("共 ${todos.size} 项 · 完成 ${todos.count { it.status == 1 }} 项",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp))
+            FloatingActionButton(onClick = { showAdd = true }) {
+                Text("+")
             }
-
+        },
+        containerColor = MiuixTheme.colorScheme.surface
+    ) { padding ->
+        Column(Modifier.padding(padding).fillMaxSize()) {
+            SmallTitle("待办", Modifier.padding(top = 12.dp))
             if (loading) {
-                CircularProgressIndicator(Modifier.padding(24.dp))
+                androidx.compose.material3.CircularProgressIndicator(Modifier.padding(24.dp))
             } else if (todos.isEmpty()) {
                 Column(Modifier.fillMaxWidth().padding(top = 48.dp),
                     horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("还没有待办", style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("还没有待办", color = MiuixTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(4.dp))
-                    Text("点右下角 + 给对方添加",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("点右下角 + 给对方添加", color = MiuixTheme.colorScheme.onSurfaceVariant)
                 }
             } else {
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyColumn(
+                    Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     items(todos, key = { it.id }) { t ->
-                        GlassCard {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(t.title, style = MaterialTheme.typography.bodyLarge)
-                                    t.note.takeIf { it.isNotBlank() }?.let {
-                                        Text(it, style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                    val remindText = t.remindAtMs?.let {
-                                        val sdf = java.text.SimpleDateFormat(
-                                            "MM-dd HH:mm", java.util.Locale.getDefault())
-                                        "提醒 ${sdf.format(java.util.Date(it))}" +
-                                                if (t.remindType == 1) " · 强" else ""
-                                    }
-                                    remindText?.let {
-                                        Text(it, style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.primary)
-                                    }
-                                }
-                                IconButton(onClick = {
-                                    scope.launch {
-                                        runCatching {
-                                            ApiClient.completeTodo(t.id)
-                                            TodoAlarmScheduler.cancel(context, t.id)
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            BasicComponent(
+                                title = t.title,
+                                summary = buildSummary(t),
+                                endActions = {
+                                    IconButton(onClick = {
+                                        scope.launch {
+                                            runCatching {
+                                                ApiClient.completeTodo(t.id)
+                                                TodoAlarmScheduler.cancel(context, t.id)
+                                            }
+                                            refresh()
                                         }
-                                        refresh()
+                                    }) {
+                                        Icon(Icons.Default.Check,
+                                            contentDescription = "完成",
+                                            tint = MiuixTheme.colorScheme.primary)
                                     }
-                                }) {
-                                    Icon(Icons.Default.Check,
-                                        contentDescription = "完成",
-                                        tint = MaterialTheme.colorScheme.primary)
                                 }
-                            }
+                            )
                         }
                     }
                 }
@@ -126,10 +108,10 @@ fun TodoScreen() {
     if (showAdd) {
         AddTodoDialog(
             onDismiss = { showAdd = false },
-            onAdded = { todo, context ->
+            onAdded = { todo, ctx ->
                 if (todo.remindAtMs != null) {
                     TodoAlarmScheduler.schedule(
-                        context, todo.id, todo.title, todo.remindType, todo.remindAtMs)
+                        ctx, todo.id, todo.title, todo.remindType, todo.remindAtMs)
                 }
                 showAdd = false
                 refresh()
@@ -138,7 +120,15 @@ fun TodoScreen() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+private fun buildSummary(t: TodoItem): String {
+    val remind = t.remindAtMs?.let {
+        val sdf = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
+        "提醒 ${sdf.format(java.util.Date(it))}" + if (t.remindType == 1) " · 强" else ""
+    } ?: ""
+    val note = t.note.takeIf { it.isNotBlank() }?.let { it } ?: ""
+    return listOf(remind, note).filter { it.isNotEmpty() }.joinToString(" · ")
+}
+
 @Composable
 private fun AddTodoDialog(
     onDismiss: () -> Unit,
@@ -151,90 +141,79 @@ private fun AddTodoDialog(
     var remindAtMs by remember { mutableStateOf<Long?>(null) }
     var remindType by remember { mutableStateOf(0) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("添加待办") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = title, onValueChange = { title = it },
-                    label = { Text("标题") }, singleLine = true)
-                OutlinedTextField(value = note, onValueChange = { note = it },
-                    label = { Text("备注（可选）") })
-                // 提醒时间：预设快捷选项（epoch 毫秒；生产可替换为 DatePicker + TimePicker）
-                val presets = listOf(
-                    "30 分钟后" to System.currentTimeMillis() + 30 * 60_000L,
-                    "1 小时后" to System.currentTimeMillis() + 60 * 60_000L,
-                    "明天 9 点" to run {
-                        val c = java.util.Calendar.getInstance().apply {
-                            add(java.util.Calendar.DAY_OF_YEAR, 1)
-                            set(java.util.Calendar.HOUR_OF_DAY, 9)
-                            set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0)
-                        }
-                        c.timeInMillis
-                    }
+    OverlayDialog(show = true, onDismissRequest = onDismiss) {
+        Card(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("添加待办", style = MiuixTheme.textStyles.title3)
+                TextField(
+                    value = title, onValueChange = { title = it },
+                    label = "标题"
                 )
-                var expanded by remember { mutableStateOf(false) }
-                ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
-                    OutlinedTextField(
-                        value = remindAtMs?.let {
-                            java.text.SimpleDateFormat("MM-dd HH:mm",
-                                java.util.Locale.getDefault()).format(java.util.Date(it))
-                        } ?: "不提醒",
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("提醒时间") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-                        modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth()
-                    )
-                    ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                        DropdownMenuItem(text = { Text("不提醒") },
-                            onClick = { remindAtMs = null; expanded = false })
-                        presets.forEach { (label, ms) ->
-                            DropdownMenuItem(text = { Text(label) },
-                                onClick = { remindAtMs = ms; expanded = false })
-                        }
+                TextField(
+                    value = note, onValueChange = { note = it },
+                    label = "备注（可选）"
+                )
+                // 提醒时间预设
+                val presets = listOf(
+                    "不提醒" to null,
+                    "30 分钟后" to (System.currentTimeMillis() + 30 * 60_000L),
+                    "1 小时后" to (System.currentTimeMillis() + 60 * 60_000L),
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("提醒", color = MiuixTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.weight(1f))
+                    presets.forEach { (label, ms) ->
+                        Button(
+                            onClick = { remindAtMs = ms },
+                            cornerRadius = 12.dp
+                        ) { Text(label) }
+                        Spacer(Modifier.width(6.dp))
                     }
                 }
+                // 提醒强度
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("提醒强度")
+                    Text("强度", color = MiuixTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.weight(1f))
-                    FilterChip(
-                        selected = remindType == 0,
+                    Button(
                         onClick = { remindType = 0 },
-                        label = { Text("普通") })
-                    Spacer(Modifier.width(8.dp))
-                    FilterChip(
-                        selected = remindType == 1,
+                        cornerRadius = 12.dp
+                    ) { Text("普通") }
+                    Spacer(Modifier.width(6.dp))
+                    Button(
                         onClick = { remindType = 1 },
-                        label = { Text("强提醒") })
+                        cornerRadius = 12.dp
+                    ) { Text("强提醒") }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    Button(
+                        onClick = onDismiss,
+                        cornerRadius = 12.dp
+                    ) { Text("取消") }
+                    Spacer(Modifier.width(8.dp))
+                    Button(
+                        enabled = title.isNotBlank(),
+                        onClick = {
+                            scope.launch {
+                                val body = JSONObject().apply {
+                                    put("title", title)
+                                    put("note", note)
+                                    put("remind_type", remindType)
+                                    if (remindAtMs != null) {
+                                        put("remind_at", isoFromMillis(remindAtMs!!))
+                                    }
+                                }
+                                val resp = ApiClient.createTodo(body)
+                                onAdded(TodoItem.fromJson(resp), context)
+                            }
+                        },
+                        cornerRadius = 12.dp
+                    ) { Text("添加") }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    scope.launch {
-                        val body = JSONObject().apply {
-                            put("title", title)
-                            put("note", note)
-                            put("remind_type", remindType)
-                            if (remindAtMs != null) {
-                                // 服务端 Todo.RemindAt 为 time.Time，需 RFC3339
-                                put("remind_at", isoFromMillis(remindAtMs!!))
-                            }
-                        }
-                        val resp = ApiClient.createTodo(body)
-                        onAdded(TodoItem.fromJson(resp), context)
-                    }
-                },
-                enabled = title.isNotBlank()
-            ) { Text("添加") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
-    )
+        }
+    }
 }
 
-/** epoch 毫秒 → RFC3339 字符串（服务端 time.Time 解析用） */
 private fun isoFromMillis(ms: Long): String =
     java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX",
         java.util.Locale.US).format(java.util.Date(ms))
