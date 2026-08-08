@@ -67,23 +67,36 @@ fun SettingsScreen(
 
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
-        // 深色模式
-        SettingRow("深色模式") {
+        // 主题设置（ColorMode：跟随系统/浅色/深色/深色AMOLED）
+        SettingRow("主题模式") {
             var expanded by remember { mutableStateOf(false) }
             ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
                 OutlinedTextField(
-                    value = when (darkMode) { 1 -> "浅色"; 2 -> "深色"; else -> "跟随系统" },
+                    value = when (darkMode) { 1 -> "浅色"; 2 -> "深色"; 3 -> "深色 AMOLED"; else -> "跟随系统" },
                     onValueChange = {},
                     readOnly = true,
-                    modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).width(140.dp)
+                    modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).width(150.dp)
                 )
                 ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                    listOf(0 to "跟随系统", 1 to "浅色", 2 to "深色").forEach { (v, label) ->
+                    listOf(0 to "跟随系统", 1 to "浅色", 2 to "深色", 3 to "深色 AMOLED").forEach { (v, label) ->
                         DropdownMenuItem(text = { Text(label) },
-                            onClick = { darkMode = v; UserPrefs.darkMode = v; expanded = false })
+                            onClick = {
+                                darkMode = v
+                                UserPrefs.colorMode = v
+                                UserPrefs.darkMode = v
+                                expanded = false
+                            })
                     }
                 }
             }
+        }
+        // 动态取色 / 固定种子色
+        SettingRow("动态取色", desc = "关闭后使用固定情侣主题色") {
+            var dynColor by remember { mutableStateOf(UserPrefs.keyColor == 0) }
+            Switch(checked = dynColor, onCheckedChange = { on ->
+                dynColor = on
+                UserPrefs.keyColor = if (on) 0 else 0xFFB49EDE.toInt() // 粉紫种子
+            })
         }
 
         // 常驻卡片开关
