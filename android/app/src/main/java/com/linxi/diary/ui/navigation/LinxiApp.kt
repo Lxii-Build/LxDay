@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
@@ -22,6 +24,7 @@ import com.linxi.diary.ui.liquid.LiquidBottomTab
 import com.linxi.diary.ui.liquid.LiquidBottomTabs
 import com.linxi.diary.ui.screens.*
 import com.linxi.diary.util.UserPrefs
+import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.NavigationBar
 import top.yukonga.miuix.kmp.basic.NavigationBarItem
 
@@ -81,9 +84,17 @@ private fun MainTabs(
     onOpenBind: () -> Unit,
     onOpenConsent: () -> Unit
 ) {
-    val selectedIndex = remember(selected) { tabs.indexOfFirst { it.route == selected }.coerceAtLeast(0) }
+    val coroutineScope = rememberCoroutineScope()
+    val pagerState = rememberPagerState(pageCount = { tabs.size })
+    val mainState = rememberMainPagerState(pagerState, coroutineScope)
+    val selectedIndex = mainState.selectedPage
 
-    // 液态玻璃：页面内容录制进 LayerBackdrop，悬浮 Tab 栏玻璃「看穿」内容
+    // 悬浮栏选中 → 平滑切页（MainPagerState.animateToPage）；页面滑动 → 同步选中
+    LaunchedEffect(mainState) {
+        snapshotFlow { pagerState.currentPage }.collect { mainState.syncPage() }
+    }
+
+    // 液态玻璃：页面背景录制进 LayerBackdrop，Tarbar 玻璃「看穿」内容
     val backdrop = rememberLayerBackdrop()
 
     Box(
@@ -91,19 +102,22 @@ private fun MainTabs(
             .fillMaxSize()
             .layerBackdrop(backdrop)
     ) {
-        // 页面内容
-        Box(Modifier.fillMaxSize().padding(bottom = 88.dp)) {
-            when (selected) {
-                "now" -> NowScreen(onOpenHistory = onOpenHistory, onOpenBind = onOpenBind)
-                "todo" -> TodoScreen()
-                "diary" -> DiaryScreen()
-                "mine" -> SettingsScreen(onOpenConsent = onOpenConsent, onOpenBind = onOpenBind)
+        // 页面内容：HorizontalPager 支持手滑 + 悬浮栏联动
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize()
+        ) { page ->
+            when (page) {
+                0 -> NowScreen(onOpenHistory = onOpenHistory, onOpenBind = onOpenBind)
+                1 -> TodoScreen()
+                2 -> DiaryScreen()
+                3 -> SettingsScreen(onOpenConsent = onOpenConsent, onOpenBind = onOpenBind)
             }
         }
 
         // 液态玻璃 Tab 栏（默认开启）；UserPrefs.liquidGlassEnabled=false 时降级 miuix 导航栏
         if (UserPrefs.liquidGlassEnabled) {
-            LiquidGlassTabBar(selectedIndex, onSelect, backdrop)
+            LiquidGlassTabBar(selectedIndex, { i -> mainState.animateToPage(i) }, backdrop)
         } else {
             Column(
                 Modifier
@@ -113,10 +127,10 @@ private fun MainTabs(
                 NavigationBar(
                     color = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.surfaceContainer
                 ) {
-                    tabs.forEach { t ->
+                    tabs.forEachIndexed { index, t ->
                         NavigationBarItem(
-                            selected = selected == t.route,
-                            onClick = { onSelect(t.route) },
+                            selected = mainState.selectedPage == index,
+                            onClick = { mainState.animateToPage(index) },
                             icon = t.icon,
                             label = t.label
                         )
