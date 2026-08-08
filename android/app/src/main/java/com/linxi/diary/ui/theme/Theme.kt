@@ -189,21 +189,19 @@ fun LinxiTheme(
         colorScheme = animatedColorScheme,
         typography = Typography(),
         content = {
-            // 嵌套 MiuixTheme：miuix 组件（SmallTopAppBar/Card/BasicComponent）依赖其 ColorScheme
-            val resolvedKeyColor: Color? = when {
-                appSettings.keyColor != 0 -> Color(appSettings.keyColor)
-                else -> if (darkTheme) dynamicDarkColorScheme(context).primary
-                else dynamicLightColorScheme(context).primary
+            // 嵌套 MiuixTheme：miuix 组件依赖其 ColorScheme。
+            // 用 remember 缓存 controller，避免每次重组重建；动态色直接用已算好的 colorScheme.primary
+            val miuixController = remember(appSettings.colorMode, darkTheme, appSettings.keyColor) {
+                top.yukonga.miuix.kmp.theme.ThemeController(
+                    colorSchemeMode = when (appSettings.colorMode) {
+                        ColorMode.LIGHT -> top.yukonga.miuix.kmp.theme.ColorSchemeMode.Light
+                        ColorMode.DARK, ColorMode.DARK_AMOLED -> top.yukonga.miuix.kmp.theme.ColorSchemeMode.Dark
+                        else -> top.yukonga.miuix.kmp.theme.ColorSchemeMode.System
+                    },
+                    keyColor = if (appSettings.keyColor != 0) Color(appSettings.keyColor) else animatedColorScheme.primary,
+                    isDark = darkTheme,
+                )
             }
-            val miuixController = top.yukonga.miuix.kmp.theme.ThemeController(
-                colorSchemeMode = when (appSettings.colorMode) {
-                    ColorMode.LIGHT -> top.yukonga.miuix.kmp.theme.ColorSchemeMode.Light
-                    ColorMode.DARK, ColorMode.DARK_AMOLED -> top.yukonga.miuix.kmp.theme.ColorSchemeMode.Dark
-                    else -> top.yukonga.miuix.kmp.theme.ColorSchemeMode.System
-                },
-                keyColor = resolvedKeyColor,
-                isDark = darkTheme,
-            )
             top.yukonga.miuix.kmp.theme.MiuixTheme(
                 controller = miuixController,
                 content = content
