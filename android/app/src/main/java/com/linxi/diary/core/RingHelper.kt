@@ -89,15 +89,11 @@ object RingHelper {
             nm.notify(10002, n)
         }
 
-        // 5) 强震动
+        // 5) 强震动（minSdk 29 保证 API>=26）
         val v = c.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        if (Build.VERSION.SDK_INT >= 26) {
-            v.vibrate(VibrationEffect.createWaveform(
-                longArrayOf(0, 600, 300, 600, 300, 1200), 0))
-        } else {
-            @Suppress("DEPRECATION")
-            v.vibrate(longArrayOf(0, 600, 300, 600, 300, 1200), 0)
-        }
+        @Suppress("DEPRECATION")
+        v.vibrate(VibrationEffect.createWaveform(
+            longArrayOf(0, 600, 300, 600, 300, 1200), 0))
     }
 
     private fun alarmUri(c: Context): Uri =
@@ -131,12 +127,8 @@ object RingHelper {
         }, 8000)
 
         val v = c.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        if (Build.VERSION.SDK_INT >= 26) {
-            v.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 500, 200, 500), -1))
-        } else {
-            @Suppress("DEPRECATION")
-            v.vibrate(longArrayOf(0, 500, 200, 500), -1)
-        }
+        @Suppress("DEPRECATION")
+        v.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 500, 200, 500), -1))
     }
 }
 

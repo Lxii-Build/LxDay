@@ -87,13 +87,8 @@ class TodoAlarmReceiver : BroadcastReceiver() {
 
     private fun vibrate(context: Context, shortVibrate: Boolean) {
         val v = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        if (Build.VERSION.SDK_INT >= 26) {
-            v.vibrate(VibrationEffect.createWaveform(
-                if (shortVibrate) longArrayOf(0, 300) else longArrayOf(0, 500, 200, 500), -1))
-        } else {
-            @Suppress("DEPRECATION")
-            v.vibrate(if (shortVibrate) 300 else longArrayOf(0, 500, 200, 500), -1)
-        }
+        val pattern = if (shortVibrate) longArrayOf(0, 300) else longArrayOf(0, 500, 200, 500)
+        v.vibrate(VibrationEffect.createWaveform(pattern, -1))
     }
 }
 

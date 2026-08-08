@@ -9,7 +9,6 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
 import android.os.BatteryManager
-import android.os.KeyguardManager
 import android.os.Process
 import com.linxi.diary.util.TimeUtil
 
@@ -71,8 +70,9 @@ object StatusCollector {
         val hasWifi = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
         if (hasWifi) {
             val wifi = c.getSystemService(Context.WIFI_SERVICE) as WifiManager
-            val ssid = wifi.connectionInfo?.ssid
-                ?.removePrefix("\"").removeSuffix("\"")
+            val raw = wifi.connectionInfo?.ssid
+            val ssid = raw
+                ?.removePrefix("\"")?.removeSuffix("\"")
                 ?.takeIf { it != "<unknown ssid>" && it != "unknown" }
             return ssid to "wifi"
         }
@@ -93,6 +93,12 @@ object StatusCollector {
             c.packageManager.getApplicationInfo(pkg, 0)).toString()
     } catch (_: PackageManager.NameNotFoundException) { pkg }
 
+    /** 当前是否锁屏（Android 10 用 KeyguardManager，兼容全量） */
+    private fun isDeviceLocked(c: Context): Boolean {
+        val km = c.getSystemService(android.os.KeyguardManager::class.java)
+        return km?.isKeyguardLocked ?: true
+    }
+
     /** 聚合完整状态快照 */
     fun collectAll(c: Context): DeviceStatus {
         val (level, charging) = battery(c)
@@ -101,7 +107,7 @@ object StatusCollector {
             batteryLevel = level,
             isCharging = charging,
             screenOn = DeviceStatusHolder.screenOn,
-            isLocked = (c.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked,
+            isLocked = isDeviceLocked(c),
             foregroundApp = foregroundApp(c),
             music = DeviceStatusHolder.music,
             ssid = ssid,

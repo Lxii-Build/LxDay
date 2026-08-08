@@ -19,6 +19,8 @@ import androidx.compose.ui.unit.dp
  * 端内跟随系统深浅色；设计规范 ADR-01 无深色，此处用语义反转扩展实现深色，
  * 保留玻璃层级（模糊/描边）只换色板。
  */
+private val Color_White = androidx.compose.ui.graphics.Color.White
+
 private val LightColors = lightColorScheme(
     primary = MilkGlassPrimary,
     onPrimary = MilkGlassText,
@@ -82,8 +84,6 @@ private val MilkTypography = Typography(
         fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium,
         fontSize = 12.sp, letterSpacing = 0.48.sp)
 )
-
-private val Color_White = androidx.compose.ui.graphics.Color.White
 
 @Composable
 fun MilkGlassTheme(

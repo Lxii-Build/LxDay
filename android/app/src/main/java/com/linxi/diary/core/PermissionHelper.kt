@@ -5,7 +5,6 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.os.Process
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
@@ -41,11 +40,10 @@ object PermissionHelper {
         return (nm as android.app.NotificationManager).isNotificationPolicyAccessGranted
     }
 
-    /** 电池优化白名单 */
+    /** 是否已加入电池优化白名单（PowerManager.isIgnoringBatteryOptimizations，API 23+） */
     fun hasIgnoreBattery(context: Context): Boolean {
-        val pm = context.packageManager
-        val name = context.packageName
-        return pm.isIgnoringBatteryOptimizations(name)
+        val pm = context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        return pm.isIgnoringBatteryOptimizations(context.packageName)
     }
 
     // ============ 引导跳转 ============

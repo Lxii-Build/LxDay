@@ -3,7 +3,13 @@ package com.linxi.diary.data
 import com.linxi.diary.util.UserPrefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody
+import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -17,7 +23,7 @@ data class ApiException(val bizCode: Int, override val message: String) : Except
 object ApiClient {
 
     private const val BASE = "https://api.linxi.app/api/v1"
-    private val json = MediaType.get("application/json; charset=utf-8")
+    private val json = "application/json; charset=utf-8".toMediaType()
 
     private val client by lazy {
         OkHttpClient.Builder()
@@ -85,10 +91,10 @@ object ApiClient {
     suspend fun uploadImage(path: String, file: File): String = withContext(Dispatchers.IO) {
         val ext = file.extension
         val media = when (ext.lowercase()) {
-            "png" -> MediaType.get("image/png")
-            "webp" -> MediaType.get("image/webp")
-            "gif" -> MediaType.get("image/gif")
-            else -> MediaType.get("image/jpeg")
+            "png" -> "image/png".toMediaType()
+            "webp" -> "image/webp".toMediaType()
+            "gif" -> "image/gif".toMediaType()
+            else -> "image/jpeg".toMediaType()
         }
         val mb = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
