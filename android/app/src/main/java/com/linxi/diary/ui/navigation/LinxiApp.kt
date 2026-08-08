@@ -1,6 +1,7 @@
 package com.linxi.diary.ui.navigation
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,6 +22,8 @@ import com.linxi.diary.ui.liquid.LiquidBottomTab
 import com.linxi.diary.ui.liquid.LiquidBottomTabs
 import com.linxi.diary.ui.screens.*
 import com.linxi.diary.util.UserPrefs
+import top.yukonga.miuix.kmp.basic.NavigationBar
+import top.yukonga.miuix.kmp.basic.NavigationBarItem
 
 /**
  * 应用导航（轻量状态机）：
@@ -102,11 +105,11 @@ private fun MainTabs(
                     .align(Alignment.BottomCenter)
                     .padding(horizontal = 36.dp, vertical = 12.dp)
             ) {
-                top.yukonga.miuix.kmp.basic.NavigationBar(
+                NavigationBar(
                     color = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.surfaceContainer
                 ) {
                     tabs.forEach { t ->
-                        top.yukonga.miuix.kmp.basic.NavigationBarItem(
+                        NavigationBarItem(
                             selected = selected == t.route,
                             onClick = { onSelect(t.route) },
                             icon = t.icon,
@@ -120,7 +123,7 @@ private fun MainTabs(
 }
 
 @Composable
-private fun LiquidGlassTabBar(
+private fun BoxScope.LiquidGlassTabBar(
     selectedIndex: Int,
     onSelect: (String) -> Unit,
     backdrop: com.kyant.backdrop.Backdrop

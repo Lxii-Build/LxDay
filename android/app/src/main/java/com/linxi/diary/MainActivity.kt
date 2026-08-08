@@ -55,7 +55,7 @@ class MainActivity : ComponentActivity() {
                 // 极简安全模式：跳过主题/backdrop/miuix，用于闪退二分定位
                 androidx.compose.material3.MaterialTheme {
                     androidx.compose.foundation.layout.Box(
-                        androidx.compose.foundation.layout.Modifier.fillMaxSize(),
+                        androidx.compose.ui.Modifier.fillMaxSize(),
                         contentAlignment = androidx.compose.ui.Alignment.Center
                     ) {
                         androidx.compose.material3.Text("林曦日记 · 安全模式\n如果这里显示说明基础启动正常")
