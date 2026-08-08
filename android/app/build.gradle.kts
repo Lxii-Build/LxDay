@@ -46,6 +46,9 @@ android {
         targetSdk = androidTargetSdkVersion
         versionCode = 1
         versionName = "1.0.0"
+
+        // 安全模式：true = 启动极简 UI（跳过主题/backdrop/miuix），用于闪退二分定位
+        buildConfigField("boolean", "SAFE_MODE", "false")
     }
 
     lint {

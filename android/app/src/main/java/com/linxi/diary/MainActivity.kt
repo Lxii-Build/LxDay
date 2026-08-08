@@ -45,10 +45,26 @@ class MainActivity : ComponentActivity() {
         } catch (t: Throwable) {
             Logs.e("Main", "请求权限失败", t)
         }
-        StatusSyncManager.connect()
+        try {
+            StatusSyncManager.connect()
+        } catch (t: Throwable) {
+            Logs.e("Main", "连接失败", t)
+        }
         setContent {
-            AppTheme {
-                LinxiApp()
+            if (com.linxi.diary.BuildConfig.SAFE_MODE) {
+                // 极简安全模式：跳过主题/backdrop/miuix，用于闪退二分定位
+                androidx.compose.material3.MaterialTheme {
+                    androidx.compose.foundation.layout.Box(
+                        androidx.compose.foundation.layout.Modifier.fillMaxSize(),
+                        contentAlignment = androidx.compose.ui.Alignment.Center
+                    ) {
+                        androidx.compose.material3.Text("林曦日记 · 安全模式\n如果这里显示说明基础启动正常")
+                    }
+                }
+            } else {
+                AppTheme {
+                    LinxiApp()
+                }
             }
         }
     }

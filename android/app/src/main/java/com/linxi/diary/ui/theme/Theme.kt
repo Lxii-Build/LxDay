@@ -5,8 +5,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
-import androidx.compose.material3.MaterialExpressiveTheme
-import androidx.compose.material3.MotionScheme
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -186,9 +185,8 @@ fun LinxiTheme(
 
     val animatedColorScheme = colorScheme.animateAsState()
 
-    MaterialExpressiveTheme(
+    MaterialTheme(
         colorScheme = animatedColorScheme,
-        motionScheme = MotionScheme.expressive(),
         typography = Typography(),
         content = {
             // 嵌套 MiuixTheme：miuix 组件（SmallTopAppBar/Card/BasicComponent）依赖其 ColorScheme
