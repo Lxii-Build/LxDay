@@ -23,6 +23,7 @@ import com.linxi.diary.core.ScreenStateReceiver
 import com.linxi.diary.core.StatusColor
 import com.linxi.diary.core.StatusCollector
 import com.linxi.diary.sync.StatusSyncManager
+import com.linxi.diary.util.Logs
 import com.linxi.diary.util.TimeUtil
 import com.linxi.diary.util.UserPrefs
 
@@ -52,17 +53,40 @@ class StatusForegroundService : Service() {
         fun refreshCard(context: Context?) {
             val c = context ?: return
             if (!UserPrefs.statusCardEnabled) return
-            c.startForegroundService(Intent(c, StatusForegroundService::class.java)
-                .setAction(ACTION_REFRESH))
+            startSafe(c, ACTION_REFRESH)
         }
 
         fun start(context: Context) {
-            context.startForegroundService(Intent(context, StatusForegroundService::class.java))
+            startSafe(context, null)
         }
 
         fun stop(context: Context) {
-            context.startService(Intent(context, StatusForegroundService::class.java)
-                .setAction(ACTION_STOP))
+            try {
+                context.startService(Intent(context, StatusForegroundService::class.java)
+                    .setAction(ACTION_STOP))
+            } catch (t: Throwable) {
+                Logs.w("Service", "stop 启动异常", t)
+            }
+        }
+
+        /** 安全启动前台服务：Android 12+ 后台启动受限，捕获异常不闪退 */
+        private fun startSafe(context: Context, action: String?) {
+            try {
+                val i = Intent(context, StatusForegroundService::class.java)
+                if (action != null) i.action = action
+                if (android.os.Build.VERSION.SDK_INT >= 26) {
+                    context.startForegroundService(i)
+                } else {
+                    context.startService(i)
+                }
+            } catch (t: Throwable) {
+                Logs.e("Service", "前台服务启动失败（可能无通知权限或后台限制）", t)
+                try {
+                    context.startService(Intent(context, StatusForegroundService::class.java))
+                } catch (t2: Throwable) {
+                    Logs.e("Service", "兜底 startService 也失败", t2)
+                }
+            }
         }
     }
 
@@ -72,7 +96,7 @@ class StatusForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        createChannels()
+        try { createChannels() } catch (t: Throwable) { Logs.w("Service", "createChannels 异常", t) }
         // 动态注册亮屏/锁屏监听（ACTION_SCREEN_ON/OFF 无法静态注册）
         screenReceiver = ScreenStateReceiver().also { r ->
             val f = IntentFilter()
@@ -97,7 +121,11 @@ class StatusForegroundService : Service() {
         }
         // 先采集一次再 startForeground，保证卡片有数据
         refreshNow()
-        startForeground(NOTIFY_ID_CARD, buildCard(DeviceStatusHolder.partner))
+        try {
+            startForeground(NOTIFY_ID_CARD, buildCard(DeviceStatusHolder.partner))
+        } catch (t: Throwable) {
+            Logs.e("Service", "startForeground 失败（无通知权限？）", t)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -119,23 +147,27 @@ class StatusForegroundService : Service() {
      * 共享总开关关闭时：停止采集、清空本机状态，不推送。
      */
     private fun refreshNow() {
-        if (!UserPrefs.sharingEnabled) {
-            DeviceStatusHolder.current = null
-            DeviceStatusHolder.partner = null
-            startForeground(NOTIFY_ID_CARD, buildCard(null))
-            return
+        try {
+            if (!UserPrefs.sharingEnabled) {
+                DeviceStatusHolder.current = null
+                DeviceStatusHolder.partner = null
+                runCatching { startForeground(NOTIFY_ID_CARD, buildCard(null)) }
+                return
+            }
+            val s = StatusCollector.collectAll(this)
+            DeviceStatusHolder.current = s
+            StatusSyncManager.pushNow()
+            // 低电量(<15%)即时事件：从 >=20 降到低电量时触发一次，防止重复刷屏
+            if (s.batteryLevel in 1..14 && lastBatteryNotified != s.batteryLevel) {
+                lastBatteryNotified = s.batteryLevel
+                StatusSyncManager.sendEvent("low_battery")
+            } else if (s.batteryLevel >= 20) {
+                lastBatteryNotified = -1
+            }
+            runCatching { startForeground(NOTIFY_ID_CARD, buildCard(DeviceStatusHolder.partner)) }
+        } catch (t: Throwable) {
+            Logs.e("Service", "refreshNow 异常", t)
         }
-        val s = StatusCollector.collectAll(this)
-        DeviceStatusHolder.current = s
-        StatusSyncManager.pushNow()
-        // 低电量(<15%)即时事件：从 >=20 降到低电量时触发一次，防止重复刷屏
-        if (s.batteryLevel in 1..14 && lastBatteryNotified != s.batteryLevel) {
-            lastBatteryNotified = s.batteryLevel
-            StatusSyncManager.sendEvent("low_battery")
-        } else if (s.batteryLevel >= 20) {
-            lastBatteryNotified = -1
-        }
-        startForeground(NOTIFY_ID_CARD, buildCard(DeviceStatusHolder.partner))
     }
 
     private fun createChannels() {

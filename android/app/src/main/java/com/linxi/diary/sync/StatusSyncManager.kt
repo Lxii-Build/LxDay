@@ -13,6 +13,7 @@ import com.linxi.diary.core.DeviceStatusHolder
 import com.linxi.diary.core.MusicInfo
 import com.linxi.diary.core.RingHelper
 import com.linxi.diary.service.StatusForegroundService
+import com.linxi.diary.util.Logs
 import com.linxi.diary.util.UserPrefs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -90,24 +91,40 @@ object StatusSyncManager {
 
     /** 上报本机全量状态。共享开关关闭时不推送。关键变更调用 pushNow() 即时推送 */
     fun pushNow() {
-        if (!UserPrefs.sharingEnabled) return
-        val w = ws ?: return
-        val s = DeviceStatusHolder.current ?: return
-        w.send(JSONObject().apply {
-            put("type", "status_update")
-            put("data", s.toJson())
-        }.toString())
+        try {
+            if (!UserPrefs.sharingEnabled) return
+            val w = ws ?: return
+            val s = DeviceStatusHolder.current ?: return
+            w.send(JSONObject().apply {
+                put("type", "status_update")
+                put("data", s.toJson())
+            }.toString())
+        } catch (t: Throwable) {
+            Logs.w("Sync", "pushNow 失败", t)
+        }
     }
 
     /** 触发一次性事件：comfort_request / calm_request / ring_request */
     fun sendEvent(type: String) {
-        ws?.send(JSONObject().apply {
-            put("type", type)
-            put("data", JSONObject().put("ts", System.currentTimeMillis()))
-        }.toString())
+        try {
+            ws?.send(JSONObject().apply {
+                put("type", type)
+                put("data", JSONObject().put("ts", System.currentTimeMillis()))
+            }.toString())
+        } catch (t: Throwable) {
+            Logs.w("Sync", "sendEvent($type) 失败", t)
+        }
     }
 
     private fun handle(text: String) {
+        try {
+            handleInner(text)
+        } catch (t: Throwable) {
+            Logs.e("Sync", "处理 WS 消息异常: ${text.take(120)}", t)
+        }
+    }
+
+    private fun handleInner(text: String) {
         val m = JSONObject(text)
         when (m.getString("type")) {
             "partner_status" -> {
@@ -165,37 +182,45 @@ object StatusSyncManager {
     }
 
     private fun notifyEvent(title: String, body: String) {
-        val c = appContext ?: return
-        val nm = c.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.createNotificationChannel(
-            NotificationChannel(StatusForegroundService.CHANNEL_EVENT,
-                "互动提醒", NotificationManager.IMPORTANCE_HIGH))
-        val openApp = PendingIntent.getActivity(c, 0, Intent(c, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val n = NotificationCompat.Builder(c, StatusForegroundService.CHANNEL_EVENT)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setAutoCancel(true)
-            .setContentIntent(openApp)
-            .build()
-        nm.notify(System.currentTimeMillis().toInt(), n)
+        try {
+            val c = appContext ?: return
+            val nm = c.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.createNotificationChannel(
+                NotificationChannel(StatusForegroundService.CHANNEL_EVENT,
+                    "互动提醒", NotificationManager.IMPORTANCE_HIGH))
+            val openApp = PendingIntent.getActivity(c, 0, Intent(c, MainActivity::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            val n = NotificationCompat.Builder(c, StatusForegroundService.CHANNEL_EVENT)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .setContentIntent(openApp)
+                .build()
+            nm.notify(System.currentTimeMillis().toInt(), n)
+        } catch (t: Throwable) {
+            Logs.w("Sync", "notifyEvent 失败", t)
+        }
     }
 
     private fun notifyRing() {
-        val c = appContext ?: return
-        val nm = c.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.createNotificationChannel(
-            NotificationChannel(StatusForegroundService.CHANNEL_RING,
-                "紧急响铃", NotificationManager.IMPORTANCE_HIGH))
+        try {
+            val c = appContext ?: return
+            val nm = c.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.createNotificationChannel(
+                NotificationChannel(StatusForegroundService.CHANNEL_RING,
+                    "紧急响铃", NotificationManager.IMPORTANCE_HIGH))
         nm.notify(10002, NotificationCompat.Builder(c, StatusForegroundService.CHANNEL_RING)
-            .setSmallIcon(android.R.drawable.ic_lock_lock)
-            .setContentTitle("紧急响铃已触发")
-            .setContentText("对方正在找你，点击打开 APP")
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setAutoCancel(true)
-            .build())
+                .setSmallIcon(android.R.drawable.ic_lock_lock)
+                .setContentTitle("紧急响铃已触发")
+                .setContentText("对方正在找你，点击打开 APP")
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setAutoCancel(true)
+                .build())
+        } catch (t: Throwable) {
+            Logs.w("Sync", "notifyRing 失败", t)
+        }
     }
 
 }

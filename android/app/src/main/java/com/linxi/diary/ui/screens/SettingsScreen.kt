@@ -12,6 +12,8 @@ import androidx.compose.ui.unit.dp
 import com.linxi.diary.core.PermissionHelper
 import com.linxi.diary.service.StatusForegroundService
 import com.linxi.diary.sync.StatusSyncManager
+import com.linxi.diary.util.CrashHandler
+import com.linxi.diary.util.Logs
 import com.linxi.diary.util.UserPrefs
 
 /**
@@ -118,7 +120,26 @@ fun SettingsScreen(
             TextButton(onClick = { PermissionHelper.toVendorAutoStart(context) }) { Text("去设置") }
         }
 
-        Spacer(Modifier.height(16.dp))
+        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+
+        // 调试区：崩溃日志 + 日志查看指引
+        Text("调试", style = MaterialTheme.typography.titleSmall)
+        Spacer(Modifier.height(8.dp))
+
+        var crashCount by remember { mutableStateOf(CrashHandler.crashFiles().size) }
+        SettingRow("崩溃日志", desc = "$crashCount 条 · 本机 app 私有目录") {
+            TextButton(onClick = {
+                crashCount = CrashHandler.crashFiles().size
+                Logs.i("Settings", "崩溃日志数=$crashCount")
+            }) { Text("刷新") }
+        }
+        SettingRow("查看运行日志", desc = "adb logcat -s Linxi:V —— 集中前缀 Linxi") {
+        }
+        TextButton(onClick = {
+            CrashHandler.clearCrashes()
+            crashCount = 0
+        }) { Text("清空崩溃日志") }
+        Spacer(Modifier.height(8.dp))
 
         // 退出登录
         Button(onClick = {

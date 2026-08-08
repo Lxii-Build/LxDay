@@ -1,12 +1,16 @@
 package com.linxi.diary.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.dp
 import com.linxi.diary.core.TodoAlarmScheduler
 import com.linxi.diary.data.ApiClient
@@ -46,17 +50,35 @@ fun TodoScreen() {
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize()) {
+        Column(
+            Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .background(Brush.verticalGradient(
+                    listOf(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                        MaterialTheme.colorScheme.background)))
+        ) {
             Text("待办", style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.padding(16.dp))
+            if (todos.isNotEmpty() && !loading) {
+                Text("共 ${todos.size} 项 · 完成 ${todos.count { it.status == 1 }} 项",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp))
+            }
 
             if (loading) {
                 CircularProgressIndicator(Modifier.padding(24.dp))
             } else if (todos.isEmpty()) {
-                Text("暂无待办，点右下角 + 给对方添加",
-                    modifier = Modifier.padding(16.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(Modifier.fillMaxWidth().padding(top = 48.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("还没有待办", style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(4.dp))
+                    Text("点右下角 + 给对方添加",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             } else {
                 LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -80,7 +102,7 @@ fun TodoScreen() {
                                             color = MaterialTheme.colorScheme.primary)
                                     }
                                 }
-                                TextButton(onClick = {
+                                IconButton(onClick = {
                                     scope.launch {
                                         runCatching {
                                             ApiClient.completeTodo(t.id)
@@ -88,7 +110,11 @@ fun TodoScreen() {
                                         }
                                         refresh()
                                     }
-                                }) { Text("完成") }
+                                }) {
+                                    Icon(Icons.Default.Check,
+                                        contentDescription = "完成",
+                                        tint = MaterialTheme.colorScheme.primary)
+                                }
                             }
                         }
                     }
