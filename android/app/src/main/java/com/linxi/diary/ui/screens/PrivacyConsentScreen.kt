@@ -58,9 +58,9 @@ fun PrivacyConsentScreen(onConsented: () -> Unit) {
                     }
                     Spacer(Modifier.height(8.dp))
                     Text("你可以随时在「我的」中关闭状态共享开关，关闭后立即停止采集并清除本机数据。",
-                        color = colorScheme.onSurfaceVariantSummary)
+                        color = colorScheme.onSurface.copy(alpha = 0.78f))
                     Text("数据仅在你和对方之间传输，全程加密。",
-                        color = colorScheme.onSurfaceVariantSummary)
+                        color = colorScheme.onSurface.copy(alpha = 0.78f))
 
                     Spacer(Modifier.height(12.dp))
 

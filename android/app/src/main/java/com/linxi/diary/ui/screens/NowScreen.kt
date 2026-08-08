@@ -116,7 +116,7 @@ private fun PartnerStatusCard(partner: DeviceStatus?, partnerName: String) {
                     style = MiuixTheme.textStyles.headline1)
                 Spacer(Modifier.height(4.dp))
                 Text("对方的 App 保持运行并开启状态共享后显示",
-                    color = colorScheme.onSurfaceVariantSummary)
+                    color = colorScheme.onSurface.copy(alpha = 0.78f))
             }
         }
         return
@@ -188,7 +188,7 @@ private fun SmallTitleRow(text: String) {
     Text(text,
         fontSize = 14.sp,
         fontWeight = FontWeight.Bold,
-        color = colorScheme.onBackgroundVariant,
+        color = colorScheme.onBackground,
         modifier = Modifier.fillMaxWidth().padding(start = 28.dp, top = 8.dp, bottom = 8.dp))
 }
 

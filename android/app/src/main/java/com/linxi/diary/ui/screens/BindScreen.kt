@@ -78,7 +78,7 @@ fun BindScreen(onBound: () -> Unit) {
             fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(6.dp))
         Text("邀请码 1 小时有效，仅支持双人绑定",
-            color = colorScheme.onSurfaceVariantSummary, fontSize = 14.sp)
+            color = colorScheme.onSurface.copy(alpha = 0.78f), fontSize = 14.sp)
 
         Spacer(Modifier.height(28.dp))
 
@@ -98,7 +98,7 @@ fun BindScreen(onBound: () -> Unit) {
                 when (mode) {
                     0 -> if (myCode.isEmpty()) {
                         Text("创建邀请码，发给对方绑定",
-                            color = colorScheme.onSurfaceVariantSummary, fontSize = 14.sp)
+                            color = colorScheme.onSurface.copy(alpha = 0.78f), fontSize = 14.sp)
                         Button(
                             onClick = { createInvite() },
                             enabled = !busy,
@@ -106,7 +106,7 @@ fun BindScreen(onBound: () -> Unit) {
                         ) { Text(if (busy) "生成中…" else "生成邀请码") }
                     } else {
                         Text("你的邀请码",
-                            color = colorScheme.onSurfaceVariantSummary, fontSize = 14.sp)
+                            color = colorScheme.onSurface.copy(alpha = 0.78f), fontSize = 14.sp)
                         Text(
                             myCode,
                             color = colorScheme.primary,
@@ -114,7 +114,7 @@ fun BindScreen(onBound: () -> Unit) {
                             fontWeight = FontWeight.Bold
                         )
                         Text("让伴侣在对方手机上输入此码",
-                            color = colorScheme.onSurfaceVariantSummary, fontSize = 14.sp)
+                            color = colorScheme.onSurface.copy(alpha = 0.78f), fontSize = 14.sp)
                     }
                     1 -> {
                         TextField(
@@ -171,7 +171,7 @@ private fun ModeCard(text: String, selected: Boolean, modifier: Modifier, onClic
         ) {
             Text(
                 text,
-                color = if (selected) colorScheme.primary else colorScheme.onSurfaceVariantSummary,
+                color = if (selected) colorScheme.primary else colorScheme.onSurface.copy(alpha = 0.78f),
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Medium
             )

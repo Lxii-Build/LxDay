@@ -60,9 +60,9 @@ fun DiaryScreen() {
             item {
                 Column(Modifier.fillMaxWidth().padding(top = 48.dp),
                     horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("还没有日记", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    Text("还没有日记", color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.78f))
                     Spacer(Modifier.height(4.dp))
-                    Text("记录你们的第一篇吧", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    Text("记录你们的第一篇吧", color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.78f))
                 }
             }
         } else {
@@ -78,7 +78,7 @@ fun DiaryScreen() {
                                 Text(d.title, style = MiuixTheme.textStyles.headline1,
                                     modifier = Modifier.weight(1f))
                                 Text(d.authorName,
-                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                    color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.78f))
                             }
                             Spacer(Modifier.height(4.dp))
                             Text(d.content, color = MiuixTheme.colorScheme.onSurface)
@@ -148,7 +148,7 @@ private fun PublishDiaryDialog(onDismiss: () -> Unit, onPublished: () -> Unit) {
                         onClick = { imagePicker.launch(arrayOf("image/*")) }
                     ) { Text(if (uploading) "上传中…" else "添加图片") }
                     Spacer(Modifier.width(8.dp))
-                    Text("已选 ${imageUrls.size} 张", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    Text("已选 ${imageUrls.size} 张", color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.78f))
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     Button(onClick = onDismiss) { Text("取消") }

@@ -80,7 +80,7 @@ fun HistoryScreen(onBack: () -> Unit = {}) {
         } else if (showCurve) {
             item { BatteryCurveChart(curve, Modifier.fillMaxWidth().height(200.dp)) }
         } else if (timeline.isEmpty()) {
-            item { Text("当日暂无记录", color = MiuixTheme.colorScheme.onSurfaceVariantSummary) }
+            item { Text("当日暂无记录", color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.78f)) }
         } else {
             itemsIndexed(timeline, key = { index, _ -> index }) { _, h ->
                 Card(modifier = Modifier.fillMaxWidth()) {
@@ -90,7 +90,7 @@ fun HistoryScreen(onBack: () -> Unit = {}) {
                                 "${if (h.screenOn) "亮屏${if (h.locked) "·锁定" else "·解锁"}" else "灭屏"}" +
                                 " · ${h.foregroundApp.ifBlank { "无前台" }} · " +
                                 (h.ssid.ifBlank { "移动网络" }),
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                            color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.78f))
                     }
                 }
             }
