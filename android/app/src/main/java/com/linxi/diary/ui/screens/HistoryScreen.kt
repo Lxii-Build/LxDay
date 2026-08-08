@@ -3,21 +3,23 @@ package com.linxi.diary.ui.screens
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.*
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.launch
 import com.linxi.diary.data.ApiClient
 import com.linxi.diary.data.BatteryPoint
 import com.linxi.diary.data.HistoryEntry
+import com.linxi.diary.ui.components.KernelScreen
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -47,50 +49,49 @@ fun HistoryScreen(onBack: () -> Unit = {}) {
 
     LaunchedEffect(date) { load() }
 
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Text("历史状态", style = MiuixTheme.textStyles.title1)
-            Spacer(Modifier.weight(1f))
+    KernelScreen(
+        title = "历史状态",
+        actions = {
             TextButton(onClick = onBack) { Text("返回") }
         }
-
-        // 日期切换（上一/下一/今天）
-        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { date = shiftDate(date, -1) }) { Text("前一天") }
-            OutlinedButton(onClick = { date = todayStr() }) { Text("今天") }
-            OutlinedButton(onClick = { date = shiftDate(date, 1) }) { Text("后一天") }
+    ) {
+        // 日期切换
+        item {
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(onClick = { date = shiftDate(date, -1) }) { Text("前一天") }
+                OutlinedButton(onClick = { date = todayStr() }) { Text("今天") }
+                OutlinedButton(onClick = { date = shiftDate(date, 1) }) { Text("后一天") }
+            }
         }
-
         // 时间线 / 曲线 切换
-        Row {
-            FilterChip(selected = !showCurve, onClick = { showCurve = false },
-                label = { Text("时间线") })
-            Spacer(Modifier.width(8.dp))
-            FilterChip(selected = showCurve, onClick = { showCurve = true },
-                label = { Text("电量曲线") })
+        item {
+            Row {
+                FilterChip(selected = !showCurve, onClick = { showCurve = false },
+                    label = { Text("时间线") })
+                Spacer(Modifier.width(8.dp))
+                FilterChip(selected = showCurve, onClick = { showCurve = true },
+                    label = { Text("电量曲线") })
+            }
         }
-
-        Spacer(Modifier.height(12.dp))
-
         if (loading) {
-            CircularProgressIndicator(Modifier.padding(24.dp))
+            item { CircularProgressIndicator(Modifier.padding(24.dp)) }
         } else if (showCurve) {
-            BatteryCurveChart(curve, Modifier.fillMaxWidth().height(200.dp))
+            item { BatteryCurveChart(curve, Modifier.fillMaxWidth().height(200.dp)) }
         } else if (timeline.isEmpty()) {
-            Text("当日暂无记录", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            item { Text("当日暂无记录", color = MiuixTheme.colorScheme.onSurfaceVariantSummary) }
         } else {
-            LazyColumn(Modifier.fillMaxSize()) {
-                itemsIndexed(timeline, key = { index, _ -> index }) { _, h ->
-                    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                        Column(Modifier.padding(16.dp)) {
-                            Text(h.timeLabel, style = MiuixTheme.textStyles.headline1)
-                            Text("电量 ${h.battery}%${if (h.charging) " · 充电" else ""} · " +
-                                    "${if (h.screenOn) "亮屏${if (h.locked) "·锁定" else "·解锁"}" else "灭屏"}" +
-                                    " · ${h.foregroundApp.ifBlank { "无前台" }} · " +
-                                    (h.ssid.ifBlank { "移动网络" }),
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                        }
+            itemsIndexed(timeline, key = { index, _ -> index }) { _, h ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text(h.timeLabel, style = MiuixTheme.textStyles.headline1)
+                        Text("电量 ${h.battery}%${if (h.charging) " · 充电" else ""} · " +
+                                "${if (h.screenOn) "亮屏${if (h.locked) "·锁定" else "·解锁"}" else "灭屏"}" +
+                                " · ${h.foregroundApp.ifBlank { "无前台" }} · " +
+                                (h.ssid.ifBlank { "移动网络" }),
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
                 }
             }
