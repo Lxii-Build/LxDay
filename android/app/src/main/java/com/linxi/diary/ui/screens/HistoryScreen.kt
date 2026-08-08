@@ -5,7 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.*
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -18,7 +18,9 @@ import kotlinx.coroutines.launch
 import com.linxi.diary.data.ApiClient
 import com.linxi.diary.data.BatteryPoint
 import com.linxi.diary.data.HistoryEntry
-import com.linxi.diary.ui.components.GlassCard
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
  * 对方状态历史：时间线（按天）+ 24h 电量曲线（自绘 Canvas）。
@@ -47,7 +49,7 @@ fun HistoryScreen(onBack: () -> Unit = {}) {
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Text("历史状态", style = MaterialTheme.typography.titleLarge)
+            Text("历史状态", style = MiuixTheme.textStyles.title1)
             Spacer(Modifier.weight(1f))
             TextButton(onClick = onBack) { Text("返回") }
         }
@@ -76,17 +78,19 @@ fun HistoryScreen(onBack: () -> Unit = {}) {
         } else if (showCurve) {
             BatteryCurveChart(curve, Modifier.fillMaxWidth().height(200.dp))
         } else if (timeline.isEmpty()) {
-            Text("当日暂无记录", style = MaterialTheme.typography.bodyMedium)
+            Text("当日暂无记录", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         } else {
             LazyColumn(Modifier.fillMaxSize()) {
                 itemsIndexed(timeline, key = { index, _ -> index }) { _, h ->
-                    GlassCard(modifier = Modifier.padding(vertical = 4.dp)) {
-                        Text(h.timeLabel, style = MaterialTheme.typography.titleSmall)
-                        Text("电量 ${h.battery}%${if (h.charging) " · 充电" else ""} · " +
-                                "${if (h.screenOn) "亮屏${if (h.locked) "·锁定" else "·解锁"}" else "灭屏"}" +
-                                " · ${h.foregroundApp.ifBlank { "无前台" }} · " +
-                                (h.ssid.ifBlank { "移动网络" }),
-                            style = MaterialTheme.typography.bodySmall)
+                    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                        Column(Modifier.padding(16.dp)) {
+                            Text(h.timeLabel, style = MiuixTheme.textStyles.headline1)
+                            Text("电量 ${h.battery}%${if (h.charging) " · 充电" else ""} · " +
+                                    "${if (h.screenOn) "亮屏${if (h.locked) "·锁定" else "·解锁"}" else "灭屏"}" +
+                                    " · ${h.foregroundApp.ifBlank { "无前台" }} · " +
+                                    (h.ssid.ifBlank { "移动网络" }),
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                        }
                     }
                 }
             }
@@ -97,8 +101,8 @@ fun HistoryScreen(onBack: () -> Unit = {}) {
 /** 24h 电量曲线（自绘 Canvas） */
 @Composable
 private fun BatteryCurveChart(points: List<BatteryPoint>, modifier: Modifier = Modifier) {
-    val lineColor = MaterialTheme.colorScheme.primary
-    val chargeColor = MaterialTheme.colorScheme.tertiary
+    val lineColor = MiuixTheme.colorScheme.primary
+    val chargeColor = MiuixTheme.colorScheme.secondaryContainer
 
     Canvas(modifier = modifier.padding(top = 8.dp, bottom = 8.dp)) {
         if (points.size < 2) {

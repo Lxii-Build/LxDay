@@ -2,27 +2,32 @@ package com.linxi.diary.ui.screens
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.*
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.dp
 import com.linxi.diary.data.ApiClient
 import com.linxi.diary.data.DiaryItem
-import com.linxi.diary.ui.components.GlassCard
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.FloatingActionButton
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.SmallTitle
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.overlay.OverlayDialog
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.io.File
 
 /**
- * Tab ③ 日记：双人共同日记，按日期归档，文字+图片（本地磁盘上传）。
+ * Tab ③ 日记（miuix 布局）：双人共同日记，按日期归档，文字+图片。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DiaryScreen() {
     val scope = rememberCoroutineScope()
@@ -47,57 +52,47 @@ fun DiaryScreen() {
         floatingActionButton = {
             FloatingActionButton(onClick = { showPublish = true }) { Text("+") }
         },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = MiuixTheme.colorScheme.surface
     ) { padding ->
-        Column(
-            Modifier
-                .padding(padding)
-                .fillMaxSize()
-                .background(Brush.verticalGradient(
-                    listOf(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-                        MaterialTheme.colorScheme.background)))
-        ) {
-            Text("日记", style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.padding(16.dp))
+        Column(Modifier.padding(padding).fillMaxSize()) {
+            SmallTitle("日记", Modifier.padding(top = 12.dp))
 
             if (loading) {
                 CircularProgressIndicator(Modifier.padding(24.dp))
             } else if (diaries.isEmpty()) {
                 Column(Modifier.fillMaxWidth().padding(top = 48.dp),
                     horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("还没有日记", style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("还没有日记", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     Spacer(Modifier.height(4.dp))
-                    Text("记录你们的第一篇吧",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("记录你们的第一篇吧", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }
             } else {
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // 按日期分组
+                LazyColumn(
+                    Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     val grouped = diaries.groupBy { it.diaryDate }
                     grouped.keys.sortedDescending().forEach { date ->
                         item(key = "date_$date") {
-                            Text(date, style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.primary)
+                            SmallTitle(date, Modifier.padding(top = 8.dp))
                         }
                         items(grouped[date] ?: emptyList(), key = { it.id }) { d ->
-                            GlassCard {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(d.title, style = MaterialTheme.typography.bodyLarge,
-                                        modifier = Modifier.weight(1f))
-                                    Text(d.authorName,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                Spacer(Modifier.height(4.dp))
-                                Text(d.content, style = MaterialTheme.typography.bodyMedium)
-                                if (d.images.isNotEmpty()) {
-                                    Spacer(Modifier.height(8.dp))
-                                    Text("🖼 ${d.images.size} 张图片",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.primary)
+                            Card(modifier = Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(16.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(d.title, style = MiuixTheme.textStyles.headline1,
+                                            modifier = Modifier.weight(1f))
+                                        Text(d.authorName,
+                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                    }
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(d.content, color = MiuixTheme.colorScheme.onSurface)
+                                    if (d.images.isNotEmpty()) {
+                                        Spacer(Modifier.height(8.dp))
+                                        Text("🖼 ${d.images.size} 张图片",
+                                            color = MiuixTheme.colorScheme.primary)
+                                    }
                                 }
                             }
                         }
@@ -115,7 +110,6 @@ fun DiaryScreen() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PublishDiaryDialog(onDismiss: () -> Unit, onPublished: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -144,43 +138,47 @@ private fun PublishDiaryDialog(onDismiss: () -> Unit, onPublished: () -> Unit) {
         }
     }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("发布日记") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = title, onValueChange = { title = it },
-                    label = { Text("标题") }, singleLine = true)
-                OutlinedTextField(value = content, onValueChange = { content = it },
-                    label = { Text("内容") }, minLines = 4)
+    OverlayDialog(show = true, onDismissRequest = onDismiss) {
+        Card(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("发布日记", style = MiuixTheme.textStyles.title3)
+                TextField(
+                    value = title, onValueChange = { title = it },
+                    label = "标题"
+                )
+                TextField(
+                    value = content, onValueChange = { content = it },
+                    label = "内容"
+                )
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Button(enabled = !uploading, onClick = {
-                        imagePicker.launch(arrayOf("image/*"))
-                    }) { Text(if (uploading) "上传中…" else "添加图片") }
+                    Button(
+                        enabled = !uploading,
+                        onClick = { imagePicker.launch(arrayOf("image/*")) }
+                    ) { Text(if (uploading) "上传中…" else "添加图片") }
                     Spacer(Modifier.width(8.dp))
-                    Text("已选 ${imageUrls.size} 张",
-                        style = MaterialTheme.typography.bodySmall)
+                    Text("已选 ${imageUrls.size} 张", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    Button(onClick = onDismiss) { Text("取消") }
+                    Spacer(Modifier.width(8.dp))
+                    Button(
+                        enabled = title.isNotBlank() && content.isNotBlank(),
+                        onClick = {
+                            scope.launch {
+                                val body = JSONObject().apply {
+                                    put("title", title)
+                                    put("content", content)
+                                    put("date", java.text.SimpleDateFormat("yyyy-MM-dd",
+                                        java.util.Locale.getDefault()).format(java.util.Date()))
+                                    put("images", org.json.JSONArray(imageUrls))
+                                }
+                                ApiClient.createDiary(body)
+                                onPublished()
+                            }
+                        }
+                    ) { Text("发布") }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    scope.launch {
-                        val body = JSONObject().apply {
-                            put("title", title)
-                            put("content", content)
-                            put("date", java.text.SimpleDateFormat("yyyy-MM-dd",
-                                java.util.Locale.getDefault()).format(java.util.Date()))
-                            put("images", org.json.JSONArray(imageUrls))
-                        }
-                        ApiClient.createDiary(body)
-                        onPublished()
-                    }
-                },
-                enabled = title.isNotBlank() && content.isNotBlank()
-            ) { Text("发布") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
-    )
+        }
+    }
 }

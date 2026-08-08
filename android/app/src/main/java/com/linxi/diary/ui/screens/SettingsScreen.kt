@@ -95,7 +95,7 @@ fun SettingsScreen(
             var dynColor by remember { mutableStateOf(UserPrefs.keyColor == 0) }
             Switch(checked = dynColor, onCheckedChange = { on ->
                 dynColor = on
-                UserPrefs.keyColor = if (on) 0 else 0xFFB49EDE.toInt() // 粉紫种子
+                UserPrefs.keyColor = if (on) 0 else com.linxi.diary.ui.theme.LinxiSeedPurple
             })
         }
 
