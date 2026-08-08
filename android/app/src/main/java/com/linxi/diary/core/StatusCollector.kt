@@ -93,9 +93,9 @@ object StatusCollector {
             c.packageManager.getApplicationInfo(pkg, 0)).toString()
     } catch (_: PackageManager.NameNotFoundException) { pkg }
 
-    /** 当前是否锁屏（Android 10 用 KeyguardManager，兼容全量） */
+    /** 当前是否锁屏（KeyguardManager 属于 android.app 包） */
     private fun isDeviceLocked(c: Context): Boolean {
-        val km = c.getSystemService(android.os.KeyguardManager::class.java)
+        val km = c.getSystemService(android.app.KeyguardManager::class.java)
         return km?.isKeyguardLocked ?: true
     }
 
