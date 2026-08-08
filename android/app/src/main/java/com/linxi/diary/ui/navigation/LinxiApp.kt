@@ -44,16 +44,19 @@ private val tabs = listOf(
 
 @Composable
 fun LinxiApp() {
-    var screen by remember { mutableStateOf(Screen.Main) }
-    var selected by remember { mutableStateOf("now") }
-
-    LaunchedEffect(Unit) {
-        screen = when {
-            UserPrefs.pairId <= 0 -> Screen.Bind
-            !UserPrefs.privacyConsented -> Screen.Consent
-            else -> Screen.Main
-        }
+    // 关键：初值直接按绑定状态判定，避免首帧就组合 MainTabs（液态玻璃底栏），
+    // 规避 backdrop AGSL 在未绑定场景的首帧 native 崩溃。
+    var screen by remember {
+        mutableStateOf(
+            when {
+                UserPrefs.pairId <= 0 -> Screen.Bind
+                !UserPrefs.privacyConsented -> Screen.Consent
+                else -> Screen.Main
+            }
+        )
     }
+    var selected by remember { mutableStateOf("now") }
+    LaunchedEffect(Unit) { }
 
     when (screen) {
         Screen.Bind -> BindScreen(onBound = { screen = Screen.Consent })
