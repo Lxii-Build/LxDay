@@ -17,6 +17,7 @@ import com.linxi.diary.util.UserPrefs
 /**
  * Tab ④ 我的：绑定状态 / 知情授权 / 状态共享总开关 / 深色模式 / 常驻卡片开关 / 保活引导 / 退出登录。
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onOpenConsent: () -> Unit = {},
@@ -72,7 +73,7 @@ fun SettingsScreen(
                     value = when (darkMode) { 1 -> "浅色"; 2 -> "深色"; else -> "跟随系统" },
                     onValueChange = {},
                     readOnly = true,
-                    modifier = Modifier.menuAnchor().width(140.dp)
+                    modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).width(140.dp)
                 )
                 ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                     listOf(0 to "跟随系统", 1 to "浅色", 2 to "深色").forEach { (v, label) ->

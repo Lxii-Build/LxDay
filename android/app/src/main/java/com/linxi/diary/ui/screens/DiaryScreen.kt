@@ -150,19 +150,22 @@ private fun PublishDiaryDialog(onDismiss: () -> Unit, onPublished: () -> Unit) {
             }
         },
         confirmButton = {
-            TextButton(enabled = title.isNotBlank() && content.isNotBlank()) {
-                scope.launch {
-                    val body = JSONObject().apply {
-                        put("title", title)
-                        put("content", content)
-                        put("date", java.text.SimpleDateFormat("yyyy-MM-dd",
-                            java.util.Locale.getDefault()).format(java.util.Date()))
-                        put("images", org.json.JSONArray(imageUrls))
+            TextButton(
+                onClick = {
+                    scope.launch {
+                        val body = JSONObject().apply {
+                            put("title", title)
+                            put("content", content)
+                            put("date", java.text.SimpleDateFormat("yyyy-MM-dd",
+                                java.util.Locale.getDefault()).format(java.util.Date()))
+                            put("images", org.json.JSONArray(imageUrls))
+                        }
+                        ApiClient.createDiary(body)
+                        onPublished()
                     }
-                    ApiClient.createDiary(body)
-                    onPublished()
-                }
-            }
+                },
+                enabled = title.isNotBlank() && content.isNotBlank()
+            ) { Text("发布") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )

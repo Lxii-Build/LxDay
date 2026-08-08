@@ -20,7 +20,6 @@ jobs:
         with:
           go-version: '1.22'
 
-      # go.mod 存在但无 go.sum，先 tidy 生成依赖锁
       - name: 生成依赖锁
         run: go mod tidy
 
@@ -33,36 +32,38 @@ jobs:
       - name: 单元测试
         run: go test ./...
 
-  android-validate:
-    name: 安卓源码结构校验
+  android-build:
+    name: 安卓 Debug APK 构建
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
     steps:
       - uses: actions/checkout@v4
 
-      - name: 校验 Android 资源 XML 格式
-        run: |
-          set -e
-          python3 - <<'EOF'
-          import glob, sys, xml.etree.ElementTree as ET
-          files = glob.glob('android/**/*.xml', recursive=True)
-          for f in files:
-              try:
-                  ET.parse(f)
-              except Exception as e:
-                  print(f'XML 无效: {f}: {e}')
-                  sys.exit(1)
-          print(f'校验通过：{len(files)} 个 XML')
-          EOF
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
 
-      - name: 校验关键源码文件存在
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: 校验并构建 Debug APK
         run: |
-          set -e
-          for f in \
-            android/app/src/main/AndroidManifest.xml \
-            android/app/src/main/res/layout/notification_expanded.xml \
-            android/app/src/main/java/com/linxi/diary/MainActivity.kt \
-            android/app/src/main/java/com/linxi/diary/service/StatusForegroundService.kt \
-            android/app/src/main/java/com/linxi/diary/sync/StatusSyncManager.kt ; do
-            test -f "$f" || { echo "缺少文件: $f"; exit 1; }
-          done
-          echo "安卓源码结构校验通过"
+          # 生成 Gradle wrapper（含可执行脚本与 jar），保证后续 CI/本地一致
+          gradle wrapper --gradle-version 8.9 --no-daemon
+          ./gradlew :app:assembleDebug --no-daemon
+
+      - name: 上传 gradle wrapper
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-wrapper
+          path: android/gradle/**
+          if-no-files-found: warn
+
+      - name: 上传 APK 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: linxi-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

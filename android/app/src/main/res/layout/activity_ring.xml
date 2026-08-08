@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:background="@color/card_bg"
+    android:padding="32dp">
+
+    <TextView
+        android:id="@+id/tv_ring_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="对方 正在找你"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:textColor="@color/card_text"
+        android:gravity="center" />
+
+    <TextView
+        android:id="@+id/tv_ring_subtitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="紧急响铃请求"
+        android:textSize="14sp"
+        android:textColor="@color/card_text_secondary"
+        android:gravity="center" />
+
+    <Button
+        android:id="@+id/btn_dismiss"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="32dp"
+        android:text="我知道了"
+        android:minWidth="180dp" />
+</LinearLayout>

@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -13,6 +14,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import com.linxi.diary.data.ApiClient
 import com.linxi.diary.data.BatteryPoint
 import com.linxi.diary.data.HistoryEntry
@@ -77,7 +79,7 @@ fun HistoryScreen(onBack: () -> Unit = {}) {
             Text("当日暂无记录", style = MaterialTheme.typography.bodyMedium)
         } else {
             LazyColumn(Modifier.fillMaxSize()) {
-                items(timeline, key = { it.ts }) { h ->
+                itemsIndexed(timeline, key = { index, _ -> index }) { _, h ->
                     GlassCard(modifier = Modifier.padding(vertical = 4.dp)) {
                         Text(h.timeLabel, style = MaterialTheme.typography.titleSmall)
                         Text("电量 ${h.battery}%${if (h.charging) " · 充电" else ""} · " +

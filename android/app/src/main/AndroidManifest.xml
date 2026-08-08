@@ -88,10 +88,11 @@
         <!-- 强制响铃全屏页 -->
         <activity
             android:name=".RingActivity"
-            android:theme="@android:style/Theme.NoDisplay"
+            android:theme="@style/Theme.MilkGlass"
             android:excludeFromRecents="true"
             android:showWhenLocked="true"
             android:turnScreenOn="true"
+            android:launchMode="singleInstance"
             android:exported="false" />
     </application>
 </manifest>

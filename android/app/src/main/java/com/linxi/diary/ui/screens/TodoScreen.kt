@@ -22,6 +22,7 @@ import org.json.JSONObject
 @Composable
 fun TodoScreen() {
     val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current.applicationContext
     var todos by remember { mutableStateOf<List<TodoItem>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var showAdd by remember { mutableStateOf(false) }
@@ -83,7 +84,7 @@ fun TodoScreen() {
                                     scope.launch {
                                         runCatching {
                                             ApiClient.completeTodo(t.id)
-                                            TodoAlarmScheduler.cancel(applicationContext(), t.id)
+                                            TodoAlarmScheduler.cancel(context, t.id)
                                         }
                                         refresh()
                                     }
@@ -111,17 +112,13 @@ fun TodoScreen() {
     }
 }
 
-@Composable
-private fun applicationContext(): android.content.Context {
-    return androidx.compose.ui.platform.LocalContext.current.applicationContext
-}
-
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AddTodoDialog(
     onDismiss: () -> Unit,
     onAdded: (TodoItem, android.content.Context) -> Unit
 ) {
-    val context = applicationContext()
+    val context = androidx.compose.ui.platform.LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
     var title by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
@@ -161,7 +158,7 @@ private fun AddTodoDialog(
                         readOnly = true,
                         label = { Text("提醒时间") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-                        modifier = Modifier.menuAnchor().fillMaxWidth()
+                        modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth()
                     )
                     ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                         DropdownMenuItem(text = { Text("不提醒") },
@@ -188,21 +185,24 @@ private fun AddTodoDialog(
             }
         },
         confirmButton = {
-            TextButton(enabled = title.isNotBlank()) {
-                scope.launch {
-                    val body = JSONObject().apply {
-                        put("title", title)
-                        put("note", note)
-                        put("remind_type", remindType)
-                        if (remindAtMs != null) {
-                            // 服务端 Todo.RemindAt 为 time.Time，需 RFC3339
-                            put("remind_at", isoFromMillis(remindAtMs!!))
+            TextButton(
+                onClick = {
+                    scope.launch {
+                        val body = JSONObject().apply {
+                            put("title", title)
+                            put("note", note)
+                            put("remind_type", remindType)
+                            if (remindAtMs != null) {
+                                // 服务端 Todo.RemindAt 为 time.Time，需 RFC3339
+                                put("remind_at", isoFromMillis(remindAtMs!!))
+                            }
                         }
+                        val resp = ApiClient.createTodo(body)
+                        onAdded(TodoItem.fromJson(resp), context)
                     }
-                    val resp = ApiClient.createTodo(body)
-                    onAdded(TodoItem.fromJson(resp), context)
-                }
-            }
+                },
+                enabled = title.isNotBlank()
+            ) { Text("添加") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
