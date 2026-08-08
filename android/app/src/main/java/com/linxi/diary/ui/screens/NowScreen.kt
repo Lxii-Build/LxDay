@@ -11,7 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -105,7 +105,7 @@ fun NowScreen(
         Spacer(Modifier.height(12.dp))
         ActionCard(
             "响铃提醒（紧急找人）",
-            Icons.Filled.NotificationsActive,
+            Icons.Filled.Notifications,
             Modifier.fillMaxWidth().padding(horizontal = 16.dp)
         ) { StatusSyncManager.sendEvent("ring_request") }
 
