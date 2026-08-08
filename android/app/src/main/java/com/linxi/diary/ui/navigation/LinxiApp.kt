@@ -18,15 +18,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import com.linxi.diary.ui.liquid.LiquidBottomTab
-import com.linxi.diary.ui.liquid.LiquidBottomTabs
+import com.linxi.diary.ui.liquid.miuix.FloatingBottomBar
+import com.linxi.diary.ui.liquid.miuix.FloatingBottomBarItem
 import com.linxi.diary.ui.screens.*
 import com.linxi.diary.util.UserPrefs
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.NavigationBar
 import top.yukonga.miuix.kmp.basic.NavigationBarItem
+import top.yukonga.miuix.kmp.blur.Backdrop
+import top.yukonga.miuix.kmp.blur.layerBackdrop
+import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
  * 应用导航（轻量状态机）：
@@ -115,9 +118,38 @@ private fun MainTabs(
             }
         }
 
-        // 液态玻璃 Tab 栏（默认开启）；UserPrefs.liquidGlassEnabled=false 时降级 miuix 导航栏
-        if (UserPrefs.liquidGlassEnabled) {
-            LiquidGlassTabBar(selectedIndex, { i -> mainState.animateToPage(i) }, backdrop)
+        // 悬浮液态底栏（KernelSU 同款 miuix，可在设备运行）
+        if (UserPrefs.liquidGlassEnabled != false) {
+            Column(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 36.dp, vertical = 12.dp)
+            ) {
+                FloatingBottomBar(
+                    selectedIndex = { selectedIndex },
+                    onSelected = { i -> mainState.animateToPage(i) },
+                    backdrop = backdrop,
+                    tabsCount = tabs.size
+                ) {
+                    tabs.forEachIndexed { index, t ->
+                        FloatingBottomBarItem(onClick = { mainState.animateToPage(index) }) {
+                            Icon(
+                                t.icon,
+                                contentDescription = t.label,
+                                tint = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.onSurface,
+                                modifier = Modifier
+                                    .align(Alignment.CenterHorizontally)
+                                    .padding(bottom = 2.dp)
+                                    .size(22.dp)
+                            )
+                            top.yukonga.miuix.kmp.basic.Text(
+                                t.label,
+                                color = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            }
         } else {
             Column(
                 Modifier
@@ -125,7 +157,7 @@ private fun MainTabs(
                     .padding(horizontal = 36.dp, vertical = 12.dp)
             ) {
                 NavigationBar(
-                    color = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.surfaceContainer
+                    color = MiuixTheme.colorScheme.surfaceContainer
                 ) {
                     tabs.forEachIndexed { index, t ->
                         NavigationBarItem(
@@ -138,44 +170,6 @@ private fun MainTabs(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun BoxScope.LiquidGlassTabBar(
-    selectedIndex: Int,
-    onSelectTab: (Int) -> Unit,
-    backdrop: com.kyant.backdrop.Backdrop
-) {
-    Column(
-        Modifier
-            .align(Alignment.BottomCenter)
-            .padding(horizontal = 36.dp, vertical = 20.dp)
-    ) {
-        LiquidBottomTabs(
-            selectedTabIndex = { selectedIndex },
-            onTabSelected = { i -> onSelectTab(i) },
-            backdrop = backdrop,
-            tabsCount = tabs.size
-        ) {
-            tabs.forEachIndexed { index, t ->
-                LiquidBottomTab(onClick = { onSelectTab(index) }) {
-                    Icon(
-                        t.icon,
-                        contentDescription = t.label,
-                        tint = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.onSurface,
-                        modifier = Modifier
-                            .align(Alignment.CenterHorizontally)
-                            .padding(bottom = 2.dp)
-                    )
-                    top.yukonga.miuix.kmp.basic.Text(
-                        t.label,
-                        color = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.onSurface
-                    )
-                }
-            }
-        }
-        Spacer(Modifier.height(8.dp))
     }
 }
 

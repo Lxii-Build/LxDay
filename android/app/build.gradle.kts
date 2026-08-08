@@ -103,8 +103,4 @@ dependencies {
 
     // KernelSU 同款动态取色
     implementation(libs.material.kolor)
-
-    // AndroidLiquidGlass 液态玻璃
-    implementation(libs.backdrop)
-    implementation(libs.shapes)
 }
