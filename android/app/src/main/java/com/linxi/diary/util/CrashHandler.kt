@@ -20,15 +20,26 @@ object CrashHandler {
     private var logDir: File? = null
     private var defaultHandler: Thread.UncaughtExceptionHandler? = null
 
+    /** 提前注册（attachBaseContext 调用），尽早捕获崩溃 */
+    fun initEarly(app: Application) {
+        // filesDir 在 attachBaseContext 之后已可用
+        val dir = File(app.filesDir, "crash")
+        if (!dir.exists()) dir.mkdirs()
+        logDir = dir
+        registerHandler()
+    }
+
     fun init(app: Application) {
         logDir = File(app.filesDir, "crash")
         if (!logDir!!.exists()) logDir!!.mkdirs()
+        registerHandler()
+    }
 
+    private fun registerHandler() {
         defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             Log.e(TAG, "Uncaught exception on ${thread.name}", throwable)
             writeCrash(throwable)
-            // 交给系统默认处理器结束进程（避免吞掉崩溃导致 UI 假死）
             defaultHandler?.uncaughtException(thread, throwable)
         }
     }

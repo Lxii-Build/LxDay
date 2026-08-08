@@ -10,8 +10,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -95,42 +93,67 @@ private fun MainTabs(
             }
         }
 
-        // 悬浮液态 Tab 栏（置于内容之上，底部留白）
-        Column(
-            Modifier
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = 36.dp, vertical = 20.dp)
-        ) {
-            LiquidBottomTabs(
-                selectedTabIndex = { selectedIndex },
-                onTabSelected = { i ->
-                    onSelect(tabs[i].route)
-                },
-                backdrop = backdrop,
-                tabsCount = tabs.size
+        // 悬浮液态 Tab 栏（backdrop AGSL）或普通 miuix 导航栏（诊断开关，规避部分 GPU 崩溃）
+        if (UserPrefs.liquidGlassEnabled) {
+            LiquidGlassTabBar(selectedIndex, onSelect, backdrop)
+        } else {
+            Column(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 36.dp, vertical = 12.dp)
             ) {
-                tabs.forEach { t ->
-                    LiquidBottomTab(
-                        onClick = { onSelect(t.route) },
-                    ) {
-                        Icon(
-                            t.icon,
-                            contentDescription = t.label,
-                            tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier
-                                .align(Alignment.CenterHorizontally)
-                                .padding(bottom = 2.dp)
-                        )
-                        Text(
-                            t.label,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurface
+                top.yukonga.miuix.kmp.basic.NavigationBar(
+                    color = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.surfaceContainer
+                ) {
+                    tabs.forEach { t ->
+                        top.yukonga.miuix.kmp.basic.NavigationBarItem(
+                            selected = selected == t.route,
+                            onClick = { onSelect(t.route) },
+                            icon = t.icon,
+                            label = t.label
                         )
                     }
                 }
             }
-            Spacer(Modifier.height(8.dp))
         }
+    }
+}
+
+@Composable
+private fun LiquidGlassTabBar(
+    selectedIndex: Int,
+    onSelect: (String) -> Unit,
+    backdrop: com.kyant.backdrop.Backdrop
+) {
+    Column(
+        Modifier
+            .align(Alignment.BottomCenter)
+            .padding(horizontal = 36.dp, vertical = 20.dp)
+    ) {
+        LiquidBottomTabs(
+            selectedTabIndex = { selectedIndex },
+            onTabSelected = { i -> onSelect(tabs[i].route) },
+            backdrop = backdrop,
+            tabsCount = tabs.size
+        ) {
+            tabs.forEach { t ->
+                LiquidBottomTab(onClick = { onSelect(t.route) }) {
+                    Icon(
+                        t.icon,
+                        contentDescription = t.label,
+                        tint = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .padding(bottom = 2.dp)
+                    )
+                    top.yukonga.miuix.kmp.basic.Text(
+                        t.label,
+                        color = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.onSurface
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
     }
 }
 

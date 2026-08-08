@@ -15,8 +15,14 @@ class App : Application() {
 
     override fun attachBaseContext(base: android.content.Context) {
         super.attachBaseContext(base)
-        // 最早可记录点：这里若执行说明进程已起
+        // 最早可记录点：崩溃捕获提前到 attachBaseContext，覆盖更早的崩溃
         Log.i("Linxi/App", "attachBaseContext pid=${android.os.Process.myPid()}")
+        try {
+            CrashHandler.initEarly(this)
+            Log.i("Linxi/App", "CrashHandler 提前注册完成")
+        } catch (t: Throwable) {
+            Log.e("Linxi/App", "CrashHandler.initEarly 失败", t)
+        }
     }
 
     override fun onCreate() {

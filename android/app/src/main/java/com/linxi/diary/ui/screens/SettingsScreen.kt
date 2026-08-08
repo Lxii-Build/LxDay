@@ -109,6 +109,15 @@ fun SettingsScreen(
             })
         }
 
+        // 诊断开关：液态玻璃（backdrop AGSL 在部分 GPU 崩溃时可关闭）
+        var liquid by remember { mutableStateOf(UserPrefs.liquidGlassEnabled) }
+        SettingRow("液态玻璃底栏", desc = "关闭可规避部分 GPU 崩溃") {
+            Switch(checked = liquid, onCheckedChange = { on ->
+                liquid = on
+                UserPrefs.liquidGlassEnabled = on
+            })
+        }
+
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
         // 权限与保活引导

@@ -47,6 +47,11 @@ object UserPrefs {
         get() = sp.getInt("key_color", 0)
         set(v) { sp.edit().putInt("key_color", v).apply() }
 
+    // 诊断开关：液态玻璃 Tab 栏（backdrop AGSL 可能在部分 GPU 崩溃）
+    var liquidGlassEnabled: Boolean
+        get() = sp.getBoolean("liquid_glass", true)
+        set(v) { sp.edit().putBoolean("liquid_glass", v).apply() }
+
     // 状态共享总开关：false = 停止采集 + 本地清空
     var sharingEnabled: Boolean
         get() = sp.getBoolean("sharing_enabled", false) // 默认关，绑定+授权后才开
