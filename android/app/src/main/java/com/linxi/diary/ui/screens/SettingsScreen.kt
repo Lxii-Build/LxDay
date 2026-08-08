@@ -7,6 +7,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import top.yukonga.miuix.kmp.basic.Switch
 import com.linxi.diary.core.PermissionHelper
 import com.linxi.diary.service.StatusForegroundService
 import com.linxi.diary.sync.StatusSyncManager

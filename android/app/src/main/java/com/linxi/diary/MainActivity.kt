@@ -46,6 +46,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Logs.i("Main", "onCreate 开始 pid=${android.os.Process.myPid()}") // 关键：确认 Activity 走到这里
         try {
             requestRuntimePermissions()
         } catch (t: Throwable) {
@@ -56,6 +57,7 @@ class MainActivity : ComponentActivity() {
         } catch (t: Throwable) {
             Logs.e("Main", "连接失败", t)
         }
+        Logs.i("Main", "setContent 之前")
         setContent {
             if (com.linxi.diary.BuildConfig.SAFE_MODE) {
                 // 极简安全模式：跳过主题/backdrop/miuix，用于闪退二分定位
@@ -77,8 +79,10 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun AppTheme(content: @Composable () -> Unit) {
+        Logs.i("Main", "AppTheme 组合开始")
         val themeState = rememberThemeState()
         val settings by themeState.appSettings
+        Logs.i("Main", "themeState 就绪 colorMode=${settings.colorMode}")
         LinxiTheme(appSettings = settings, content = content)
     }
 

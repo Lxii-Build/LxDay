@@ -64,6 +64,7 @@ fun LinxiApp() {
     }
     var selected by remember { mutableStateOf("now") }
     LaunchedEffect(Unit) { }
+    com.linxi.diary.util.Logs.i("Nav", "screen=$screen pairId=${UserPrefs.pairId} consented=${UserPrefs.privacyConsented}")
 
     when (screen) {
         Screen.Bind -> BindScreen(onBound = { screen = Screen.Consent })

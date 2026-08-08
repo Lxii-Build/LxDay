@@ -146,9 +146,9 @@ fun BindScreen(onBound: () -> Unit) {
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
                 ) {
+                    // 跳过绑定：进调试主界面，但仍需走知情同意（不设置 privacyConsented）
                     UserPrefs.pairId = 1
                     UserPrefs.partnerName = "调试伴侣"
-                    UserPrefs.privacyConsented = true
                     UserPrefs.sharingEnabled = true
                     onBound()
                 }
