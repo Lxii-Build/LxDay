@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:background="@color/card_bg">
+
+    <TextView
+        android:id="@+id/tv_partner_name"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="伴侣昵称"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:textColor="@color/card_text" />
+
+    <TextView
+        android:id="@+id/tv_update_time"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="刚刚更新"
+        android:textSize="12sp"
+        android:textColor="@color/card_text_secondary" />
+
+    <TextView
+        android:id="@+id/tv_battery"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="电量 85% · 未充电"
+        android:textSize="13sp"
+        android:textColor="@color/card_text" />
+
+    <TextView
+        android:id="@+id/tv_screen"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="屏幕亮 · 已解锁"
+        android:textSize="13sp"
+        android:textColor="@color/card_text" />
+
+    <TextView
+        android:id="@+id/tv_app"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="正在使用 微信"
+        android:textSize="13sp"
+        android:textColor="@color/card_text" />
+
+    <TextView
+        android:id="@+id/tv_net"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="WiFi: HOME_WIFI"
+        android:textSize="13sp"
+        android:textColor="@color/card_text" />
+
+    <TextView
+        android:id="@+id/tv_music"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="♪ 晴天 - 周杰伦"
+        android:textSize="13sp"
+        android:textColor="@color/card_text"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:orientation="horizontal"
+        android:gravity="center">
+
+        <!-- 设计决策 Q26/Q28：通知展开态仅「响铃提醒」，求陪伴/求冷静仅在 App 首页 -->
+        <Button
+            android:id="@+id/btn_ring"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="0dp"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:text="响铃提醒" />
+    </LinearLayout>
+</LinearLayout>

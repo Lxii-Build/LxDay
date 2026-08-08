@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 深色（语义反转扩展）：通知卡片跟随系统 values-night -->
+    <color name="card_bg">#1A1720</color>
+    <color name="card_text">#ECE8F0</color>
+    <color name="card_text_secondary">#A9A0B4</color>
+    <color name="card_border">#1AFFFFFF</color>
+
+    <!-- 状态语义色保持可读 -->
+    <color name="status_charging">#66BB6A</color>
+    <color name="status_low_battery">#EF5350</color>
+    <color name="status_screen_on">#42A5F5</color>
+    <color name="status_music">#AB47BC</color>
+    <color name="status_theme">#78909C</color>
+</resources>

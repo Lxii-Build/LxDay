@@ -1,0 +1,230 @@
+package com.linxi.diary.service
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.net.wifi.WifiManager
+import android.os.IBinder
+import android.view.View
+import android.widget.RemoteViews
+import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
+import com.linxi.diary.MainActivity
+import com.linxi.diary.R
+import com.linxi.diary.core.DeviceStatus
+import com.linxi.diary.core.DeviceStatusHolder
+import com.linxi.diary.core.ScreenStateReceiver
+import com.linxi.diary.core.StatusColor
+import com.linxi.diary.core.StatusCollector
+import com.linxi.diary.sync.StatusSyncManager
+import com.linxi.diary.util.TimeUtil
+import com.linxi.diary.util.UserPrefs
+
+/**
+ * 常驻状态卡片前台服务（dataSync|location）。
+ *
+ * - 前台服务保证进程存活，通知不可被一键清理（Android 13-）持续展示；
+ * - 收起态：contentTitle/contentText 展示核心摘要（电量+屏幕+前台APP）；
+ * - 展开态：RemoteViews 全量状态 + 「求陪伴」「响铃提醒」快捷按钮；
+ * - 静默更新：setOnlyAlertOnce(true) + IMPORTANCE_LOW，刷新不响铃不震动；
+ * - Android 14+ 前台通知可被侧滑，兜底见 MediaNotificationListener.onNotificationRemoved。
+ */
+class StatusForegroundService : Service() {
+
+    companion object {
+        const val CHANNEL_CARD = "status_card"
+        const val CHANNEL_EVENT = "status_event"
+        const val CHANNEL_RING = "status_ring"
+        const val NOTIFY_ID_CARD = 10001
+
+        const val ACTION_REFRESH = "com.linxi.diary.REFRESH"
+        const val ACTION_RING = "com.linxi.diary.RING"
+        const val ACTION_STOP = "com.linxi.diary.STOP"
+        const val ACTION_SYNC = "com.linxi.diary.SYNC" // 后台 5 分钟定时采集
+
+        /** 刷新卡片（收到 partner_status 时调用）。用户关闭卡片后忽略 */
+        fun refreshCard(context: Context?) {
+            val c = context ?: return
+            if (!UserPrefs.statusCardEnabled) return
+            c.startForegroundService(Intent(c, StatusForegroundService::class.java)
+                .setAction(ACTION_REFRESH))
+        }
+
+        fun start(context: Context) {
+            context.startForegroundService(Intent(context, StatusForegroundService::class.java))
+        }
+
+        fun stop(context: Context) {
+            context.startService(Intent(context, StatusForegroundService::class.java)
+                .setAction(ACTION_STOP))
+        }
+    }
+
+    private var screenReceiver: ScreenStateReceiver? = null
+    private var wifiReceiver: BroadcastReceiver? = null
+    private var lastBatteryNotified = -1 // 低电量去重
+
+    override fun onCreate() {
+        super.onCreate()
+        createChannels()
+        // 动态注册亮屏/锁屏监听（ACTION_SCREEN_ON/OFF 无法静态注册）
+        screenReceiver = ScreenStateReceiver().also { r ->
+            val f = IntentFilter()
+            f.addAction(Intent.ACTION_SCREEN_ON)
+            f.addAction(Intent.ACTION_SCREEN_OFF)
+            f.addAction(Intent.ACTION_USER_PRESENT)
+            f.addAction(Intent.ACTION_LOCKED_BOOT_COMPLETED)
+            ContextCompat.registerReceiver(this, r, f, ContextCompat.RECEIVER_NOT_EXPORTED)
+        }
+        // 指定 WiFi 连接监听：连接「关注 WiFi」时触发事件
+        wifiReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                val ssid = StatusCollector.network(this@StatusForegroundService).first
+                val watch = UserPrefs.watchSsid
+                if (watch.isNotBlank() && ssid == watch) {
+                    StatusSyncManager.sendEvent("wifi_joined")
+                }
+            }
+        }.also { r ->
+            val f = IntentFilter(WifiManager.NETWORK_STATE_CHANGED_ACTION)
+            ContextCompat.registerReceiver(this, r, f, ContextCompat.RECEIVER_NOT_EXPORTED)
+        }
+        // 先采集一次再 startForeground，保证卡片有数据
+        refreshNow()
+        startForeground(NOTIFY_ID_CARD, buildCard(DeviceStatusHolder.partner))
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            ACTION_REFRESH -> refreshNow() // 静默刷新
+            ACTION_SYNC -> refreshNow()    // 后台定时采集（AlarmManager 5min）
+            ACTION_RING -> StatusSyncManager.sendEvent("ring_request")
+            ACTION_STOP -> {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            }
+            else -> refreshNow()
+        }
+        return START_STICKY
+    }
+
+    /**
+     * 采集本机状态 + 上报 + 刷新卡片（卡片显示伴侣状态）。
+     * 共享总开关关闭时：停止采集、清空本机状态，不推送。
+     */
+    private fun refreshNow() {
+        if (!UserPrefs.sharingEnabled) {
+            DeviceStatusHolder.current = null
+            DeviceStatusHolder.partner = null
+            startForeground(NOTIFY_ID_CARD, buildCard(null))
+            return
+        }
+        val s = StatusCollector.collectAll(this)
+        DeviceStatusHolder.current = s
+        StatusSyncManager.pushNow()
+        // 低电量(<15%)即时事件：从 >=20 降到低电量时触发一次，防止重复刷屏
+        if (s.batteryLevel in 1..14 && lastBatteryNotified != s.batteryLevel) {
+            lastBatteryNotified = s.batteryLevel
+            StatusSyncManager.sendEvent("low_battery")
+        } else if (s.batteryLevel >= 20) {
+            lastBatteryNotified = -1
+        }
+        startForeground(NOTIFY_ID_CARD, buildCard(DeviceStatusHolder.partner))
+    }
+
+    private fun createChannels() {
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.createNotificationChannel(NotificationChannel(
+            CHANNEL_CARD, "伴侣状态卡", NotificationManager.IMPORTANCE_LOW).apply {
+            setShowBadge(false)
+            description = "常驻显示伴侣实时状态，静默更新"
+        })
+        nm.createNotificationChannel(NotificationChannel(
+            CHANNEL_EVENT, "互动提醒", NotificationManager.IMPORTANCE_HIGH).apply {
+            description = "求陪伴/待办/日记等互动提醒"
+        })
+        nm.createNotificationChannel(NotificationChannel(
+            CHANNEL_RING, "紧急响铃", NotificationManager.IMPORTANCE_HIGH).apply {
+            description = "强制响铃通知（铃声由播放器控制，不重复响）"
+        })
+    }
+
+    /** 构建常驻卡片：展示伴侣状态；partner 为空时显示占位 */
+    private fun buildCard(partner: DeviceStatus?): Notification {
+        val s = partner ?: DeviceStatus()
+        val accent = StatusColor.of(s)
+
+        val expanded = RemoteViews(packageName, R.layout.notification_expanded)
+        expanded.setTextViewText(R.id.tv_partner_name,
+            "伴侣 · ${UserPrefs.partnerName.ifBlank { "对方" }}")
+        expanded.setTextViewText(R.id.tv_update_time,
+            if (partner == null) "等待对方状态…" else "更新于 ${TimeUtil.nowTime()}")
+        expanded.setTextViewText(R.id.tv_battery,
+            if (partner == null) "电量 --%"
+            else "电量 ${s.batteryLevel}%${if (s.isCharging) " · 充电中" else ""}")
+        expanded.setTextViewText(R.id.tv_screen,
+            if (partner == null) "屏幕状态未知"
+            else if (s.screenOn) "屏幕亮 · ${if (s.isLocked) "锁定" else "已解锁"}" else "屏幕灭")
+        expanded.setTextViewText(R.id.tv_app,
+            if (partner == null) "前台 APP 未知"
+            else "正在使用 ${s.foregroundApp?.second ?: "息屏/无前台"}")
+        expanded.setTextViewText(R.id.tv_net,
+            if (partner == null) "网络状态未知"
+            else s.ssid?.takeIf { it.isNotBlank() }?.let { "WiFi: $it" } ?: "网络: 移动网络")
+        if (s.music != null) {
+            expanded.setTextViewText(R.id.tv_music, "♪ ${s.music.title} - ${s.music.artist}")
+            expanded.setViewVisibility(R.id.tv_music, View.VISIBLE)
+        } else {
+            expanded.setViewVisibility(R.id.tv_music, View.GONE)
+        }
+        expanded.setInt(R.id.tv_partner_name, "setTextColor", accent)
+
+        // 展开态快捷按钮 → 直达功能，无需打开 APP（仅响铃提醒，见决策 Q26/Q28）
+        expanded.setOnClickPendingIntent(R.id.btn_ring, serviceAction(ACTION_RING))
+
+        val openApp = PendingIntent.getActivity(this, 0,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+
+        val summary = if (partner == null) "等待对方状态同步"
+        else "电量 ${s.batteryLevel}% · " +
+            "${if (s.screenOn) "亮屏" else "息屏"} · ${s.foregroundApp?.second ?: "无前台"}"
+
+        return NotificationCompat.Builder(this, CHANNEL_CARD)
+            .setSmallIcon(R.drawable.ic_heart)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setOngoing(true)          // 常驻
+            .setOnlyAlertOnce(true)    // 静默更新：不响铃不震动
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setContentTitle("伴侣 · ${UserPrefs.partnerName.ifBlank { "对方" }}")
+            .setContentText(summary)
+            .setCustomContentView(expanded)    // 收起态也展示摘要
+            .setCustomBigContentView(expanded) // 展开态全量 + 按钮
+            .setContentIntent(openApp)
+            .setColor(accent)
+            .build()
+    }
+
+    private fun serviceAction(action: String): PendingIntent {
+        val i = Intent(this, StatusForegroundService::class.java).setAction(action)
+        return PendingIntent.getService(this, action.hashCode(), i,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    }
+
+    override fun onDestroy() {
+        screenReceiver?.let { runCatching { unregisterReceiver(it) } }
+        wifiReceiver?.let { runCatching { unregisterReceiver(it) } }
+        screenReceiver = null
+        wifiReceiver = null
+        super.onDestroy()
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+}

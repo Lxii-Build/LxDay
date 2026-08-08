@@ -1,0 +1,29 @@
+# Claude Code 内部文件（不属项目）
+.agents/
+.claude/
+agent/
+skills-lock.json
+
+# Go
+server/server
+server/uploads/
+*.exe
+
+# Android / Gradle
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.apk
+*.aab
+
+# 凭据与本地配置
+*.pem
+*.key
+config.yaml
+!config.example.yaml
+
+# 系统
+.DS_Store
+Thumbs.db

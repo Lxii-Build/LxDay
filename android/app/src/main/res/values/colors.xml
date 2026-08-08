@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 浅色（默认）：MilkGlass 规范色板 -->
+    <color name="card_bg">#F6EEF2</color>
+    <color name="card_text">#5B5560</color>
+    <color name="card_text_secondary">#8A8290</color>
+    <color name="card_border">#8CFFFFFF</color>
+
+    <!-- 状态语义色（深浅两套通用） -->
+    <color name="status_charging">#4CAF50</color>
+    <color name="status_low_battery">#F44336</color>
+    <color name="status_screen_on">#2196F3</color>
+    <color name="status_music">#9C27B0</color>
+    <color name="status_theme">#607D8B</color>
+</resources>
