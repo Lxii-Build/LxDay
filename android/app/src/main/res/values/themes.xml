@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.MilkGlass" parent="android:Theme.Material.Light.NoActionBar">
+    <!-- 应用主题：跟随 Compose 深浅；仅作为 Activity 启动帧与系统 UI 底色 -->
+    <style name="Theme.Linxi" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/card_bg</item>
         <item name="android:statusBarColor">@color/card_bg</item>
         <item name="android:navigationBarColor">@color/card_bg</item>
     </style>
 
-    <style name="Theme.MilkGlass.Translucent">
+    <style name="Theme.Linxi.Translucent">
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>
     </style>

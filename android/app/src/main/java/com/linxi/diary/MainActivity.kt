@@ -8,20 +8,23 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.ui.navigation.LinxiApp
-import com.linxi.diary.ui.theme.MilkGlassTheme
+import com.linxi.diary.ui.theme.LinxiTheme
+import com.linxi.diary.ui.theme.rememberThemeState
 import com.linxi.diary.util.Logs
 
 /**
  * 首页：4 Tab 导航（此刻/待办/日记/我的）。
  * 启动前置：请求运行时权限（通知 13+、定位 10+）；未授权时应用仍可打开，
  * 采集在「已授权 + 共享开启」时才由前台服务执行，避免闪退。
+ * 主题：LinxiTheme（动态取色 + 深浅 + AMOLED，SharedPreferences 即时刷新）。
  */
 class MainActivity : ComponentActivity() {
 
-    // 通知权限（Android 13+）与 定位（Android 10+ 读 WiFi）运行时申请
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
             val denied = result.filterValues { !it }.keys
@@ -42,12 +45,19 @@ class MainActivity : ComponentActivity() {
         } catch (t: Throwable) {
             Logs.e("Main", "请求权限失败", t)
         }
-        StatusSyncManager.connect() // 连接实时通道（内部有 token/网络保护）
+        StatusSyncManager.connect()
         setContent {
-            MilkGlassTheme {
+            AppTheme {
                 LinxiApp()
             }
         }
+    }
+
+    @Composable
+    private fun AppTheme(content: @Composable () -> Unit) {
+        val themeState = rememberThemeState()
+        val settings by themeState.appSettings
+        LinxiTheme(appSettings = settings, content = content)
     }
 
     private fun requestRuntimePermissions() {

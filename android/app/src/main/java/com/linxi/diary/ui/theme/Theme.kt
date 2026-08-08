@@ -1,99 +1,195 @@
 package com.linxi.diary.ui.theme
 
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Shapes
-import androidx.compose.material3.Typography
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
+import android.app.Activity
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.ui.unit.dp
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.MaterialExpressiveTheme
+import androidx.compose.material3.MotionScheme
+import androidx.compose.material3.Typography
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.view.WindowInsetsControllerCompat
+import com.materialkolor.PaletteStyle
+import com.materialkolor.dynamiccolor.ColorSpec
+import com.materialkolor.rememberDynamicColorScheme
 
 /**
- * MilkGlass Compose 主题。
- * 端内跟随系统深浅色；设计规范 ADR-01 无深色，此处用语义反转扩展实现深色，
- * 保留玻璃层级（模糊/描边）只换色板。
+ * 主题模式：跟随系统 / 浅色 / 深色 / 深色 AMOLED
+ * 动态取色由 keyColor 控制：keyColor==0 → 跟随系统动态色；否则用固定种子色。
  */
-private val Color_White = androidx.compose.ui.graphics.Color.White
+enum class ColorMode(val value: Int) {
+    SYSTEM(0),
+    LIGHT(1),
+    DARK(2),
+    DARK_AMOLED(3);
 
-private val LightColors = lightColorScheme(
-    primary = MilkGlassPrimary,
-    onPrimary = MilkGlassText,
-    background = MilkGlassBg,
-    onBackground = MilkGlassText,
-    surface = MilkGlassBg,
-    onSurface = MilkGlassText,
-    surfaceVariant = MilkGlassGlass2,
-    onSurfaceVariant = MilkGlassTextSecondary,
-    outline = MilkGlassBorder,
-    error = MilkGlassErrorInk,
-    onError = Color_White
+    companion object {
+        fun fromValue(value: Int) = entries.find { it.value == value } ?: SYSTEM
+    }
+
+    val isDark: Boolean get() = value == 2 || value == 3
+    val isAmoled: Boolean get() = value == 3
+}
+
+data class AppSettings(
+    val colorMode: ColorMode,
+    val keyColor: Int,          // 0 = 跟随系统动态色
+    val paletteStyle: PaletteStyle,
+    val colorSpec: ColorSpec.SpecVersion,
 )
 
-private val DarkColors = darkColorScheme(
-    primary = MilkGlassPrimary,
-    onPrimary = DarkText,
-    background = DarkBg,
-    onBackground = DarkText,
-    surface = DarkSurface,
-    onSurface = DarkText,
-    surfaceVariant = DarkGlass,
-    onSurfaceVariant = DarkTextSecondary,
-    outline = DarkBorder,
-    error = DarkErrorInk,
-    onError = DarkBg
-)
+val PaletteStyle.supportsSpec2025: Boolean
+    get() = this == PaletteStyle.TonalSpot ||
+            this == PaletteStyle.Neutral ||
+            this == PaletteStyle.Vibrant ||
+            this == PaletteStyle.Expressive
 
-/** 圆角：sm14 / md22 / lg34 / xl44 */
-private val MilkShapes = Shapes(
-    small = RoundedCornerShape(14.dp),
-    medium = RoundedCornerShape(22.dp),
-    large = RoundedCornerShape(34.dp),
-    extraLarge = RoundedCornerShape(44.dp)
-)
+fun ColorSpec.SpecVersion.effectiveFor(style: PaletteStyle): ColorSpec.SpecVersion =
+    if (this == ColorSpec.SpecVersion.SPEC_2025 && !style.supportsSpec2025) {
+        ColorSpec.SpecVersion.SPEC_2021
+    } else {
+        this
+    }
 
-/** 标题衬线 600 / 0.06em；正文无衬线 0.04em / 行高1.7。Compose 用 sp 近似，em 转用 letterSpacing */
-private val MilkTypography = Typography(
-    titleLarge = TextStyle(
-        fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold,
-        fontSize = 24.sp, letterSpacing = 1.44.sp),
-    titleMedium = TextStyle(
-        fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold,
-        fontSize = 20.sp, letterSpacing = 1.2.sp),
-    titleSmall = TextStyle(
-        fontFamily = FontFamily.Serif, fontWeight = FontWeight.SemiBold,
-        fontSize = 16.sp, letterSpacing = 0.96.sp),
-    bodyLarge = TextStyle(
-        fontFamily = FontFamily.SansSerif, fontSize = 16.sp,
-        lineHeight = 27.sp, letterSpacing = 0.64.sp),
-    bodyMedium = TextStyle(
-        fontFamily = FontFamily.SansSerif, fontSize = 14.sp,
-        lineHeight = 24.sp, letterSpacing = 0.56.sp),
-    bodySmall = TextStyle(
-        fontFamily = FontFamily.SansSerif, fontSize = 12.sp,
-        lineHeight = 20.sp, letterSpacing = 0.48.sp),
-    labelLarge = TextStyle(
-        fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium,
-        fontSize = 14.sp, letterSpacing = 0.56.sp),
-    labelMedium = TextStyle(
-        fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium,
-        fontSize = 12.sp, letterSpacing = 0.48.sp)
-)
+fun ColorScheme.amoledBackground(amoled: Boolean): ColorScheme =
+    if (!amoled) this
+    else copy(
+        background = Color.Black,
+        surface = Color.Black,
+        surfaceDim = Color.Black,
+        surfaceContainerLowest = Color.Black,
+        surfaceContainerLow = Color.Black,
+        surfaceContainer = Color.Black,
+        surfaceContainerHigh = Color.Black,
+        surfaceContainerHighest = Color.Black,
+    )
 
 @Composable
-fun MilkGlassTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+fun rememberLinxiColorScheme(
+    seedColor: Color,
+    isDark: Boolean,
+    isAmoled: Boolean,
+    paletteStyle: PaletteStyle,
+    colorSpec: ColorSpec.SpecVersion,
+): ColorScheme {
+    val context = LocalContext.current
+    val seed = if (seedColor == Color.Unspecified) {
+        (if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)).primary
+    } else {
+        seedColor
+    }
+    return rememberDynamicColorScheme(
+        seedColor = seed,
+        isDark = isDark,
+        isAmoled = isAmoled,
+        style = paletteStyle,
+        specVersion = colorSpec.effectiveFor(paletteStyle),
+    ).amoledBackground(isAmoled)
+}
+
+/** 主题切换时逐色渐变过渡（而非硬切） */
+@Composable
+fun ColorScheme.animateAsState(): ColorScheme {
+    @Composable
+    fun animateColor(color: Color): Color = animateColorAsState(
+        targetValue = color,
+        animationSpec = spring(),
+        label = "theme_color_animation"
+    ).value
+
+    return ColorScheme(
+        primary = animateColor(primary),
+        onPrimary = animateColor(onPrimary),
+        primaryContainer = animateColor(primaryContainer),
+        onPrimaryContainer = animateColor(onPrimaryContainer),
+        inversePrimary = animateColor(inversePrimary),
+        secondary = animateColor(secondary),
+        onSecondary = animateColor(onSecondary),
+        secondaryContainer = animateColor(secondaryContainer),
+        onSecondaryContainer = animateColor(onSecondaryContainer),
+        tertiary = animateColor(tertiary),
+        onTertiary = animateColor(onTertiary),
+        tertiaryContainer = animateColor(tertiaryContainer),
+        onTertiaryContainer = animateColor(onTertiaryContainer),
+        background = animateColor(background),
+        onBackground = animateColor(onBackground),
+        surface = animateColor(surface),
+        onSurface = animateColor(onSurface),
+        surfaceVariant = animateColor(surfaceVariant),
+        onSurfaceVariant = animateColor(onSurfaceVariant),
+        surfaceTint = animateColor(surfaceTint),
+        inverseSurface = animateColor(inverseSurface),
+        inverseOnSurface = animateColor(inverseOnSurface),
+        error = animateColor(error),
+        onError = animateColor(onError),
+        errorContainer = animateColor(errorContainer),
+        onErrorContainer = animateColor(onErrorContainer),
+        outline = animateColor(outline),
+        outlineVariant = animateColor(outlineVariant),
+        scrim = animateColor(scrim),
+        surfaceBright = animateColor(surfaceBright),
+        surfaceDim = animateColor(surfaceDim),
+        surfaceContainer = animateColor(surfaceContainer),
+        surfaceContainerHigh = animateColor(surfaceContainerHigh),
+        surfaceContainerHighest = animateColor(surfaceContainerHighest),
+        surfaceContainerLow = animateColor(surfaceContainerLow),
+        surfaceContainerLowest = animateColor(surfaceContainerLowest),
+        primaryFixed = animateColor(primaryFixed),
+        primaryFixedDim = animateColor(primaryFixedDim),
+        onPrimaryFixed = animateColor(onPrimaryFixed),
+        onPrimaryFixedVariant = animateColor(onPrimaryFixedVariant),
+        secondaryFixed = animateColor(secondaryFixed),
+        secondaryFixedDim = animateColor(secondaryFixedDim),
+        onSecondaryFixed = animateColor(onSecondaryFixed),
+        onSecondaryFixedVariant = animateColor(onSecondaryFixedVariant),
+        tertiaryFixed = animateColor(tertiaryFixed),
+        tertiaryFixedDim = animateColor(tertiaryFixedDim),
+        onTertiaryFixed = animateColor(onTertiaryFixed),
+        onTertiaryFixedVariant = animateColor(onTertiaryFixedVariant)
+    )
+}
+
+/** 林曦日记主题入口（Material3 引擎 + 动态取色 + 换肤渐变） */
+@Composable
+fun LinxiTheme(
+    appSettings: AppSettings,
     content: @Composable () -> Unit
 ) {
-    MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
-        typography = MilkTypography,
-        shapes = MilkShapes,
+    val context = LocalContext.current
+    val systemDarkTheme = isSystemInDarkTheme()
+    val darkTheme = appSettings.colorMode.isDark ||
+            (appSettings.colorMode == ColorMode.SYSTEM && systemDarkTheme)
+    val amoledMode = appSettings.colorMode.isAmoled
+    val dynamicColor = appSettings.keyColor == 0
+
+    val colorScheme = rememberLinxiColorScheme(
+        seedColor = if (dynamicColor) Color.Unspecified else Color(appSettings.keyColor),
+        isDark = darkTheme,
+        isAmoled = amoledMode,
+        paletteStyle = appSettings.paletteStyle,
+        colorSpec = appSettings.colorSpec,
+    )
+
+    LaunchedEffect(darkTheme) {
+        val window = (context as? Activity)?.window ?: return@LaunchedEffect
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !darkTheme
+            isAppearanceLightNavigationBars = !darkTheme
+        }
+    }
+
+    val animatedColorScheme = colorScheme.animateAsState()
+
+    MaterialExpressiveTheme(
+        colorScheme = animatedColorScheme,
+        motionScheme = MotionScheme.expressive(),
+        typography = Typography,
         content = content
     )
 }

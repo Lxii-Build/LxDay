@@ -37,6 +37,16 @@ object UserPrefs {
         get() = sp.getInt("dark_mode", 0)
         set(v) { sp.edit().putInt("dark_mode", v).apply() }
 
+    // 主题模式（ColorMode.value）：0跟随系统 1浅色 2深色 3深色AMOLED
+    var colorMode: Int
+        get() = sp.getInt("color_mode", 0)
+        set(v) { sp.edit().putInt("color_mode", v).apply() }
+
+    // 种子色：0=跟随系统动态色；否则为 ARGB Int
+    var keyColor: Int
+        get() = sp.getInt("key_color", 0)
+        set(v) { sp.edit().putInt("key_color", v).apply() }
+
     // 状态共享总开关：false = 停止采集 + 本地清空
     var sharingEnabled: Boolean
         get() = sp.getBoolean("sharing_enabled", false) // 默认关，绑定+授权后才开
