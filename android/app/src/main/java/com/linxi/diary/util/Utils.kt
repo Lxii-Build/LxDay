@@ -47,9 +47,9 @@ object UserPrefs {
         get() = sp.getInt("key_color", 0)
         set(v) { sp.edit().putInt("key_color", v).apply() }
 
-    // 液态玻璃 Tab 栏开关（默认开启；部分 GPU 崩溃时可关闭降级）
+    // 液态玻璃 Tab 栏开关（backdrop AGSL 在部分 GPU 崩溃，默认关闭止血，确认稳定后再开）
     var liquidGlassEnabled: Boolean
-        get() = sp.getBoolean("liquid_glass", true)
+        get() = sp.getBoolean("liquid_glass", false)
         set(v) { sp.edit().putBoolean("liquid_glass", v).apply() }
 
     // 状态共享总开关：false = 停止采集 + 本地清空
