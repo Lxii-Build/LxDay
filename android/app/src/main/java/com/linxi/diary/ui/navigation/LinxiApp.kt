@@ -144,7 +144,7 @@ private fun MainTabs(
 @Composable
 private fun BoxScope.LiquidGlassTabBar(
     selectedIndex: Int,
-    onSelect: (String) -> Unit,
+    onSelectTab: (Int) -> Unit,
     backdrop: com.kyant.backdrop.Backdrop
 ) {
     Column(
@@ -154,12 +154,12 @@ private fun BoxScope.LiquidGlassTabBar(
     ) {
         LiquidBottomTabs(
             selectedTabIndex = { selectedIndex },
-            onTabSelected = { i -> onSelect(tabs[i].route) },
+            onTabSelected = { i -> onSelectTab(i) },
             backdrop = backdrop,
             tabsCount = tabs.size
         ) {
-            tabs.forEach { t ->
-                LiquidBottomTab(onClick = { onSelect(t.route) }) {
+            tabs.forEachIndexed { index, t ->
+                LiquidBottomTab(onClick = { onSelectTab(index) }) {
                     Icon(
                         t.icon,
                         contentDescription = t.label,
