@@ -189,7 +189,7 @@ fun LinxiTheme(
     MaterialExpressiveTheme(
         colorScheme = animatedColorScheme,
         motionScheme = MotionScheme.expressive(),
-        typography = Typography,
+        typography = Typography(),
         content = content
     )
 }

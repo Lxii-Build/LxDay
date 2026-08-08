@@ -3,6 +3,7 @@ package com.linxi.diary.ui.theme
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.runtime.*
+import androidx.compose.runtime.DisposableEffect
 import com.materialkolor.PaletteStyle
 import com.materialkolor.dynamiccolor.ColorSpec
 
@@ -55,7 +56,7 @@ class ThemeState private constructor(
 fun rememberThemeState(): ThemeState {
     val context = androidx.compose.ui.platform.LocalContext.current
     val state = remember { ThemeState.get(context) }
-    LaunchedEffect(state) {
+    DisposableEffect(state) {
         state.startListening()
         onDispose { state.stopListening() }
     }

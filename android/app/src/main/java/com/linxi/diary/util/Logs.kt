@@ -22,7 +22,15 @@ object Logs {
         if (ENABLED) Log.w("$PREFIX/$tag", msg)
     }
 
-    fun e(tag: String, msg: String, t: Throwable? = null) {
+    fun w(tag: String, msg: String, t: Throwable?) {
+        if (ENABLED) Log.w("$PREFIX/$tag", msg, t)
+    }
+
+    fun e(tag: String, msg: String) {
+        if (ENABLED) Log.e("$PREFIX/$tag", msg)
+    }
+
+    fun e(tag: String, msg: String, t: Throwable?) {
         if (ENABLED) Log.e("$PREFIX/$tag", msg, t)
     }
 }
