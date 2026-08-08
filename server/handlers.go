@@ -363,7 +363,7 @@ func handleCompleteTodo(c *gin.Context) {
 }
 
 func handleDeleteTodo(c *gin.Context) {
-	pair, okP := mustPair(c)
+	_, okP := mustPair(c)
 	if !okP {
 		return
 	}
@@ -420,7 +420,7 @@ func handleListDiaries(c *gin.Context) {
 }
 
 func handleUpdateDiary(c *gin.Context) {
-	pair, okP := mustPair(c)
+	_, okP := mustPair(c)
 	if !okP {
 		return
 	}
@@ -441,7 +441,7 @@ func handleUpdateDiary(c *gin.Context) {
 }
 
 func handleDeleteDiary(c *gin.Context) {
-	pair, okP := mustPair(c)
+	_, okP := mustPair(c)
 	if !okP {
 		return
 	}
