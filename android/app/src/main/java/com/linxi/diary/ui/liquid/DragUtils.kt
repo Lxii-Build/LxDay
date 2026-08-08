@@ -5,6 +5,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.AwaitPointerEventScope
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
@@ -65,3 +66,27 @@ fun Float.coerceIn01(): Float = coerceIn(0f, 1f)
 
 /** Float → Int 四舍五入（原库 fastRoundToInt） */
 fun Float.roundToIntCompat(): Int = roundToInt()
+
+/** 等待拖拽事件或手指抬起（移植自 AndroidLiquidGlass 内部实现） */
+private suspend inline fun AwaitPointerEventScope.awaitDragOrUp(
+    pointerId: PointerId
+): PointerInputChange? {
+    var pointer = pointerId
+    while (true) {
+        val event = awaitPointerEvent()
+        val dragEvent = event.changes.fastFirstOrNull { it.id == pointer } ?: return null
+        if (dragEvent.changedToUpIgnoreConsumed()) {
+            val otherDown = event.changes.fastFirstOrNull { it.pressed }
+            if (otherDown == null) {
+                return dragEvent
+            } else {
+                pointer = otherDown.id
+            }
+        } else {
+            val hasDragged = dragEvent.previousPosition != dragEvent.position
+            if (hasDragged) {
+                return dragEvent
+            }
+        }
+    }
+}

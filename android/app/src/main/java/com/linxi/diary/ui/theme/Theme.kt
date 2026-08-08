@@ -190,6 +190,26 @@ fun LinxiTheme(
         colorScheme = animatedColorScheme,
         motionScheme = MotionScheme.expressive(),
         typography = Typography(),
-        content = content
+        content = {
+            // 嵌套 MiuixTheme：miuix 组件（SmallTopAppBar/Card/BasicComponent）依赖其 ColorScheme
+            val resolvedKeyColor: Color? = when {
+                appSettings.keyColor != 0 -> Color(appSettings.keyColor)
+                else -> if (darkTheme) dynamicDarkColorScheme(context).primary
+                else dynamicLightColorScheme(context).primary
+            }
+            val miuixController = top.yukonga.miuix.kmp.theme.ThemeController(
+                colorSchemeMode = when (appSettings.colorMode) {
+                    ColorMode.LIGHT -> top.yukonga.miuix.kmp.theme.ColorSchemeMode.Light
+                    ColorMode.DARK, ColorMode.DARK_AMOLED -> top.yukonga.miuix.kmp.theme.ColorSchemeMode.Dark
+                    else -> top.yukonga.miuix.kmp.theme.ColorSchemeMode.System
+                },
+                keyColor = resolvedKeyColor,
+                isDark = darkTheme,
+            )
+            top.yukonga.miuix.kmp.theme.MiuixTheme(
+                controller = miuixController,
+                content = content
+            )
+        }
     )
 }
