@@ -8,8 +8,14 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.ui.navigation.LinxiApp
@@ -53,12 +59,12 @@ class MainActivity : ComponentActivity() {
         setContent {
             if (com.linxi.diary.BuildConfig.SAFE_MODE) {
                 // 极简安全模式：跳过主题/backdrop/miuix，用于闪退二分定位
-                androidx.compose.material3.MaterialTheme {
-                    androidx.compose.foundation.layout.Box(
-                        androidx.compose.ui.Modifier.fillMaxSize(),
-                        contentAlignment = androidx.compose.ui.Alignment.Center
+                MaterialTheme {
+                    Box(
+                        Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
                     ) {
-                        androidx.compose.material3.Text("林曦日记 · 安全模式\n如果这里显示说明基础启动正常")
+                        Text("林曦日记 · 安全模式\n如果这里显示说明基础启动正常")
                     }
                 }
             } else {
