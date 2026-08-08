@@ -67,9 +67,9 @@ fun TodoScreen() {
             } else if (todos.isEmpty()) {
                 Column(Modifier.fillMaxWidth().padding(top = 48.dp),
                     horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("还没有待办", color = MiuixTheme.colorScheme.onSurfaceVariant)
+                    Text("还没有待办", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     Spacer(Modifier.height(4.dp))
-                    Text("点右下角 + 给对方添加", color = MiuixTheme.colorScheme.onSurfaceVariant)
+                    Text("点右下角 + 给对方添加", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }
             } else {
                 LazyColumn(
@@ -160,7 +160,7 @@ private fun AddTodoDialog(
                     "1 小时后" to (System.currentTimeMillis() + 60 * 60_000L),
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("提醒", color = MiuixTheme.colorScheme.onSurfaceVariant)
+                    Text("提醒", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     Spacer(Modifier.weight(1f))
                     presets.forEach { (label, ms) ->
                         Button(
@@ -172,7 +172,7 @@ private fun AddTodoDialog(
                 }
                 // 提醒强度
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("强度", color = MiuixTheme.colorScheme.onSurfaceVariant)
+                    Text("强度", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     Spacer(Modifier.weight(1f))
                     Button(
                         onClick = { remindType = 0 },
