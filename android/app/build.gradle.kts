@@ -31,10 +31,6 @@ android {
         compose = true
     }
 
-    androidResources {
-        generateLocaleConfig = true
-    }
-
     compileSdk {
         version = release(androidCompileSdkVersion) {
             minorApiLevel = androidCompileSdkVersionMinor
