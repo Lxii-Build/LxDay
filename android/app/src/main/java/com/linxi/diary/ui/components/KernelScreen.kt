@@ -34,6 +34,7 @@ fun KernelScreen(
     actions: @Composable () -> Unit = {},
     enableBlur: Boolean = true,
     bottomPadding: androidx.compose.ui.unit.Dp = 12.dp,
+    floatingActionButton: @Composable () -> Unit = {},
     content: LazyListScope.() -> Unit,
 ) {
     val scrollBehavior = MiuixScrollBehavior()
@@ -52,6 +53,7 @@ fun KernelScreen(
                 )
             }
         },
+        floatingActionButton = floatingActionButton,
         contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
     ) { innerPadding ->
         Box(modifier = if (backdrop != null) Modifier.layerBackdrop(backdrop) else Modifier) {

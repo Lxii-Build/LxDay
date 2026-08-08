@@ -8,28 +8,26 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.*
+import top.yukonga.miuix.kmp.basic.FloatingActionButton
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.linxi.diary.core.TodoAlarmScheduler
 import com.linxi.diary.data.ApiClient
 import com.linxi.diary.data.TodoItem
+import com.linxi.diary.ui.components.KernelScreen
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.FloatingActionButton
-import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * Tab ② 待办（miuix 布局）：双方待办列表 + 给对方添加（可选普通/强提醒）。
- * 结构：Scaffold + SmallTitle 分组标题 + Card 包裹的 BasicComponent 列表行。
+ * Tab ② 待办（照抄 KernelSU 列表布局）：KernelScreen 骨架 + Card 包裹的 BasicComponent 列表行。
  */
 @Composable
 fun TodoScreen() {
@@ -52,54 +50,45 @@ fun TodoScreen() {
 
     LaunchedEffect(Unit) { refresh() }
 
-    Scaffold(
+    KernelScreen(
+        title = "待办",
         floatingActionButton = {
-            FloatingActionButton(onClick = { showAdd = true }) {
-                Text("+")
-            }
-        },
-        containerColor = MiuixTheme.colorScheme.surface
-    ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize()) {
-            SmallTitle("待办", Modifier.padding(top = 12.dp))
-            if (loading) {
-                androidx.compose.material3.CircularProgressIndicator(Modifier.padding(24.dp))
-            } else if (todos.isEmpty()) {
+            FloatingActionButton(onClick = { showAdd = true }) { Text("+") }
+        }
+    ) {
+        if (loading) {
+            item { androidx.compose.material3.CircularProgressIndicator(Modifier.padding(24.dp)) }
+        } else if (todos.isEmpty()) {
+            item {
                 Column(Modifier.fillMaxWidth().padding(top = 48.dp),
                     horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("还没有待办", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     Spacer(Modifier.height(4.dp))
                     Text("点右下角 + 给对方添加", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }
-            } else {
-                LazyColumn(
-                    Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(todos, key = { it.id }) { t ->
-                        Card(modifier = Modifier.fillMaxWidth()) {
-                            BasicComponent(
-                                title = t.title,
-                                summary = buildSummary(t),
-                                endActions = {
-                                    IconButton(onClick = {
-                                        scope.launch {
-                                            runCatching {
-                                                ApiClient.completeTodo(t.id)
-                                                TodoAlarmScheduler.cancel(context, t.id)
-                                            }
-                                            refresh()
-                                        }
-                                    }) {
-                                        Icon(Icons.Default.Check,
-                                            contentDescription = "完成",
-                                            tint = MiuixTheme.colorScheme.primary)
+            }
+        } else {
+            items(todos, key = { it.id }) { t ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    BasicComponent(
+                        title = t.title,
+                        summary = buildSummary(t),
+                        endActions = {
+                            IconButton(onClick = {
+                                scope.launch {
+                                    runCatching {
+                                        ApiClient.completeTodo(t.id)
+                                        TodoAlarmScheduler.cancel(context, t.id)
                                     }
+                                    refresh()
                                 }
-                            )
+                            }) {
+                                Icon(Icons.Default.Check,
+                                    contentDescription = "完成",
+                                    tint = MiuixTheme.colorScheme.primary)
+                            }
                         }
-                    }
+                    )
                 }
             }
         }
