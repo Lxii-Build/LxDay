@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"time"
@@ -152,7 +153,9 @@ func initStore(c *Config) (*Store, error) {
 		Password: c.Redis.Password,
 		DB:       c.Redis.DB,
 	})
-	if err := rdb.Ping(rdb.Context()).Err(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := rdb.Ping(ctx).Err(); err != nil {
 		return nil, err
 	}
 	return &Store{DB: db, Rdb: rdb}, nil
