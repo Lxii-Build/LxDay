@@ -47,9 +47,9 @@ object UserPrefs {
         get() = sp.getInt("key_color", 0)
         set(v) { sp.edit().putInt("key_color", v).apply() }
 
-    // 液态玻璃 Tab 栏开关（backdrop AGSL 在部分 GPU 崩溃，默认关闭止血，确认稳定后再开）
+    // 液态玻璃 Tab 栏开关（miuix 版，KernelSU 验证可运行；AGSL GPU 兼容差时可关）
     var liquidGlassEnabled: Boolean
-        get() = sp.getBoolean("liquid_glass", false)
+        get() = sp.getBoolean("liquid_glass", true)
         set(v) { sp.edit().putBoolean("liquid_glass", v).apply() }
 
     // 状态共享总开关：false = 停止采集 + 本地清空
