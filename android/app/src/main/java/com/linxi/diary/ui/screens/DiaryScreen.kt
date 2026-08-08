@@ -12,12 +12,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.linxi.diary.data.ApiClient
 import com.linxi.diary.data.DiaryItem
+import com.linxi.diary.ui.components.KernelScreen
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.FloatingActionButton
-import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
@@ -48,52 +48,44 @@ fun DiaryScreen() {
 
     LaunchedEffect(Unit) { refresh() }
 
-    Scaffold(
+    KernelScreen(
+        title = "日记",
         floatingActionButton = {
             FloatingActionButton(onClick = { showPublish = true }) { Text("+") }
-        },
-        containerColor = MiuixTheme.colorScheme.surface
-    ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize()) {
-            SmallTitle("日记", Modifier.padding(top = 12.dp))
-
-            if (loading) {
-                CircularProgressIndicator(Modifier.padding(24.dp))
-            } else if (diaries.isEmpty()) {
+        }
+    ) {
+        if (loading) {
+            item { CircularProgressIndicator(Modifier.padding(24.dp)) }
+        } else if (diaries.isEmpty()) {
+            item {
                 Column(Modifier.fillMaxWidth().padding(top = 48.dp),
                     horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("还没有日记", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     Spacer(Modifier.height(4.dp))
                     Text("记录你们的第一篇吧", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }
-            } else {
-                LazyColumn(
-                    Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    val grouped = diaries.groupBy { it.diaryDate }
-                    grouped.keys.sortedDescending().forEach { date ->
-                        item(key = "date_$date") {
-                            SmallTitle(date, Modifier.padding(top = 8.dp))
-                        }
-                        items(grouped[date] ?: emptyList(), key = { it.id }) { d ->
-                            Card(modifier = Modifier.fillMaxWidth()) {
-                                Column(Modifier.padding(16.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(d.title, style = MiuixTheme.textStyles.headline1,
-                                            modifier = Modifier.weight(1f))
-                                        Text(d.authorName,
-                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                                    }
-                                    Spacer(Modifier.height(4.dp))
-                                    Text(d.content, color = MiuixTheme.colorScheme.onSurface)
-                                    if (d.images.isNotEmpty()) {
-                                        Spacer(Modifier.height(8.dp))
-                                        Text("🖼 ${d.images.size} 张图片",
-                                            color = MiuixTheme.colorScheme.primary)
-                                    }
-                                }
+            }
+        } else {
+            val grouped = diaries.groupBy { it.diaryDate }
+            grouped.keys.sortedDescending().forEach { date ->
+                item(key = "date_$date") {
+                    SmallTitle(date, Modifier.padding(top = 8.dp))
+                }
+                items(grouped[date] ?: emptyList(), key = { it.id }) { d ->
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(16.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(d.title, style = MiuixTheme.textStyles.headline1,
+                                    modifier = Modifier.weight(1f))
+                                Text(d.authorName,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            Text(d.content, color = MiuixTheme.colorScheme.onSurface)
+                            if (d.images.isNotEmpty()) {
+                                Spacer(Modifier.height(8.dp))
+                                Text("${d.images.size} 张图片",
+                                    color = MiuixTheme.colorScheme.primary)
                             }
                         }
                     }
