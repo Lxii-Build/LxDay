@@ -13,6 +13,12 @@ import com.linxi.diary.util.UserPrefs
  */
 class App : Application() {
 
+    override fun attachBaseContext(base: android.content.Context) {
+        super.attachBaseContext(base)
+        // 最早可记录点：这里若执行说明进程已起
+        Log.i("Linxi/App", "attachBaseContext pid=${android.os.Process.myPid()}")
+    }
+
     override fun onCreate() {
         super.onCreate()
         Log.i("Linxi/App", "App.onCreate 开始 pid=${android.os.Process.myPid()}")

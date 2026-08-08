@@ -18,7 +18,9 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -91,7 +93,6 @@ dependencies {
 
     // miuix（小米 HyperOS 风格组件）
     implementation(libs.miuix.ui)
-    implementation(libs.miuix.icons)
     implementation(libs.miuix.preference)
     implementation(libs.miuix.squircle)
 
