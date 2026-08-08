@@ -52,9 +52,7 @@ fun HistoryScreen(onBack: () -> Unit = {}) {
 
     KernelScreen(
         title = "历史状态",
-        actions = {
-            TextButton(onClick = onBack) { Text("返回") }
-        }
+        navigationIcon = { com.linxi.diary.ui.components.BackAction(onBack = onBack) }
     ) {
         // 日期切换
         item {
