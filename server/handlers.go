@@ -263,13 +263,30 @@ func handleUpdateProfile(c *gin.Context) {
 		fail(c, 400, 1002, "昵称长度 2-32")
 		return
 	}
-	if err := st.UpdateNickname(uid, nickname); err != nil {
+
+	tx, err := st.DB.Begin()
+	if err != nil {
+		fail(c, 500, 1010, "更新失败")
+		return
+	}
+	if _, err = pairFrom(tx, uid); err != nil {
+		tx.Rollback()
+		fail(c, 200, 1001, "未绑定")
+		return
+	}
+	if _, err := tx.Exec("UPDATE `user` SET nickname=? WHERE id=?", nickname, uid); err != nil {
+		tx.Rollback()
 		fail(c, 400, 1006, "昵称已被占用")
 		return
 	}
-	profile, err := pairProfile(uid)
+	profile, err := pairProfileFrom(tx, uid)
 	if err != nil {
-		fail(c, 200, 1001, "未绑定")
+		tx.Rollback()
+		fail(c, 500, 1010, "读取资料失败")
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		fail(c, 500, 1010, "更新失败")
 		return
 	}
 	notifyProfileUpdated(uid, profile)
@@ -278,10 +295,6 @@ func handleUpdateProfile(c *gin.Context) {
 
 func handleUpdateAnniversary(c *gin.Context) {
 	uid := currentUID(c)
-	pair, pairOK := mustPair(c)
-	if !pairOK {
-		return
-	}
 	var req struct {
 		AnniversaryDate string `json:"anniversary_date" binding:"required"`
 	}
@@ -294,29 +307,81 @@ func handleUpdateAnniversary(c *gin.Context) {
 		fail(c, 400, 1002, "纪念日无效")
 		return
 	}
-	if err := st.UpdateAnniversary(pair.ID, anniversary); err != nil {
+
+	tx, err := st.DB.Begin()
+	if err != nil {
 		fail(c, 500, 1010, "更新失败")
 		return
 	}
-	profile, err := pairProfile(uid)
+	pair, err := pairFrom(tx, uid)
 	if err != nil {
+		tx.Rollback()
+		fail(c, 200, 1001, "未绑定")
+		return
+	}
+	result, err := tx.Exec(
+		"UPDATE pair SET anniversary_date=? WHERE id=? AND status=1 AND (user_a_id=? OR user_b_id=?)",
+		anniversary, pair.ID, uid, uid,
+	)
+	if err != nil {
+		tx.Rollback()
+		fail(c, 500, 1010, "更新失败")
+		return
+	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		tx.Rollback()
+		fail(c, 200, 1001, "未绑定")
+		return
+	}
+	profile, err := pairProfileFrom(tx, uid)
+	if err != nil {
+		tx.Rollback()
 		fail(c, 500, 1010, "读取资料失败")
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		fail(c, 500, 1010, "更新失败")
 		return
 	}
 	notifyProfileUpdated(uid, profile)
 	ok(c, profile)
 }
 
-func pairProfile(uid int64) (gin.H, error) {
-	pair, err := st.GetPairByUserID(uid)
+type profileQueryer interface {
+	QueryRow(query string, args ...interface{}) *sql.Row
+}
+
+func pairFrom(queryer profileQueryer, uid int64) (*Pair, error) {
+	pair := &Pair{}
+	err := queryer.QueryRow(
+		`SELECT id,user_a_id,user_b_id,invite_code,anniversary_date FROM pair
+		 WHERE status=1 AND (user_a_id=? OR user_b_id=?) LIMIT 1`, uid, uid).Scan(
+		&pair.ID, &pair.UserAID, &pair.UserBID, &pair.InviteCode, &pair.AnniversaryDate)
+	return pair, err
+}
+
+func userFrom(queryer profileQueryer, id int64) (*User, error) {
+	user := &User{}
+	err := queryer.QueryRow(
+		"SELECT id,nickname,avatar_url,avatar_thumbnail_url FROM `user` WHERE id=?", id).
+		Scan(&user.ID, &user.Nickname, &user.AvatarURL, &user.AvatarThumbnailURL)
+	return user, err
+}
+
+func pairProfileFrom(queryer profileQueryer, uid int64) (gin.H, error) {
+	pair, err := pairFrom(queryer, uid)
 	if err != nil {
 		return nil, err
 	}
-	me, err := st.GetUserByID(uid)
+	me, err := userFrom(queryer, uid)
 	if err != nil {
 		return nil, err
 	}
-	partner, err := st.GetUserByID(st.PartnerID(pair, uid))
+	partnerID := pair.UserAID
+	if pair.UserAID == uid {
+		partnerID = pair.UserBID
+	}
+	partner, err := userFrom(queryer, partnerID)
 	if err != nil {
 		return nil, err
 	}
@@ -331,6 +396,10 @@ func pairProfile(uid int64) (gin.H, error) {
 		"partner": partner,
 		"anniversary_date": anniversary,
 	}, nil
+}
+
+func pairProfile(uid int64) (gin.H, error) {
+	return pairProfileFrom(st.DB, uid)
 }
 
 func notifyProfileUpdated(uid int64, profile gin.H) {

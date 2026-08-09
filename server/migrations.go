@@ -8,16 +8,30 @@ import (
 type migration struct {
 	version int
 	name    string
-	statements []string
+	columns []migrationColumn
+}
+
+type migrationColumn struct {
+	table  string
+	column string
+	alter  string
 }
 
 var migrations = []migration{
 	{
 		version: 1,
 		name: "profile_and_anniversary",
-		statements: []string{
-			"ALTER TABLE `user` ADD COLUMN avatar_thumbnail_url VARCHAR(255) NULL AFTER avatar_url",
-			"ALTER TABLE pair ADD COLUMN anniversary_date DATE NULL AFTER invite_code",
+		columns: []migrationColumn{
+			{
+				table: "user",
+				column: "avatar_thumbnail_url",
+				alter: "ALTER TABLE `user` ADD COLUMN avatar_thumbnail_url VARCHAR(255) NULL AFTER avatar_url",
+			},
+			{
+				table: "pair",
+				column: "anniversary_date",
+				alter: "ALTER TABLE pair ADD COLUMN anniversary_date DATE NULL AFTER invite_code",
+			},
 		},
 	},
 }
@@ -52,26 +66,27 @@ func runMigrations(db *sql.DB) error {
 		if applied[item.version] {
 			continue
 		}
-		tx, err := db.Begin()
-		if err != nil {
-			return err
-		}
-		for _, statement := range item.statements {
-			if _, err := tx.Exec(statement); err != nil {
-				tx.Rollback()
-				return fmt.Errorf("migration %d %s: %w", item.version, item.name, err)
+		for _, column := range item.columns {
+			var exists int
+			if err := db.QueryRow(
+				"SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=? AND column_name=?",
+				column.table,
+				column.column,
+			).Scan(&exists); err != nil {
+				return fmt.Errorf("check migration %d %s: %w", item.version, item.name, err)
+			}
+			if exists == 0 {
+				if _, err := db.Exec(column.alter); err != nil {
+					return fmt.Errorf("migration %d %s: %w", item.version, item.name, err)
+				}
 			}
 		}
-		if _, err := tx.Exec(
+		if _, err := db.Exec(
 			"INSERT INTO schema_migrations(version,name) VALUES(?,?)",
 			item.version,
 			item.name,
 		); err != nil {
-			tx.Rollback()
 			return fmt.Errorf("record migration %d: %w", item.version, err)
-		}
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("commit migration %d: %w", item.version, err)
 		}
 	}
 	return nil

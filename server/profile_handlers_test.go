@@ -38,18 +38,75 @@ func TestRegisterNormalizesNicknameBeforeInsert(t *testing.T) {
 	})
 }
 
+func TestUpdateProfileDoesNotWriteWhenUserIsUnbound(t *testing.T) {
+	store, mock, closeStore := newMockStore(t)
+	defer closeStore()
+	withServerGlobals(store, nil, func() {
+		mock.ExpectBegin()
+		mock.ExpectQuery("SELECT id,user_a_id,user_b_id,invite_code,anniversary_date FROM pair").
+			WithArgs(int64(1), int64(1)).
+			WillReturnError(sqlmock.ErrCancelled)
+		mock.ExpectRollback()
+
+		response := performHandlerRequest(
+			handleUpdateProfile,
+			1,
+			`{"nickname":"新昵称"}`,
+		)
+
+		if response.Code != http.StatusOK || responseCode(t, response) != 1001 {
+			t.Fatalf("response = %d %s", response.Code, response.Body.String())
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestUpdateProfileRollsBackWhenAuthoritativeProfileCannotBeRead(t *testing.T) {
+	store, mock, closeStore := newMockStore(t)
+	defer closeStore()
+	withServerGlobals(store, nil, func() {
+		mock.ExpectBegin()
+		expectPair(mock, "2024-02-29")
+		mock.ExpectExec("UPDATE `user` SET nickname=\\? WHERE id=\\?").
+			WithArgs("新昵称", int64(1)).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+		expectPair(mock, "2024-02-29")
+		mock.ExpectQuery("SELECT id,nickname,avatar_url,avatar_thumbnail_url FROM `user`").
+			WithArgs(int64(1)).
+			WillReturnError(sqlmock.ErrCancelled)
+		mock.ExpectRollback()
+
+		response := performHandlerRequest(
+			handleUpdateProfile,
+			1,
+			`{"nickname":"新昵称"}`,
+		)
+
+		if response.Code != http.StatusInternalServerError || responseCode(t, response) != 1010 {
+			t.Fatalf("response = %d %s", response.Code, response.Body.String())
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
 func TestUpdateProfileReturnsAuthoritativePairProfileAndNotifiesPartner(t *testing.T) {
 	store, mock, closeStore := newMockStore(t)
 	defer closeStore()
 	push := NewPushGateway("none", store)
 	testHub := NewHub(store, push)
 	withServerGlobals(store, testHub, func() {
+		mock.ExpectBegin()
+		expectPair(mock, "2024-02-29")
 		mock.ExpectExec("UPDATE `user` SET nickname=\\? WHERE id=\\?").
 			WithArgs("新昵称", int64(1)).
 			WillReturnResult(sqlmock.NewResult(0, 1))
-		expectPair(mock, "2024-02-29")
 		expectUser(mock, 1, "新昵称", nil, nil)
 		expectUser(mock, 2, "伴侣", nil, nil)
+		mock.ExpectCommit()
 
 		response := performHandlerRequest(
 			handleUpdateProfile,
@@ -79,9 +136,11 @@ func TestUpdateAnniversaryRejectsUnboundAndFutureDate(t *testing.T) {
 	store, mock, closeStore := newMockStore(t)
 	defer closeStore()
 	withServerGlobals(store, nil, func() {
+		mock.ExpectBegin()
 		mock.ExpectQuery("SELECT id,user_a_id,user_b_id,invite_code,anniversary_date FROM pair").
 			WithArgs(int64(1), int64(1)).
 			WillReturnError(sqlmock.ErrCancelled)
+		mock.ExpectRollback()
 		unbound := performHandlerRequest(
 			handleUpdateAnniversary,
 			1,
@@ -91,7 +150,9 @@ func TestUpdateAnniversaryRejectsUnboundAndFutureDate(t *testing.T) {
 			t.Fatalf("unbound response = %d %s", unbound.Code, unbound.Body.String())
 		}
 
+		mock.ExpectBegin()
 		expectPair(mock, "2024-02-29")
+		mock.ExpectRollback()
 		future := performHandlerRequest(
 			handleUpdateAnniversary,
 			1,
@@ -109,13 +170,15 @@ func TestUpdateAnniversaryStoresDateAndReturnsPairProfile(t *testing.T) {
 	push := NewPushGateway("none", store)
 	testHub := NewHub(store, push)
 	withServerGlobals(store, testHub, func() {
+		mock.ExpectBegin()
 		expectPair(mock, "")
-		mock.ExpectExec("UPDATE pair SET anniversary_date=\\? WHERE id=\\?").
-			WithArgs(sqlmock.AnyArg(), int64(7)).
+		mock.ExpectExec("UPDATE pair SET anniversary_date=\\? WHERE id=\\? AND status=1 AND \\(user_a_id=\\? OR user_b_id=\\?\\)").
+			WithArgs(sqlmock.AnyArg(), int64(7), int64(1), int64(1)).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 		expectPair(mock, "2024-02-29")
 		expectUser(mock, 1, "林曦", nil, nil)
 		expectUser(mock, 2, "伴侣", nil, nil)
+		mock.ExpectCommit()
 
 		response := performHandlerRequest(
 			handleUpdateAnniversary,
@@ -152,6 +215,37 @@ func TestPairStatusIncludesBothProfilesAndAnniversary(t *testing.T) {
 	})
 }
 
+func TestRunMigrationsRepairsColumnsBeforeRecordingVersion(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	mock.ExpectExec("CREATE TABLE IF NOT EXISTS schema_migrations").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("SELECT version FROM schema_migrations").
+		WillReturnRows(sqlmock.NewRows([]string{"version"}))
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM information_schema.columns").
+		WithArgs("user", "avatar_thumbnail_url").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM information_schema.columns").
+		WithArgs("pair", "anniversary_date").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectExec("ALTER TABLE pair ADD COLUMN anniversary_date").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("INSERT INTO schema_migrations").
+		WithArgs(1, "profile_and_anniversary").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	if err := runMigrations(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRunMigrationsAppliesPendingVersionOnce(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -163,15 +257,19 @@ func TestRunMigrationsAppliesPendingVersionOnce(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery("SELECT version FROM schema_migrations").
 		WillReturnRows(sqlmock.NewRows([]string{"version"}))
-	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM information_schema.columns").
+		WithArgs("user", "avatar_thumbnail_url").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	mock.ExpectExec("ALTER TABLE `user` ADD COLUMN avatar_thumbnail_url").
 		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM information_schema.columns").
+		WithArgs("pair", "anniversary_date").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	mock.ExpectExec("ALTER TABLE pair ADD COLUMN anniversary_date").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec("INSERT INTO schema_migrations").
 		WithArgs(1, "profile_and_anniversary").
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectCommit()
 
 	if err := runMigrations(db); err != nil {
 		t.Fatal(err)
