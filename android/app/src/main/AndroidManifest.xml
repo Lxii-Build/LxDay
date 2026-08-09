@@ -32,6 +32,16 @@
         android:icon="@mipmap/ic_launcher"
         android:theme="@style/Theme.Linxi">
 
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <!-- 前台服务：Android 14 前台服务类型必填 -->
         <service
             android:name=".service.StatusForegroundService"

@@ -12,16 +12,13 @@ import java.util.Locale
 
 /**
  * 全局崩溃捕获。
- * 崩溃日志写到两个可见位置：
- *  1. 内部 files/crash（标准私有目录）
- *  2. 外部 Android/data/<pkg>/files/crash（文件管理器可见，无需权限）
- * 另写「启动标记」确认 App.onCreate 是否执行到。
+ * 崩溃日志写入内部 files/crash（Android app 私有目录）。
+ * 另写「启动标记」确认 App.onCreate 是否执行到；需要读取时通过设置页导出诊断包。
  */
 object CrashHandler {
 
     private const val TAG = "Linxi/Crash"
     private var logDir: File? = null
-    private var extLogDir: File? = null
     private var defaultHandler: Thread.UncaughtExceptionHandler? = null
 
     /** 提前注册（attachBaseContext 调用），尽早捕获崩溃 */
@@ -30,17 +27,15 @@ object CrashHandler {
         val dir = File(app.filesDir, "crash")
         if (!dir.exists()) dir.mkdirs()
         logDir = dir
-        extLogDir = app.getExternalFilesDir("crash")
         registerHandler()
         // 标记：进程已启动到 attachBaseContext（证明 CrashHandler 已注册）
         runCatching { write("attach_pid_${android.os.Process.myPid()}-${System.currentTimeMillis()}.txt", "attachBaseContext OK") }
-        Log.i(TAG, "initEarly 完成，内部=$logDir 外部=$extLogDir")
+        Log.i(TAG, "initEarly 完成，目录=$logDir")
     }
 
     fun init(app: Application) {
         logDir = File(app.filesDir, "crash")
         if (!logDir!!.exists()) logDir!!.mkdirs()
-        extLogDir = app.getExternalFilesDir("crash")
         registerHandler()
         // 标记：App.onCreate 执行到
         write("onCreate_pid_${android.os.Process.myPid()}-${System.currentTimeMillis()}.txt", "App.onCreate OK")
@@ -59,11 +54,7 @@ object CrashHandler {
     private fun write(fileName: String, content: String) {
         try {
             logDir?.let { d -> if (!d.exists()) d.mkdirs() }
-            extLogDir?.let { d -> if (!d.exists()) d.mkdirs() }
-            // 写到两个位置
-            listOfNotNull(logDir, extLogDir).forEach { dir ->
-                runCatching { File(dir, fileName).writeText(content) }
-            }
+            logDir?.let { dir -> runCatching { File(dir, fileName).writeText(content) } }
             Log.i(TAG, "标记已写: $fileName")
         } catch (_: Throwable) { }
     }
@@ -84,13 +75,11 @@ object CrashHandler {
         } catch (_: Throwable) { }
     }
 
-    fun crashFiles(): List<File> = (logDir?.listFiles()?.toList() ?: emptyList()) +
-            (extLogDir?.listFiles()?.toList() ?: emptyList())
+    fun crashFiles(): List<File> = logDir?.listFiles()?.toList() ?: emptyList()
 
     fun clearCrashes() {
         try {
             logDir?.listFiles()?.forEach { it.delete() }
-            extLogDir?.listFiles()?.forEach { it.delete() }
         } catch (_: Throwable) { }
     }
 }

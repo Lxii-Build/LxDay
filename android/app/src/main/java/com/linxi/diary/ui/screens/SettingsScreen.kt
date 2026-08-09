@@ -23,6 +23,7 @@ import com.linxi.diary.service.StatusForegroundService
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.ui.components.KernelScreen
 import com.linxi.diary.util.CrashHandler
+import com.linxi.diary.util.DiagnosticExporter
 import com.linxi.diary.util.Logs
 import com.linxi.diary.util.UserPrefs
 
@@ -156,10 +157,10 @@ fun SettingsScreen(
                     }
                 )
                 ArrowPreference(
-                    title = "查看运行日志",
-                    summary = "Android/data/com.linxi.diary/files/logs 按天存盘",
-                    startAction = { PrefIcon(Icons.Filled.Search, "查看运行日志") },
-                    onClick = { Logs.i("Settings", "查看运行日志：文件管理器 → Android/data/com.linxi.diary/files/logs") }
+                    title = "导出诊断日志",
+                    summary = "导出私有目录中最近 7 天运行日志与崩溃记录",
+                    startAction = { PrefIcon(Icons.Filled.Share, "导出诊断日志") },
+                    onClick = { DiagnosticExporter.share(context) }
                 )
                 ArrowPreference(
                     title = "清空崩溃日志",
