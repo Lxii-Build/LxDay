@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.util.CrashHandler
+import com.linxi.diary.util.Logs
 import com.linxi.diary.util.UserPrefs
 
 /**
@@ -27,25 +28,31 @@ class App : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        Log.i("Linxi/App", "App.onCreate 开始 pid=${android.os.Process.myPid()}")
+        // 文件日志尽早初始化，其后全部日志写盘（内部 + 外部 Android/data/<pkg>/files/logs）
+        try {
+            Logs.init(this)
+        } catch (t: Throwable) {
+            Log.e("Linxi/App", "Logs.init 失败", t)
+        }
+        Logs.i("App", "App.onCreate 开始 pid=${android.os.Process.myPid()}")
         try {
             CrashHandler.init(this)
-            Log.i("Linxi/App", "CrashHandler 已初始化")
+            Logs.i("App", "CrashHandler 已初始化")
         } catch (t: Throwable) {
-            Log.e("Linxi/App", "CrashHandler.init 失败", t)
+            Logs.e("App", "CrashHandler.init 失败", t)
         }
         try {
             UserPrefs.init(this)
-            Log.i("Linxi/App", "UserPrefs 已初始化")
+            Logs.i("App", "UserPrefs 已初始化")
         } catch (t: Throwable) {
-            Log.e("Linxi/App", "UserPrefs.init 失败", t)
+            Logs.e("App", "UserPrefs.init 失败", t)
         }
         try {
             StatusSyncManager.init(this)
-            Log.i("Linxi/App", "StatusSyncManager 已初始化")
+            Logs.i("App", "StatusSyncManager 已初始化")
         } catch (t: Throwable) {
-            Log.e("Linxi/App", "StatusSyncManager.init 失败", t)
+            Logs.e("App", "StatusSyncManager.init 失败", t)
         }
-        Log.i("Linxi/App", "App.onCreate 完成")
+        Logs.i("App", "App.onCreate 完成")
     }
 }

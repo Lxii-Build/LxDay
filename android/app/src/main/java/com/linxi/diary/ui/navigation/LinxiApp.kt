@@ -75,7 +75,8 @@ fun LinxiApp() {
             onSelect = { selected = it },
             onOpenHistory = { screen = Screen.History },
             onOpenBind = { screen = Screen.Bind },
-            onOpenConsent = { screen = Screen.Consent }
+            onOpenConsent = { screen = Screen.Consent },
+            onLogout = { screen = Screen.Bind }
         )
     }
 }
@@ -87,7 +88,8 @@ private fun MainTabs(
     onSelect: (String) -> Unit,
     onOpenHistory: () -> Unit,
     onOpenBind: () -> Unit,
-    onOpenConsent: () -> Unit
+    onOpenConsent: () -> Unit,
+    onLogout: () -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
     val pagerState = rememberPagerState(pageCount = { tabs.size })
@@ -99,13 +101,25 @@ private fun MainTabs(
         snapshotFlow { pagerState.currentPage }.collect { mainState.syncPage() }
     }
 
-    // 液态玻璃：页面背景录制进 LayerBackdrop，Tarbar 玻璃「看穿」内容
+    // 底部栏样式：0 普通导航栏 / 1 悬浮胶囊(无 AGSL，稳定) / 2 完整液态玻璃(AGSL)
+    val glassMode = remember { UserPrefs.liquidGlassMode }
+    val useFloating = glassMode != 0
+    val fullBlur = glassMode == 2
+    if (fullBlur) {
+        com.linxi.diary.util.Logs.w("Nav", "完整液态玻璃启用(AGSL)，如闪退请降级为悬浮胶囊")
+    } else if (useFloating) {
+        com.linxi.diary.util.Logs.i("Nav", "悬浮胶囊模式（无 AGSL，稳定）")
+    } else {
+        com.linxi.diary.util.Logs.i("Nav", "普通导航栏模式")
+    }
+
+    // 液态玻璃：仅完整版需要页面背景录制进 LayerBackdrop
     val backdrop = rememberLayerBackdrop()
 
     Box(
         Modifier
             .fillMaxSize()
-            .layerBackdrop(backdrop)
+            .then(if (fullBlur) Modifier.layerBackdrop(backdrop) else Modifier)
     ) {
         // 页面内容：HorizontalPager 支持手滑 + 悬浮栏联动
         HorizontalPager(
@@ -116,12 +130,16 @@ private fun MainTabs(
                 0 -> NowScreen(onOpenHistory = onOpenHistory, onOpenBind = onOpenBind)
                 1 -> TodoScreen()
                 2 -> DiaryScreen()
-                3 -> SettingsScreen(onOpenConsent = onOpenConsent, onOpenBind = onOpenBind)
+                3 -> SettingsScreen(
+                    onOpenConsent = onOpenConsent,
+                    onOpenBind = onOpenBind,
+                    onLogout = onLogout
+                )
             }
         }
 
-        // 悬浮液态底栏（KernelSU 同款 miuix，可在设备运行）
-        if (UserPrefs.liquidGlassEnabled != false) {
+        // 悬浮底栏（KernelSU 同款 miuix；isBlurEnabled=false 时为稳定胶囊，无 AGSL）
+        if (useFloating) {
             Column(
                 Modifier
                     .align(Alignment.BottomCenter)
@@ -131,7 +149,8 @@ private fun MainTabs(
                     selectedIndex = { selectedIndex },
                     onSelected = { i -> mainState.animateToPage(i) },
                     backdrop = backdrop,
-                    tabsCount = tabs.size
+                    tabsCount = tabs.size,
+                    isBlurEnabled = fullBlur
                 ) {
                     tabs.forEachIndexed { index, t ->
                         FloatingBottomBarItem(onClick = { mainState.animateToPage(index) }) {

@@ -35,7 +35,8 @@ import com.linxi.diary.util.UserPrefs
 @Composable
 fun SettingsScreen(
     onOpenConsent: () -> Unit = {},
-    onOpenBind: () -> Unit = {}
+    onOpenBind: () -> Unit = {},
+    onLogout: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var sharing by remember { mutableStateOf(UserPrefs.sharingEnabled) }
@@ -71,6 +72,8 @@ fun SettingsScreen(
                 }
                 if (!UserPrefs.privacyConsented) {
                     TextButton(onClick = onOpenConsent) { Text("需先完成知情授权") }
+                } else {
+                    TextButton(onClick = onOpenConsent) { Text("查看知情同意") }
                 }
 
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
@@ -116,13 +119,28 @@ fun SettingsScreen(
                     })
                 }
 
-                // 液态玻璃诊断开关
-                var liquid by remember { mutableStateOf(UserPrefs.liquidGlassEnabled) }
-                SettingRow("液态玻璃底栏", desc = "关闭可规避部分 GPU 崩溃") {
-                    Switch(checked = liquid, onCheckedChange = { on ->
-                        liquid = on
-                        UserPrefs.liquidGlassEnabled = on
-                    })
+                // 底部栏样式三档：普通 / 悬浮胶囊(无 AGSL) / 完整液态玻璃(AGSL)
+                SettingRow("底部栏样式", desc = "悬浮胶囊无 AGSL 最稳定；完整液态玻璃在部分 GPU 会闪退") {
+                    var liquidMode by remember { mutableStateOf(UserPrefs.liquidGlassMode) }
+                    var expanded by remember { mutableStateOf(false) }
+                    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+                        OutlinedTextField(
+                            value = when (liquidMode) { 0 -> "普通导航栏"; 2 -> "完整液态玻璃"; else -> "悬浮胶囊" },
+                            onValueChange = {},
+                            readOnly = true,
+                            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).width(150.dp)
+                        )
+                        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                            listOf(0 to "普通导航栏", 1 to "悬浮胶囊", 2 to "完整液态玻璃").forEach { (v, label) ->
+                                DropdownMenuItem(text = { Text(label) },
+                                    onClick = {
+                                        liquidMode = v
+                                        UserPrefs.liquidGlassMode = v
+                                        expanded = false
+                                    })
+                            }
+                        }
+                    }
                 }
 
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
@@ -161,18 +179,23 @@ fun SettingsScreen(
                         Logs.i("Settings", "崩溃日志数=$crashCount")
                     }) { Text("刷新") }
                 }
-                SettingRow("查看运行日志", desc = "adb logcat -s Linxi:V —— 集中前缀 Linxi") { }
+                SettingRow("查看运行日志", desc = "文件管理器 → Android/data/com.linxi.diary/files/logs 按天存盘，无需 adb") { }
                 TextButton(onClick = {
                     CrashHandler.clearCrashes()
                     crashCount = 0
                 }) { Text("清空崩溃日志") }
                 Spacer(Modifier.height(8.dp))
 
-                // 退出登录
+                // 退出登录（重置绑定/授权状态，返回绑定页重新走知情同意流程）
                 Button(onClick = {
+                    Logs.i("Settings", "退出登录：重置绑定与授权状态")
                     UserPrefs.token = null
                     UserPrefs.sharingEnabled = false
+                    UserPrefs.pairId = 0
+                    UserPrefs.privacyConsented = false
+                    UserPrefs.partnerName = ""
                     StatusForegroundService.stop(context)
+                    onLogout()
                 }, colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.error),
                     modifier = Modifier.fillMaxWidth()) {
