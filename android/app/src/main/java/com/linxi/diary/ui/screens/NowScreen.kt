@@ -1,10 +1,9 @@
 package com.linxi.diary.ui.screens
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Favorite
@@ -21,16 +20,21 @@ import com.linxi.diary.core.DeviceStatus
 import com.linxi.diary.core.DeviceStatusHolder
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.ui.components.KernelScreen
+import com.linxi.diary.ui.components.WarningCard
+import com.linxi.diary.ui.components.WarningLevel
 import com.linxi.diary.util.UserPrefs
-import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
+import top.yukonga.miuix.kmp.theme.MiuixTheme.isDynamicColor
+import top.yukonga.miuix.kmp.utils.PressFeedbackType
 
 /**
- * 此刻（照抄 KernelSU Home 结构）：
- * KernelScreen 骨架 + 伴侣状态卡（大图标叠层）+ 低电量警示卡 + 互动入口 + 我的手机信息卡。
+ * 此刻（照抄 KernelSU HomeMiuix）：
+ * 绿色状态卡（动态 secondaryContainer / 非动态浅绿#DFFAE4）+ WarningCard 警示条
+ * + 互动入口 Card + InfoText 信息卡（我的手机）。
  */
 @Composable
 fun NowScreen(
@@ -64,64 +68,56 @@ fun NowScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // 伴侣状态卡
-                PartnerStatusCard(partner, partnerName)
-
-                // 低电量警示（WarningCard 风格）
                 if (partner != null && partner.batteryLevel < 15) {
-                    WarningRow("对方电量不足 15%", level = "error")
+                    WarningCard("对方电量不足 15%", level = WarningLevel.Error)
                 }
                 if (partner == null) {
-                    WarningRow("等待 ${partnerName.ifBlank { "对方" }} 同步状态", level = "notice")
+                    WarningCard("等待 $partnerName 同步状态", level = WarningLevel.Notice)
                 }
 
-                // 远程互动
-                SmallTitleRow("远程互动")
+                // 伴侣状态卡（KernelSU StatusCard：绿色卡片 + 右下大图标叠层）
+                PartnerStatusCard(partner, partnerName)
+
+                // 远程互动（KernelSU Card 风格）
+                SectionTitle("远程互动")
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    ActionCard(
-                        "求陪伴",
-                        Icons.Filled.Favorite,
-                        Modifier.weight(1f)
-                    ) { StatusSyncManager.sendEvent("comfort_request") }
-                    ActionCard(
-                        "求冷静",
-                        Icons.Filled.CheckCircle,
-                        Modifier.weight(1f)
-                    ) { StatusSyncManager.sendEvent("calm_request") }
+                    ActionCard("求陪伴", Icons.Filled.Favorite, Modifier.weight(1f)) {
+                        StatusSyncManager.sendEvent("comfort_request")
+                    }
+                    ActionCard("求冷静", Icons.Filled.CheckCircle, Modifier.weight(1f)) {
+                        StatusSyncManager.sendEvent("calm_request")
+                    }
                 }
-                ActionCard(
-                    "响铃提醒（紧急找人）",
-                    Icons.Filled.Notifications,
-                    Modifier.fillMaxWidth()
-                ) { StatusSyncManager.sendEvent("ring_request") }
+                ActionCard("响铃提醒（紧急找人）", Icons.Filled.Notifications, Modifier.fillMaxWidth()) {
+                    StatusSyncManager.sendEvent("ring_request")
+                }
 
-                // 我的手机信息
-                SmallTitleRow("我的手机")
-                MyPhoneCard()
+                // 我的手机信息（KernelSU InfoCard：InfoText 格式）
+                SectionTitle("我的手机")
+                MyPhoneInfoCard()
             }
         }
     }
 }
 
-/** 伴侣状态卡（KernelSU StatusCard 风格：大图标叠层 Box） */
+/** 伴侣状态卡（照抄 KernelSU StatusCard：大图标叠层 Box offset 27,31 + 110dp） */
 @Composable
 private fun PartnerStatusCard(partner: DeviceStatus?, partnerName: String) {
-    if (partner == null) {
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(20.dp)) {
-                Text("等待 ${partnerName.ifBlank { "对方" }} 同步",
-                    style = MiuixTheme.textStyles.headline1)
-                Spacer(Modifier.height(4.dp))
-                Text("对方的 App 保持运行并开启状态共享后显示",
-                    color = colorScheme.onSurface.copy(alpha = 0.78f))
-            }
-        }
-        return
+    val cardColor = when {
+        isDynamicColor -> colorScheme.secondaryContainer
+        isSystemInDarkTheme() -> Color(0xFF1A3825)
+        else -> Color(0xFFDFFAE4)
     }
-    Card(modifier = Modifier.fillMaxWidth()) {
+    val iconTint = if (isDynamicColor) colorScheme.primary.copy(alpha = 0.8f) else Color(0xFF36D167)
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.defaultColors(color = cardColor),
+        pressFeedbackType = PressFeedbackType.Tilt
+    ) {
         Box(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
             // 右下角大图标（KernelSU offset 27,31 / 110dp）
             Box(
@@ -131,7 +127,7 @@ private fun PartnerStatusCard(partner: DeviceStatus?, partnerName: String) {
                 Icon(
                     imageVector = Icons.Filled.CheckCircle,
                     contentDescription = null,
-                    tint = colorScheme.primary.copy(alpha = 0.8f),
+                    tint = iconTint,
                     modifier = Modifier.size(110.dp)
                 )
             }
@@ -142,22 +138,30 @@ private fun PartnerStatusCard(partner: DeviceStatus?, partnerName: String) {
             ) {
                 Column {
                     Text(
-                        partner.foregroundApp?.second?.let { "正在使用 $it" } ?: "息屏/无前台",
+                        when {
+                            partner == null -> "等待 $partnerName 同步"
+                            else -> partner.foregroundApp?.second?.let { "正在使用 $it" } ?: "息屏/无前台"
+                        },
                         fontSize = 22.sp,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.SemiBold,
+                        color = colorScheme.onBackground
                     )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        "电量 ${partner.batteryLevel}%${if (partner.isCharging) " · 充电中" else ""} · " +
-                                "${if (partner.screenOn) "亮屏${if (partner.isLocked) "·锁定" else "·解锁"}" else "灭屏"}" +
-                                " · ${partner.ssid?.takeIf { it.isNotBlank() }?.let { "WiFi: $it" } ?: "移动网络"}",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    partner.music?.let {
-                        if (it.playing) {
-                            Spacer(Modifier.height(2.dp))
-                            Text("♪ ${it.title} - ${it.artist}", fontSize = 14.sp)
+                    Spacer(Modifier.height(1.dp))
+                    if (partner != null) {
+                        Text(
+                            "电量 ${partner.batteryLevel}%${if (partner.isCharging) " · 充电中" else ""} · " +
+                                    "${if (partner.screenOn) "亮屏${if (partner.isLocked) "·锁定" else "·解锁"}" else "灭屏"}" +
+                                    " · ${partner.ssid?.takeIf { it.isNotBlank() }?.let { "WiFi: $it" } ?: "移动网络"}",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = colorScheme.onBackground
+                        )
+                        partner.music?.let {
+                            if (it.playing) {
+                                Spacer(Modifier.height(1.dp))
+                                Text("♪ ${it.title} - ${it.artist}", fontSize = 14.sp,
+                                    color = colorScheme.onBackground)
+                            }
                         }
                     }
                 }
@@ -166,33 +170,19 @@ private fun PartnerStatusCard(partner: DeviceStatus?, partnerName: String) {
     }
 }
 
-/** 单行警示条（KernelSU WarningCard 风格） */
-@Composable
-private fun WarningRow(message: String, level: String) {
-    val container = if (level == "error") colorScheme.errorContainer else colorScheme.tertiaryContainer
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            Modifier.fillMaxWidth().padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(message, fontSize = 14.sp,
-                color = if (level == "error") colorScheme.onErrorContainer else colorScheme.onTertiaryContainer)
-        }
-    }
-}
-
 /** 分组小标题 */
 @Composable
-private fun SmallTitleRow(text: String) {
-    Text(text,
-        fontSize = 14.sp,
-        fontWeight = FontWeight.Bold,
-        color = colorScheme.onBackground,
-        modifier = Modifier.fillMaxWidth().padding(start = 28.dp, top = 8.dp, bottom = 8.dp))
+private fun SectionTitle(text: String) {
+    Text(
+        text,
+        fontSize = MiuixTheme.textStyles.headline1.fontSize,
+        fontWeight = FontWeight.Medium,
+        color = colorScheme.onSurface,
+        modifier = Modifier.fillMaxWidth().padding(start = 28.dp, top = 8.dp, bottom = 4.dp)
+    )
 }
 
-/** 互动卡片按钮（无涟漪） */
+/** 互动卡片按钮（KernelSU Card 风格，无涟漪） */
 @Composable
 private fun ActionCard(
     title: String,
@@ -215,18 +205,42 @@ private fun ActionCard(
     }
 }
 
-/** 我的手机信息卡（KernelSU InfoCard 风格） */
+/** 我的手机信息卡（照抄 KernelSU InfoCard：InfoText 标题+内容，项间 24dp） */
 @Composable
-private fun MyPhoneCard() {
+private fun MyPhoneInfoCard() {
+    @Composable
+    fun InfoText(
+        title: String,
+        content: String,
+        bottomPadding: androidx.compose.ui.unit.Dp = 24.dp
+    ) {
+        Text(
+            text = title,
+            fontSize = MiuixTheme.textStyles.headline1.fontSize,
+            fontWeight = FontWeight.Medium,
+            color = colorScheme.onSurface
+        )
+        Text(
+            text = content,
+            fontSize = MiuixTheme.textStyles.body2.fontSize,
+            color = colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.padding(top = 2.dp, bottom = bottomPadding)
+        )
+    }
+
     Card(modifier = Modifier.fillMaxWidth()) {
         val my = DeviceStatusHolder.current
         if (my != null) {
-            BasicComponent(title = "电量", summary = "${my.batteryLevel}%${if (my.isCharging) " · 充电中" else ""}")
-            BasicComponent(title = "屏幕", summary = if (my.screenOn) "亮屏" else "灭屏")
-            BasicComponent(title = "前台", summary = my.foregroundApp?.second ?: "息屏/无前台")
-            BasicComponent(title = "网络", summary = my.ssid?.takeIf { it.isNotBlank() }?.let { "WiFi: $it" } ?: "移动网络")
+            Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                InfoText("电量", "${my.batteryLevel}%${if (my.isCharging) " · 充电中" else ""}")
+                InfoText("屏幕", if (my.screenOn) "亮屏" else "灭屏")
+                InfoText("前台", my.foregroundApp?.second ?: "息屏/无前台")
+                InfoText("网络", my.ssid?.takeIf { it.isNotBlank() }?.let { "WiFi: $it" } ?: "移动网络", bottomPadding = 0.dp)
+            }
         } else {
-            BasicComponent(title = "状态共享未开启", summary = "在「我的」中开启后开始采集")
+            Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                InfoText("状态共享", "在「我的」中开启后开始采集", bottomPadding = 0.dp)
+            }
         }
     }
 }

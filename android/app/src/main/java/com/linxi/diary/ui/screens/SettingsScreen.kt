@@ -1,24 +1,23 @@
 package com.linxi.diary.ui.screens
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MenuAnchorType
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import top.yukonga.miuix.kmp.basic.Switch
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.preference.ArrowPreference
+import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
+import top.yukonga.miuix.kmp.preference.SwitchPreference
+import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 import com.linxi.diary.core.PermissionHelper
 import com.linxi.diary.service.StatusForegroundService
 import com.linxi.diary.sync.StatusSyncManager
@@ -28,10 +27,10 @@ import com.linxi.diary.util.Logs
 import com.linxi.diary.util.UserPrefs
 
 /**
- * 我的（照抄 KernelSU 设置布局）：
- * KernelScreen 骨架 + 设置项分组（绑定/共享/主题/卡片/液态/权限/调试/退出）。
+ * 我的（照抄 KernelSU 设置页 SettingPagerMiuix）：
+ * KernelScreen 骨架 + 分组 Card + SwitchPreference/ArrowPreference/OverlayDropdownPreference。
+ * 每个设置项带 startAction 图标，外观与 KernelSU 一致。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onOpenConsent: () -> Unit = {},
@@ -42,172 +41,202 @@ fun SettingsScreen(
     var sharing by remember { mutableStateOf(UserPrefs.sharingEnabled) }
     var cardEnabled by remember { mutableStateOf(UserPrefs.statusCardEnabled) }
     var darkMode by remember { mutableStateOf(UserPrefs.darkMode) }
+    var dynColor by remember { mutableStateOf(UserPrefs.keyColor == 0) }
+    var liquidMode by remember { mutableStateOf(UserPrefs.liquidGlassMode) }
+    var crashCount by remember { mutableStateOf(CrashHandler.crashFiles().size) }
     val partnerName = UserPrefs.partnerName.ifBlank { "未绑定" }
     val bound = UserPrefs.pairId > 0
 
+    // 权限状态
+    val usageOk = PermissionHelper.hasUsageAccess(context)
+    val notifOk = PermissionHelper.hasNotificationListener(context)
+    val policyOk = PermissionHelper.hasNotificationPolicyAccess(context)
+
     KernelScreen(title = "我的") {
+        // 分组1：共享与绑定
         item {
-            Column(
-                Modifier.fillMaxWidth().padding(vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                // 绑定状态
-                SettingRow("伴侣", partnerName)
-                if (!bound) {
-                    TextButton(onClick = onOpenBind) { Text("去绑定") }
-                }
-
-                HorizontalDivider(Modifier.padding(vertical = 8.dp))
-
-                // 状态共享总开关
-                SettingRow("状态共享") {
-                    Switch(checked = sharing, onCheckedChange = { on ->
+            Card(Modifier.padding(top = 12.dp).fillMaxWidth()) {
+                ArrowPreference(
+                    title = "伴侣",
+                    summary = if (bound) partnerName else "未绑定",
+                    startAction = { PrefIcon(Icons.Filled.Person, "伴侣") },
+                    onClick = { if (!bound) onOpenBind() }
+                )
+                SwitchPreference(
+                    title = "状态共享",
+                    summary = "关闭后立即停止采集并清除本机数据",
+                    startAction = { PrefIcon(Icons.Filled.Favorite, "状态共享") },
+                    checked = sharing,
+                    onCheckedChange = { on ->
                         sharing = on
                         UserPrefs.sharingEnabled = on
                         if (!on) {
                             DeviceStatusHolder_local.clear()
                             StatusSyncManager.pushNow()
                         }
-                    })
-                }
-                if (!UserPrefs.privacyConsented) {
-                    TextButton(onClick = onOpenConsent) { Text("需先完成知情授权") }
-                } else {
-                    TextButton(onClick = onOpenConsent) { Text("查看知情同意") }
-                }
-
-                HorizontalDivider(Modifier.padding(vertical = 8.dp))
-
-                // 主题设置
-                SettingRow("主题模式") {
-                    var expanded by remember { mutableStateOf(false) }
-                    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
-                        OutlinedTextField(
-                            value = when (darkMode) { 1 -> "浅色"; 2 -> "深色"; 3 -> "深色 AMOLED"; else -> "跟随系统" },
-                            onValueChange = {},
-                            readOnly = true,
-                            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).width(150.dp)
-                        )
-                        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                            listOf(0 to "跟随系统", 1 to "浅色", 2 to "深色", 3 to "深色 AMOLED").forEach { (v, label) ->
-                                DropdownMenuItem(text = { Text(label) },
-                                    onClick = {
-                                        darkMode = v
-                                        UserPrefs.colorMode = v
-                                        UserPrefs.darkMode = v
-                                        expanded = false
-                                    })
-                            }
-                        }
                     }
-                }
-                SettingRow("动态取色", desc = "关闭后使用固定情侣主题色") {
-                    var dynColor by remember { mutableStateOf(UserPrefs.keyColor == 0) }
-                    Switch(checked = dynColor, onCheckedChange = { on ->
+                )
+                ArrowPreference(
+                    title = "知情同意",
+                    summary = if (UserPrefs.privacyConsented) "已完成授权" else "需先完成知情授权",
+                    startAction = { PrefIcon(Icons.Filled.CheckCircle, "知情同意") },
+                    onClick = onOpenConsent
+                )
+            }
+        }
+
+        // 分组2：外观
+        item {
+            Card(Modifier.padding(top = 12.dp).fillMaxWidth()) {
+                OverlayDropdownPreference(
+                    title = "主题模式",
+                    summary = "跟随系统 / 浅色 / 深色 / 深色 AMOLED",
+                    items = listOf("跟随系统", "浅色", "深色", "深色 AMOLED"),
+                    startAction = { PrefIcon(Icons.Filled.Settings, "主题模式") },
+                    selectedIndex = when (darkMode) { 1 -> 1; 2 -> 2; 3 -> 3; else -> 0 },
+                    onSelectedIndexChange = { v ->
+                        darkMode = v
+                        UserPrefs.colorMode = v
+                        UserPrefs.darkMode = v
+                    }
+                )
+                SwitchPreference(
+                    title = "动态取色",
+                    summary = "关闭后使用固定情侣主题色",
+                    startAction = { PrefIcon(Icons.Filled.Star, "动态取色") },
+                    checked = dynColor,
+                    onCheckedChange = { on ->
                         dynColor = on
                         UserPrefs.keyColor = if (on) 0 else com.linxi.diary.ui.theme.LinxiSeedPurple
-                    })
-                }
-
-                // 常驻卡片开关
-                SettingRow("常驻状态卡片") {
-                    Switch(checked = cardEnabled, onCheckedChange = { on ->
+                    }
+                )
+                OverlayDropdownPreference(
+                    title = "底部栏样式",
+                    summary = "悬浮胶囊无 AGSL 最稳定；完整液态玻璃部分 GPU 会闪退",
+                    items = listOf("普通导航栏", "悬浮胶囊", "完整液态玻璃"),
+                    startAction = { PrefIcon(Icons.Filled.Menu, "底部栏样式") },
+                    selectedIndex = liquidMode,
+                    onSelectedIndexChange = { v ->
+                        liquidMode = v
+                        UserPrefs.liquidGlassMode = v
+                    }
+                )
+                SwitchPreference(
+                    title = "常驻状态卡片",
+                    summary = "通知栏常驻展示对方状态",
+                    startAction = { PrefIcon(Icons.Filled.Notifications, "常驻状态卡片") },
+                    checked = cardEnabled,
+                    onCheckedChange = { on ->
                         cardEnabled = on
                         UserPrefs.statusCardEnabled = on
                         if (on) StatusForegroundService.start(context)
                         else StatusForegroundService.stop(context)
-                    })
-                }
-
-                // 底部栏样式三档：普通 / 悬浮胶囊(无 AGSL) / 完整液态玻璃(AGSL)
-                SettingRow("底部栏样式", desc = "悬浮胶囊无 AGSL 最稳定；完整液态玻璃在部分 GPU 会闪退") {
-                    var liquidMode by remember { mutableStateOf(UserPrefs.liquidGlassMode) }
-                    var expanded by remember { mutableStateOf(false) }
-                    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
-                        OutlinedTextField(
-                            value = when (liquidMode) { 0 -> "普通导航栏"; 2 -> "完整液态玻璃"; else -> "悬浮胶囊" },
-                            onValueChange = {},
-                            readOnly = true,
-                            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).width(150.dp)
-                        )
-                        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                            listOf(0 to "普通导航栏", 1 to "悬浮胶囊", 2 to "完整液态玻璃").forEach { (v, label) ->
-                                DropdownMenuItem(text = { Text(label) },
-                                    onClick = {
-                                        liquidMode = v
-                                        UserPrefs.liquidGlassMode = v
-                                        expanded = false
-                                    })
-                            }
-                        }
                     }
-                }
+                )
+            }
+        }
 
-                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+        // 分组3：权限与保活
+        item {
+            Card(Modifier.padding(top = 12.dp).fillMaxWidth()) {
+                ArrowPreference(
+                    title = "使用情况访问",
+                    summary = if (usageOk) "已开启" else "识别前台 APP 与用量统计",
+                    startAction = { PrefIcon(Icons.Filled.AccountCircle, "使用情况访问") },
+                    onClick = { PermissionHelper.toUsageAccess(context) }
+                )
+                ArrowPreference(
+                    title = "通知使用权",
+                    summary = if (notifOk) "已开启" else "识别音乐 + 卡片兜底",
+                    startAction = { PrefIcon(Icons.Filled.Lock, "通知使用权") },
+                    onClick = { PermissionHelper.toNotificationListener(context) }
+                )
+                ArrowPreference(
+                    title = "勿扰访问",
+                    summary = if (policyOk) "已开启" else "强制响铃可绕过勿扰",
+                    startAction = { PrefIcon(Icons.Filled.Notifications, "勿扰访问") },
+                    onClick = { PermissionHelper.toNotificationPolicy(context) }
+                )
+                ArrowPreference(
+                    title = "vivo/OPPO 自启动白名单",
+                    summary = "防后台被杀，保证同步",
+                    startAction = { PrefIcon(Icons.Filled.Send, "自启动白名单") },
+                    onClick = { PermissionHelper.toVendorAutoStart(context) }
+                )
+            }
+        }
 
-                // 权限与保活引导
-                Text("权限与保活", style = MaterialTheme.typography.titleSmall)
-                Spacer(Modifier.height(8.dp))
-                if (!PermissionHelper.hasUsageAccess(context)) {
-                    SettingRow("使用情况访问", desc = "识别前台 APP 与用量统计") {
-                        TextButton(onClick = { PermissionHelper.toUsageAccess(context) }) { Text("去开启") }
-                    }
-                }
-                if (!PermissionHelper.hasNotificationListener(context)) {
-                    SettingRow("通知使用权", desc = "识别音乐 + 卡片兜底") {
-                        TextButton(onClick = { PermissionHelper.toNotificationListener(context) }) { Text("去开启") }
-                    }
-                }
-                if (!PermissionHelper.hasNotificationPolicyAccess(context)) {
-                    SettingRow("勿扰访问", desc = "强制响铃可绕过勿扰") {
-                        TextButton(onClick = { PermissionHelper.toNotificationPolicy(context) }) { Text("去开启") }
-                    }
-                }
-                SettingRow("vivo/OPPO 自启动白名单", desc = "防后台被杀，保证同步") {
-                    TextButton(onClick = { PermissionHelper.toVendorAutoStart(context) }) { Text("去设置") }
-                }
-
-                HorizontalDivider(Modifier.padding(vertical = 8.dp))
-
-                // 调试区
-                Text("调试", style = MaterialTheme.typography.titleSmall)
-                Spacer(Modifier.height(8.dp))
-                var crashCount by remember { mutableStateOf(CrashHandler.crashFiles().size) }
-                SettingRow("崩溃日志", desc = "$crashCount 条 · 本机 app 私有目录") {
-                    TextButton(onClick = {
+        // 分组4：调试
+        item {
+            Card(Modifier.padding(top = 12.dp).fillMaxWidth()) {
+                ArrowPreference(
+                    title = "崩溃日志",
+                    summary = "$crashCount 条 · 本机 app 私有目录",
+                    startAction = { PrefIcon(Icons.Filled.Build, "崩溃日志") },
+                    onClick = {
                         crashCount = CrashHandler.crashFiles().size
                         Logs.i("Settings", "崩溃日志数=$crashCount")
-                    }) { Text("刷新") }
-                }
-                SettingRow("查看运行日志", desc = "文件管理器 → Android/data/com.linxi.diary/files/logs 按天存盘，无需 adb") { }
-                TextButton(onClick = {
-                    CrashHandler.clearCrashes()
-                    crashCount = 0
-                }) { Text("清空崩溃日志") }
-                Spacer(Modifier.height(8.dp))
+                    }
+                )
+                ArrowPreference(
+                    title = "查看运行日志",
+                    summary = "Android/data/com.linxi.diary/files/logs 按天存盘",
+                    startAction = { PrefIcon(Icons.Filled.Search, "查看运行日志") },
+                    onClick = { Logs.i("Settings", "查看运行日志：文件管理器 → Android/data/com.linxi.diary/files/logs") }
+                )
+                ArrowPreference(
+                    title = "清空崩溃日志",
+                    summary = "删除本机崩溃记录",
+                    startAction = { PrefIcon(Icons.Filled.Delete, "清空崩溃日志") },
+                    onClick = {
+                        CrashHandler.clearCrashes()
+                        crashCount = 0
+                    }
+                )
+            }
+        }
 
-                // 退出登录（重置绑定/授权状态，返回绑定页重新走知情同意流程）
-                Button(onClick = {
-                    Logs.i("Settings", "退出登录：重置绑定与授权状态")
-                    UserPrefs.token = null
-                    UserPrefs.sharingEnabled = false
-                    UserPrefs.pairId = 0
-                    UserPrefs.privacyConsented = false
-                    UserPrefs.partnerName = ""
-                    StatusForegroundService.stop(context)
-                    onLogout()
-                }, colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error),
-                    modifier = Modifier.fillMaxWidth()) {
+        // 退出登录
+        item {
+            Column(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp)) {
+                Button(
+                    onClick = {
+                        Logs.i("Settings", "退出登录：重置绑定与授权状态")
+                        UserPrefs.token = null
+                        UserPrefs.sharingEnabled = false
+                        UserPrefs.pairId = 0
+                        UserPrefs.privacyConsented = false
+                        UserPrefs.partnerName = ""
+                        StatusForegroundService.stop(context)
+                        onLogout()
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     Text("退出登录")
                 }
-                Text("退出仅清除本地登录状态，服务端数据保留",
+                Text(
+                    "退出仅清除本地登录状态，服务端数据保留",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp))
+                    modifier = Modifier.padding(top = 4.dp)
+                )
             }
         }
     }
+}
+
+/** preference 起始图标（KernelSU 风格：右偏 6dp，onBackground 色） */
+@Composable
+private fun PrefIcon(icon: ImageVector, desc: String) {
+    Icon(
+        icon,
+        contentDescription = desc,
+        modifier = Modifier.padding(end = 6.dp),
+        tint = colorScheme.onBackground
+    )
 }
 
 /** 本地清空辅助 */
@@ -215,23 +244,5 @@ private object DeviceStatusHolder_local {
     fun clear() {
         com.linxi.diary.core.DeviceStatusHolder.current = null
         com.linxi.diary.core.DeviceStatusHolder.partner = null
-    }
-}
-
-@Composable
-private fun SettingRow(
-    title: String,
-    desc: String? = null,
-    trailing: (@Composable () -> Unit)? = null
-) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            desc?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        trailing?.invoke()
     }
 }
