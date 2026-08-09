@@ -26,6 +26,16 @@ class LogSanitizerTest {
     }
 
     @Test
+    fun `脱敏冒号空格引号 Cookie 和 API key`() {
+        val input = "token: secret ssid = \"Home WiFi\" Cookie: session=abc api_key='xyz'"
+
+        assertEquals(
+            "token: [REDACTED] ssid = \"[REDACTED]\" Cookie: [REDACTED] api_key='[REDACTED]'",
+            LogSanitizer.sanitize(input)
+        )
+    }
+
+    @Test
     fun `脱敏保留普通查询路径但移除认证查询参数`() {
         assertEquals(
             "request https://api.linxi.app/status?date=2026-08-09 url=https://api.linxi.app/ws?[REDACTED]",
