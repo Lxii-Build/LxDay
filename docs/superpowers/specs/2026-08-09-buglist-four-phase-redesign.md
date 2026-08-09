@@ -1,7 +1,7 @@
 # BugList 四阶段生产改造设计
 
 - 日期：2026-08-09
-- 状态：待用户书面审阅
+- 状态：已确认，实施中
 - 来源：`C:\Users\Administrator\Downloads\BugList.md`
 - 交付方式：功能分支 + Draft PR；每阶段推送并等待工作流全绿；用户只测试最终合并至 `main` 后的成品 APK
 - 产物约束：实施开始第一步删除本地 `dist/` 并加入忽略；后续不下载 APK 到本地，APK 仅由 GitHub Actions artifact 提供

@@ -17,6 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
+import com.linxi.diary.sync.SharingRuntimePolicy
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.ui.navigation.LinxiApp
 import com.linxi.diary.ui.theme.LinxiTheme
@@ -24,7 +25,7 @@ import com.linxi.diary.ui.theme.rememberThemeState
 import com.linxi.diary.util.Logs
 
 /**
- * 首页：4 Tab 导航（此刻/待办/日记/我的）。
+ * 首页：4 Tab 导航（主页/待办/日记/我的）。
  * 启动前置：请求运行时权限（通知 13+、定位 10+）；未授权时应用仍可打开，
  * 采集在「已授权 + 共享开启」时才由前台服务执行，避免闪退。
  * 主题：LinxiTheme（跟随系统 / 浅色 / 深色，SharedPreferences 即时刷新）。
@@ -52,10 +53,12 @@ class MainActivity : ComponentActivity() {
         } catch (t: Throwable) {
             Logs.e("Main", "请求权限失败", t)
         }
-        try {
-            StatusSyncManager.connect()
-        } catch (t: Throwable) {
-            Logs.e("Main", "连接失败", t)
+        if (SharingRuntimePolicy.canRunNow()) {
+            try {
+                StatusSyncManager.connect()
+            } catch (t: Throwable) {
+                Logs.e("Main", "连接失败", t)
+            }
         }
         Logs.i("Main", "setContent 之前")
         setContent {

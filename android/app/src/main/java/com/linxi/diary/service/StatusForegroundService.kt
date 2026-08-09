@@ -11,6 +11,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.net.wifi.WifiManager
 import android.os.IBinder
+import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.linxi.diary.MainActivity
@@ -19,6 +20,7 @@ import com.linxi.diary.core.DeviceStatus
 import com.linxi.diary.core.DeviceStatusHolder
 import com.linxi.diary.core.ScreenStateReceiver
 import com.linxi.diary.core.StatusCollector
+import com.linxi.diary.sync.SharingRuntimePolicy
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.util.Logs
 import com.linxi.diary.util.TimeUtil
@@ -28,9 +30,9 @@ import com.linxi.diary.util.UserPrefs
  * 常驻状态卡片前台服务（dataSync|location）。
  *
  * - 前台服务保证进程存活，通知不可被一键清理（Android 13-）持续展示；
- * - 收起态：官方 contentTitle/contentText 展示电量、屏幕和前台 App；
- * - 展开态：官方 BigTextStyle 展示全量状态，仅保留标准「响铃提醒」Action；
- * - 静默更新：setOnlyAlertOnce(true) + IMPORTANCE_LOW，刷新不响铃不震动；
+ * - 收起态：48dp 横向 RemoteViews，展示头像、前台 App 与状态摘要；
+ * - 展开态：横向 RemoteViews 展示屏幕、电量和网络组件，保留标准「响铃提醒」Action；
+ * - 静默更新：仅业务状态变化时刷新，setOnlyAlertOnce(true) + IMPORTANCE_LOW；
  * - Android 14+ 前台通知可被侧滑，兜底见 MediaNotificationListener.onNotificationRemoved。
  */
 class StatusForegroundService : Service() {
@@ -43,34 +45,43 @@ class StatusForegroundService : Service() {
 
         const val ACTION_REFRESH = "com.linxi.diary.REFRESH"
         const val ACTION_RING = "com.linxi.diary.RING"
-        const val ACTION_STOP = "com.linxi.diary.STOP"
         const val ACTION_SYNC = "com.linxi.diary.SYNC" // 后台 5 分钟定时采集
+        private const val EXTRA_FORCE_NOTIFICATION_REFRESH = "force_notification_refresh"
 
         /** 刷新卡片（收到 partner_status 时调用）。用户关闭卡片后忽略 */
         fun refreshCard(context: Context?) {
             val c = context ?: return
-            if (!UserPrefs.statusCardEnabled) return
+            if (!UserPrefs.statusCardEnabled || !SharingRuntimePolicy.canRunNow()) return
             startSafe(c, ACTION_REFRESH)
         }
 
+        fun restoreCard(context: Context?) {
+            val c = context ?: return
+            if (!UserPrefs.statusCardEnabled || !SharingRuntimePolicy.canRunNow()) return
+            startSafe(c, ACTION_REFRESH, forceNotificationRefresh = true)
+        }
+
         fun start(context: Context) {
+            if (!UserPrefs.statusCardEnabled || !SharingRuntimePolicy.canRunNow()) return
             startSafe(context, null)
         }
 
         fun stop(context: Context) {
-            try {
-                context.startService(Intent(context, StatusForegroundService::class.java)
-                    .setAction(ACTION_STOP))
-            } catch (t: Throwable) {
-                Logs.w("Service", "stop 启动异常", t)
-            }
+            runCatching {
+                context.stopService(Intent(context, StatusForegroundService::class.java))
+            }.onFailure { Logs.w("Service", "停止前台服务异常", it) }
         }
 
         /** 安全启动前台服务：Android 12+ 后台启动受限，捕获异常不闪退 */
-        private fun startSafe(context: Context, action: String?) {
+        private fun startSafe(
+            context: Context,
+            action: String?,
+            forceNotificationRefresh: Boolean = false,
+        ) {
             try {
                 val i = Intent(context, StatusForegroundService::class.java)
                 if (action != null) i.action = action
+                if (forceNotificationRefresh) i.putExtra(EXTRA_FORCE_NOTIFICATION_REFRESH, true)
                 if (android.os.Build.VERSION.SDK_INT >= 26) {
                     context.startForegroundService(i)
                 } else {
@@ -90,9 +101,14 @@ class StatusForegroundService : Service() {
     private var screenReceiver: ScreenStateReceiver? = null
     private var wifiReceiver: BroadcastReceiver? = null
     private var lastBatteryNotified = -1 // 低电量去重
+    private var lastNotificationState: NotificationCardState? = null
 
     override fun onCreate() {
         super.onCreate()
+        if (!UserPrefs.statusCardEnabled || !SharingRuntimePolicy.canRunNow()) {
+            stopSelf()
+            return
+        }
         try { createChannels() } catch (t: Throwable) { Logs.w("Service", "createChannels 异常", t) }
         // 动态注册亮屏/锁屏监听（ACTION_SCREEN_ON/OFF 无法静态注册）
         screenReceiver = ScreenStateReceiver().also { r ->
@@ -128,14 +144,17 @@ class StatusForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!UserPrefs.statusCardEnabled || !SharingRuntimePolicy.canRunNow()) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        if (intent?.getBooleanExtra(EXTRA_FORCE_NOTIFICATION_REFRESH, false) == true) {
+            lastNotificationState = null
+        }
         when (intent?.action) {
             ACTION_REFRESH -> refreshNow() // 静默刷新
             ACTION_SYNC -> refreshNow()    // 后台定时采集（AlarmManager 5min）
             ACTION_RING -> StatusSyncManager.sendEvent("ring_request")
-            ACTION_STOP -> {
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
-            }
             else -> refreshNow()
         }
         return START_STICKY
@@ -147,10 +166,10 @@ class StatusForegroundService : Service() {
      */
     private fun refreshNow() {
         try {
-            if (!UserPrefs.sharingEnabled) {
+            if (!SharingRuntimePolicy.canRunNow()) {
                 DeviceStatusHolder.current = null
                 DeviceStatusHolder.partner = null
-                runCatching { startForeground(NOTIFY_ID_CARD, buildCard(null)) }
+                updateCardIfChanged(null)
                 return
             }
             val s = StatusCollector.collectAll(this)
@@ -163,10 +182,18 @@ class StatusForegroundService : Service() {
             } else if (s.batteryLevel >= 20) {
                 lastBatteryNotified = -1
             }
-            runCatching { startForeground(NOTIFY_ID_CARD, buildCard(DeviceStatusHolder.partner)) }
+            updateCardIfChanged(DeviceStatusHolder.partner)
         } catch (t: Throwable) {
             Logs.e("Service", "refreshNow 异常", t)
         }
+    }
+
+    private fun updateCardIfChanged(partner: DeviceStatus?) {
+        val state = NotificationCardState.from(partner)
+        if (!NotificationUpdatePolicy.shouldUpdate(lastNotificationState, state)) return
+        lastNotificationState = state
+        runCatching { startForeground(NOTIFY_ID_CARD, buildCard(partner, state)) }
+            .onFailure { Logs.w("Service", "更新状态卡失败", it) }
     }
 
     private fun createChannels() {
@@ -186,15 +213,36 @@ class StatusForegroundService : Service() {
         })
     }
 
-    /** 构建标准 Android 常驻通知：系统模板负责跨 ROM 的深浅色、圆角与折叠布局。 */
-    private fun buildCard(partner: DeviceStatus?): Notification {
+    /** 构建紧凑横向状态卡；系统仍保留通知装饰和标准响铃 Action。 */
+    private fun buildCard(
+        partner: DeviceStatus?,
+        state: NotificationCardState = NotificationCardState.from(partner),
+    ): Notification {
         val openApp = PendingIntent.getActivity(
             this,
             0,
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val updateTime = if (partner == null) "" else TimeUtil.nowTime()
+        val updateTime = if (partner == null) "等待" else TimeUtil.nowTime()
+        val compactCard = RemoteViews(packageName, R.layout.notification_status_card_compact).apply {
+            setTextViewText(R.id.notification_update_time, updateTime)
+            setTextViewText(R.id.notification_foreground, state.foreground)
+            setTextViewText(
+                R.id.notification_summary,
+                listOf(state.sync, state.battery, state.network).joinToString(" · "),
+            )
+            setImageViewResource(R.id.notification_avatar, R.drawable.notification_avatar_placeholder)
+        }
+        val expandedCard = RemoteViews(packageName, R.layout.notification_status_card).apply {
+            setTextViewText(R.id.notification_update_time, updateTime)
+            setTextViewText(R.id.notification_foreground, state.foreground)
+            setTextViewText(R.id.notification_sync, state.sync)
+            setTextViewText(R.id.notification_phone, state.phone)
+            setTextViewText(R.id.notification_battery, state.battery)
+            setTextViewText(R.id.notification_network, state.network)
+            setImageViewResource(R.id.notification_avatar, R.drawable.notification_avatar_placeholder)
+        }
         return NotificationCompat.Builder(this, CHANNEL_CARD)
             .setSmallIcon(R.drawable.ic_heart)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
@@ -202,11 +250,9 @@ class StatusForegroundService : Service() {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setContentTitle("伴侣 · ${UserPrefs.partnerName.ifBlank { "对方" }}")
-            .setContentText(NotificationStatusFormatter.summary(partner))
-            .setStyle(NotificationCompat.BigTextStyle().bigText(
-                NotificationStatusFormatter.details(partner, updateTime)
-            ))
+            .setCustomContentView(compactCard)
+            .setCustomBigContentView(expandedCard)
+            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
             .addAction(R.drawable.ic_alarm, "响铃提醒", serviceAction(ACTION_RING))
             .setContentIntent(openApp)
             .build()

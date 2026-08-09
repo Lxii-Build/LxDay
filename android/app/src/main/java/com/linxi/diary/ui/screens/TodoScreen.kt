@@ -8,7 +8,10 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.*
-import top.yukonga.miuix.kmp.basic.FloatingActionButton
+import com.linxi.diary.debug.DemoContent
+import com.linxi.diary.debug.DemoMode
+import com.linxi.diary.ui.navigation.LocalMainFabState
+import com.linxi.diary.util.UserPrefs
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -48,14 +51,22 @@ fun TodoScreen() {
         }
     }
 
-    LaunchedEffect(Unit) { refresh() }
-
-    KernelScreen(
-        title = "待办",
-        floatingActionButton = {
-            FloatingActionButton(onClick = { showAdd = true }) { Text("+") }
+    val demo = DemoMode.shouldUseDemo(UserPrefs.demoMode)
+    val mainFabState = LocalMainFabState.current
+    DisposableEffect(mainFabState, demo) {
+        mainFabState.todoAction = if (demo) null else ({ showAdd = true })
+        onDispose { mainFabState.todoAction = null }
+    }
+    LaunchedEffect(demo) {
+        if (demo) {
+            todos = DemoContent.todos
+            loading = false
+        } else {
+            refresh()
         }
-    ) {
+    }
+
+    KernelScreen(title = "待办") {
         if (loading) {
             item { androidx.compose.material3.CircularProgressIndicator(Modifier.padding(24.dp)) }
         } else if (todos.isEmpty()) {
@@ -71,9 +82,9 @@ fun TodoScreen() {
             items(todos, key = { it.id }) { t ->
                 Card(modifier = Modifier.fillMaxWidth()) {
                     BasicComponent(
-                        title = t.title,
+                        title = if (demo) "${t.title} · 示例" else t.title,
                         summary = buildSummary(t),
-                        endActions = {
+                        endActions = if (demo) null else {
                             IconButton(onClick = {
                                 scope.launch {
                                     runCatching {

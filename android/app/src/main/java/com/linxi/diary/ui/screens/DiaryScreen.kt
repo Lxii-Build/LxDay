@@ -17,7 +17,10 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.FloatingActionButton
+import com.linxi.diary.debug.DemoContent
+import com.linxi.diary.debug.DemoMode
+import com.linxi.diary.ui.navigation.LocalMainFabState
+import com.linxi.diary.util.UserPrefs
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
@@ -46,14 +49,22 @@ fun DiaryScreen() {
         }
     }
 
-    LaunchedEffect(Unit) { refresh() }
-
-    KernelScreen(
-        title = "日记",
-        floatingActionButton = {
-            FloatingActionButton(onClick = { showPublish = true }) { Text("+") }
+    val demo = DemoMode.shouldUseDemo(UserPrefs.demoMode)
+    val mainFabState = LocalMainFabState.current
+    DisposableEffect(mainFabState, demo) {
+        mainFabState.diaryAction = if (demo) null else ({ showPublish = true })
+        onDispose { mainFabState.diaryAction = null }
+    }
+    LaunchedEffect(demo) {
+        if (demo) {
+            diaries = DemoContent.diaries
+            loading = false
+        } else {
+            refresh()
         }
-    ) {
+    }
+
+    KernelScreen(title = "日记") {
         if (loading) {
             item { CircularProgressIndicator(Modifier.padding(24.dp)) }
         } else if (diaries.isEmpty()) {
@@ -75,7 +86,7 @@ fun DiaryScreen() {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(d.title, style = MiuixTheme.textStyles.headline1,
+                                Text(if (demo) "${d.title} · 示例" else d.title, style = MiuixTheme.textStyles.headline1,
                                     modifier = Modifier.weight(1f))
                                 Text(d.authorName,
                                     color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.78f))

@@ -3,11 +3,11 @@
 | 功能 | UI/入口 | 核心实现 | 权限或协议 |
 |---|---|---|---|
 | 绑定 | `screens/BindScreen.kt` | `data/ApiClient.kt` | REST `/pair/create-invite`、`/pair/bind` |
-| 知情授权 | `screens/PrivacyConsentScreen.kt` | `UserPrefs.privacyConsented` | 双方确认后开启共享 |
-| 此刻 | `screens/NowScreen.kt` | `core/DeviceStatusHolder.kt` | 状态同步 WS |
-| 待办 | `screens/TodoScreen.kt` | `core/TodoAlarmReceiver.kt` | REST + WS + AlarmManager |
-| 日记 | `screens/DiaryScreen.kt` | `data/ApiClient.kt` | REST `/diaries` |
-| 历史 | `screens/HistoryScreen.kt` | `data/ApiClient.kt` | REST history endpoints |
+| 知情授权 | 根级 Miuix `OverlayDialog` / `screens/PrivacyConsentScreen.kt` | `UserPrefs.privacyConsented`、`sync/SharingRuntimePolicy.kt` | 同意后才开启真实共享；DemoMode 保持关闭 |
+| 主页 | `screens/NowScreen.kt` | `core/DeviceStatusHolder.kt` | 状态同步 WS；DemoMode 禁用远程互动 |
+| 待办 | `screens/TodoScreen.kt` / 主层 FAB | `core/TodoAlarmReceiver.kt`、`debug/DemoContent.kt` | REST + WS + AlarmManager；示例无副作用 |
+| 日记 | `screens/DiaryScreen.kt` / 主层 FAB | `data/ApiClient.kt`、`debug/DemoContent.kt` | REST `/diaries`；示例无上传/发布 |
+| 伴侣状态历史 | 我的 → `screens/HistoryScreen.kt` | `data/ApiClient.kt` | REST history endpoints；DemoMode 禁止进入 |
 | 状态采集 | 无独立页面 | `core/StatusCollector.kt` | Usage Access、定位、通知使用权 |
 | 实时同步 | 无独立页面 | `sync/StatusSyncManager.kt` | WSS `/ws?token=JWT` |
 | 常驻通知 | 我的页开关/前台服务 | `service/StatusForegroundService.kt` | 前台服务、通知权限 |

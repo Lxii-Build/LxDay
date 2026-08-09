@@ -23,6 +23,10 @@ object UserPrefs {
         get() = sp.getString("partner_name", "") ?: ""
         set(v) { sp.edit().putString("partner_name", v).apply() }
 
+    var demoMode: Boolean
+        get() = sp.getBoolean("demo_mode", false)
+        set(v) { sp.edit().putBoolean("demo_mode", v).apply() }
+
     var statusCardEnabled: Boolean
         get() = sp.getBoolean("status_card", true)
         set(v) { sp.edit().putBoolean("status_card", v).apply() }

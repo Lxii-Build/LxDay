@@ -42,6 +42,7 @@ object StatusSyncManager {
     private var client: OkHttpClient? = null
     private var ws: WebSocket? = null
     private var retry = 0
+    private var connectionGeneration = 0L
     private var appContext: Context? = null
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -51,8 +52,10 @@ object StatusSyncManager {
     }
 
     fun connect() {
+        if (!SharingRuntimePolicy.canRunNow()) return
         val token = UserPrefs.token ?: return
         if (ws != null) return
+        val generation = connectionGeneration
         val c = OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
@@ -69,30 +72,46 @@ object StatusSyncManager {
             override fun onMessage(w: WebSocket, text: String) = handle(text)
 
             override fun onFailure(w: WebSocket, t: Throwable, res: Response?) {
+                if (ws !== w) return
                 ws = null
-                scheduleReconnect()
+                scheduleReconnect(generation)
             }
 
             override fun onClosed(w: WebSocket, code: Int, reason: String) {
+                if (ws !== w) return
                 ws = null
-                scheduleReconnect()
+                scheduleReconnect(generation)
             }
         })
     }
 
-    private fun scheduleReconnect() {
+    fun disconnect() {
+        connectionGeneration++
+        retry = 0
+        val socket = ws
+        ws = null
+        socket?.close(1000, "sharing disabled")
+        client?.dispatcher?.cancelAll()
+        client?.connectionPool?.evictAll()
+        client = null
+    }
+
+    private fun scheduleReconnect(generation: Long) {
+        if (generation != connectionGeneration || !SharingRuntimePolicy.canRunNow()) return
         val delayMs = (1L shl retry.coerceAtMost(6)) * 1000L
         retry++
         scope.launch {
             delay(delayMs)
-            connect()
+            if (generation == connectionGeneration && SharingRuntimePolicy.canRunNow()) {
+                connect()
+            }
         }
     }
 
     /** 上报本机全量状态。共享开关关闭时不推送。关键变更调用 pushNow() 即时推送 */
     fun pushNow() {
         try {
-            if (!UserPrefs.sharingEnabled) return
+            if (!SharingRuntimePolicy.canRunNow()) return
             val w = ws ?: return
             val s = DeviceStatusHolder.current ?: return
             w.send(JSONObject().apply {
@@ -107,6 +126,7 @@ object StatusSyncManager {
     /** 触发一次性事件：comfort_request / calm_request / ring_request */
     fun sendEvent(type: String) {
         try {
+            if (!SharingRuntimePolicy.canRunNow()) return
             ws?.send(JSONObject().apply {
                 put("type", type)
                 put("data", JSONObject().put("ts", System.currentTimeMillis()))
@@ -117,6 +137,7 @@ object StatusSyncManager {
     }
 
     private fun handle(text: String) {
+        if (!SharingRuntimePolicy.canRunNow()) return
         try {
             handleInner(text)
         } catch (t: Throwable) {

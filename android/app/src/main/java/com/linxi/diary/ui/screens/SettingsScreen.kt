@@ -40,6 +40,7 @@ import com.linxi.diary.util.UserPrefs
 fun SettingsScreen(
     onOpenConsent: () -> Unit = {},
     onOpenBind: () -> Unit = {},
+    onOpenHistory: () -> Unit = {},
     onLogout: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -51,6 +52,7 @@ fun SettingsScreen(
     var crashCount by remember { mutableStateOf(CrashHandler.crashFiles().size) }
     val partnerName = UserPrefs.partnerName.ifBlank { "未绑定" }
     val bound = UserPrefs.pairId > 0
+    val demo = UserPrefs.demoMode
 
     // 权限状态
     val usageOk = PermissionHelper.hasUsageAccess(context)
@@ -69,15 +71,20 @@ fun SettingsScreen(
                 )
                 SwitchPreference(
                     title = "状态共享",
-                    summary = "关闭后立即停止采集并清除本机数据",
+                    summary = if (demo) "调试模式不采集、不上传真实状态" else "关闭后立即停止采集并清除本机数据",
                     startAction = { PrefIcon(Icons.Filled.Favorite, "状态共享") },
                     checked = sharing,
+                    enabled = !demo && UserPrefs.privacyConsented,
                     onCheckedChange = { on ->
                         sharing = on
                         UserPrefs.sharingEnabled = on
-                        if (!on) {
+                        if (on) {
+                            StatusForegroundService.start(context)
+                            StatusSyncManager.connect()
+                        } else {
                             DeviceStatusHolder_local.clear()
-                            StatusSyncManager.pushNow()
+                            StatusSyncManager.disconnect()
+                            StatusForegroundService.stop(context)
                         }
                     }
                 )
@@ -86,6 +93,12 @@ fun SettingsScreen(
                     summary = if (UserPrefs.privacyConsented) "已完成授权" else "需先完成知情授权",
                     startAction = { PrefIcon(Icons.Filled.CheckCircle, "知情同意") },
                     onClick = onOpenConsent
+                )
+                ArrowPreference(
+                    title = "伴侣状态历史",
+                    summary = if (demo) "调试模式不读取服务端历史" else "查看状态时间线与电量曲线",
+                    startAction = { PrefIcon(Icons.Filled.History, "伴侣状态历史") },
+                    onClick = if (demo) null else onOpenHistory
                 )
             }
         }
@@ -109,6 +122,7 @@ fun SettingsScreen(
                     summary = "通知栏常驻展示对方状态",
                     startAction = { PrefIcon(Icons.Filled.Notifications, "常驻状态卡片") },
                     checked = cardEnabled,
+                    enabled = !demo && UserPrefs.privacyConsented && sharing,
                     onCheckedChange = { on ->
                         cardEnabled = on
                         UserPrefs.statusCardEnabled = on
@@ -190,10 +204,12 @@ fun SettingsScreen(
                     onClick = {
                         Logs.i("Settings", "退出登录：重置绑定与授权状态")
                         UserPrefs.token = null
+                        UserPrefs.demoMode = false
                         UserPrefs.sharingEnabled = false
                         UserPrefs.pairId = 0
                         UserPrefs.privacyConsented = false
                         UserPrefs.partnerName = ""
+                        StatusSyncManager.disconnect()
                         StatusForegroundService.stop(context)
                         onLogout()
                     },
