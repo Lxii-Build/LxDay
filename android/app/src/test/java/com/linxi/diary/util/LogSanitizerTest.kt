@@ -16,6 +16,16 @@ class LogSanitizerTest {
     }
 
     @Test
+    fun `脱敏 JSON Bearer 和邀请码变体`() {
+        val input = "{\"token\":\"secret\",\"ssid\":\"HomeWiFi\",\"inviteCode\":\"123456\"} Authorization: Bearer abc.def"
+
+        assertEquals(
+            "{\"token\":\"[REDACTED]\",\"ssid\":\"[REDACTED]\",\"inviteCode\":\"[REDACTED]\"} Authorization: Bearer [REDACTED]",
+            LogSanitizer.sanitize(input)
+        )
+    }
+
+    @Test
     fun `脱敏保留普通查询路径但移除认证查询参数`() {
         assertEquals(
             "request https://api.linxi.app/status?date=2026-08-09 url=https://api.linxi.app/ws?[REDACTED]",

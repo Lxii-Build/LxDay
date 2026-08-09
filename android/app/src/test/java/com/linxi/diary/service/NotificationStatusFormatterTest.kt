@@ -41,6 +41,16 @@ class NotificationStatusFormatterTest {
     }
 
     @Test
+    fun `SSID 不可见时使用 network 字段判断 WiFi`() {
+        val status = DeviceStatus(network = "wifi", ssid = null)
+
+        assertEquals(
+            "电量：0%\n屏幕：息屏\n前台 App：无前台\n网络：WiFi\n更新于 10:30",
+            NotificationStatusFormatter.details(status, "10:30")
+        )
+    }
+
+    @Test
     fun `空状态使用安全占位文本`() {
         assertEquals("等待对方状态同步", NotificationStatusFormatter.summary(null))
         assertEquals(
