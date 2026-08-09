@@ -50,6 +50,9 @@ fun HistoryScreen(onBack: () -> Unit = {}) {
 
     LaunchedEffect(date) { load() }
 
+    // 系统返回键（手势/底部返回）也返回主界面，配合预测性返回动画
+    androidx.activity.compose.BackHandler(onBack = onBack)
+
     KernelScreen(
         title = "历史状态",
         navigationIcon = { com.linxi.diary.ui.components.BackAction(onBack = onBack) }
