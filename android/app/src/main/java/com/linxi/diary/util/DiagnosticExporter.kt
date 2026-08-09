@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
 import java.io.File
-import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -48,7 +47,8 @@ object DiagnosticExporter {
     private fun addDirectory(zip: ZipOutputStream, directory: File, prefix: String) {
         directory.listFiles()?.filter { it.isFile }?.forEach { file ->
             zip.putNextEntry(ZipEntry("$prefix/${file.name}"))
-            FileInputStream(file).buffered().use { input -> input.copyTo(zip) }
+            val sanitized = LogSanitizer.sanitize(file.readText())
+            zip.write(sanitized.toByteArray(Charsets.UTF_8))
             zip.closeEntry()
         }
     }

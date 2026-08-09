@@ -52,7 +52,7 @@ object Logs {
             LogLevel.ERROR -> if (throwable == null) Log.e(logTag, message) else Log.e(logTag, message, throwable)
         }
         val suffix = throwable?.stackTraceToString()?.let { "\n$it" } ?: ""
-        appendFile(level, tag, LogSanitizer.sanitize(message) + suffix)
+        appendFile(level, tag, LogSanitizer.sanitize(message + suffix))
     }
 
     private fun appendFile(level: LogLevel, tag: String, message: String) {
