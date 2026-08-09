@@ -18,6 +18,7 @@ import java.util.Locale
 object CrashHandler {
 
     private const val TAG = "Linxi/Crash"
+    private const val MAX_CRASH_FILES = 20
     private var logDir: File? = null
     private var defaultHandler: Thread.UncaughtExceptionHandler? = null
 
@@ -55,6 +56,7 @@ object CrashHandler {
         try {
             logDir?.let { d -> if (!d.exists()) d.mkdirs() }
             logDir?.let { dir -> runCatching { File(dir, fileName).writeText(content) } }
+            trimCrashFiles()
             Log.i(TAG, "标记已写: $fileName")
         } catch (_: Throwable) { }
     }
@@ -75,7 +77,13 @@ object CrashHandler {
         } catch (_: Throwable) { }
     }
 
-    fun crashFiles(): List<File> = logDir?.listFiles()?.toList() ?: emptyList()
+    private fun trimCrashFiles() {
+        logDir?.listFiles()?.filter { it.isFile }?.sortedByDescending { it.lastModified() }
+            ?.drop(MAX_CRASH_FILES)?.forEach { it.delete() }
+    }
+
+    fun crashFiles(): List<File> = logDir?.listFiles()?.filter { it.isFile }
+        ?.sortedByDescending { it.lastModified() } ?: emptyList()
 
     fun clearCrashes() {
         try {

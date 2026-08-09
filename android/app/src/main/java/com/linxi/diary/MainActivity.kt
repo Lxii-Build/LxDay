@@ -79,10 +79,11 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun AppTheme(content: @Composable () -> Unit) {
-        Logs.i("Main", "AppTheme 组合开始")
         val themeState = rememberThemeState()
         val settings by themeState.appSettings
-        Logs.i("Main", "themeState 就绪 colorMode=${settings.colorMode}")
+        androidx.compose.runtime.LaunchedEffect(settings.colorMode) {
+            Logs.i("Main", "主题模式=${settings.colorMode}")
+        }
         LinxiTheme(appSettings = settings, content = content)
     }
 

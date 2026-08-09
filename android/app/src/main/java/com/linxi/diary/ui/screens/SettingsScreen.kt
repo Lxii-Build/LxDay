@@ -11,6 +11,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
@@ -39,6 +42,8 @@ fun SettingsScreen(
     onLogout: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val activity = context as? android.app.Activity
     var sharing by remember { mutableStateOf(UserPrefs.sharingEnabled) }
     var cardEnabled by remember { mutableStateOf(UserPrefs.statusCardEnabled) }
     var darkMode by remember { mutableStateOf(UserPrefs.colorMode.coerceIn(0, 2)) }
@@ -96,7 +101,6 @@ fun SettingsScreen(
                     onSelectedIndexChange = { v ->
                         darkMode = v
                         UserPrefs.colorMode = v
-                        UserPrefs.darkMode = v
                     }
                 )
                 SwitchPreference(
@@ -160,7 +164,11 @@ fun SettingsScreen(
                     title = "导出诊断日志",
                     summary = "导出私有目录中最近 7 天运行日志与崩溃记录",
                     startAction = { PrefIcon(Icons.Filled.Share, "导出诊断日志") },
-                    onClick = { DiagnosticExporter.share(context) }
+                    onClick = {
+                        activity?.let { ownerActivity ->
+                            lifecycleOwner.lifecycleScope.launch { DiagnosticExporter.share(ownerActivity) }
+                        }
+                    }
                 )
                 ArrowPreference(
                     title = "清空崩溃日志",

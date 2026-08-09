@@ -32,11 +32,6 @@ object UserPrefs {
         get() = sp.getString("watch_ssid", "") ?: ""
         set(v) { sp.edit().putString("watch_ssid", v).apply() }
 
-    // 深色模式：默认跟随系统；null 表示跟随系统
-    var darkMode: Int // 0跟随系统 1浅色 2深色
-        get() = sp.getInt("dark_mode", 0)
-        set(v) { sp.edit().putInt("dark_mode", v).apply() }
-
     // 主题模式（ColorMode.value）：0跟随系统 1浅色 2深色 3深色AMOLED
     var colorMode: Int
         get() = sp.getInt("color_mode", 0)

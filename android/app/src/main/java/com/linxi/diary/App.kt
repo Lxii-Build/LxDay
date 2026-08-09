@@ -4,7 +4,6 @@ import android.app.Application
 import android.util.Log
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.util.CrashHandler
-import com.linxi.diary.util.DiagnosticExporter
 import com.linxi.diary.util.Logs
 import com.linxi.diary.util.UserPrefs
 
@@ -35,7 +34,6 @@ class App : Application() {
         } catch (t: Throwable) {
             Log.e("Linxi/App", "Logs.init 失败", t)
         }
-        DiagnosticExporter.cleanupCache(this)
         Logs.i("App", "App.onCreate 开始 pid=${android.os.Process.myPid()}")
         try {
             CrashHandler.init(this)

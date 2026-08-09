@@ -45,7 +45,7 @@
         <!-- 前台服务：Android 14 前台服务类型必填 -->
         <service
             android:name=".service.StatusForegroundService"
-            android:foregroundServiceType="dataSync|location"
+            android:foregroundServiceType="dataSync"
             android:exported="false" />
 
         <!-- 通知使用权：音乐识别 + 常驻卡片被删重拉 -->

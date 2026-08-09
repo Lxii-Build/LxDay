@@ -12,6 +12,8 @@
 
 ## 官方模板
 
+前台服务仅声明 `dataSync` 类型；WiFi 状态读取不以 location 前台服务运行，避免 Android 14+ while-in-use 定位资格导致整个同步服务启动失败。
+
 常驻通知使用 `NotificationCompat.Builder`：
 
 - 收起态：标题“伴侣 · 名称”；摘要“电量 · 屏幕 · 前台 App”。
