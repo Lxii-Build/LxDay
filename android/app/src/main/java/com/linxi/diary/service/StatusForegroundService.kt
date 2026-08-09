@@ -116,13 +116,15 @@ class StatusForegroundService : Service() {
             val f = IntentFilter(WifiManager.NETWORK_STATE_CHANGED_ACTION)
             ContextCompat.registerReceiver(this, r, f, ContextCompat.RECEIVER_NOT_EXPORTED)
         }
-        // 先采集一次再 startForeground，保证卡片有数据
-        refreshNow()
+        // Android 要求 startForegroundService 后尽快发布通知；先发占位，再采集更新。
         try {
             startForeground(NOTIFY_ID_CARD, buildCard(DeviceStatusHolder.partner))
         } catch (t: Throwable) {
             Logs.e("Service", "startForeground 失败（无通知权限？）", t)
+            stopSelf()
+            return
         }
+        refreshNow()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

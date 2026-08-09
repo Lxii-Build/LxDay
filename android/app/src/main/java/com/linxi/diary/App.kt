@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.util.CrashHandler
+import com.linxi.diary.util.DiagnosticExporter
 import com.linxi.diary.util.Logs
 import com.linxi.diary.util.UserPrefs
 
@@ -28,12 +29,13 @@ class App : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        // 文件日志尽早初始化，其后全部日志写盘（内部 + 外部 Android/data/<pkg>/files/logs）
+        // 文件日志尽早初始化，其后全部日志写入 Android app 私有 files/logs。
         try {
             Logs.init(this)
         } catch (t: Throwable) {
             Log.e("Linxi/App", "Logs.init 失败", t)
         }
+        DiagnosticExporter.cleanupCache(this)
         Logs.i("App", "App.onCreate 开始 pid=${android.os.Process.myPid()}")
         try {
             CrashHandler.init(this)

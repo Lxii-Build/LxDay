@@ -20,7 +20,11 @@ object NotificationStatusFormatter {
         } else {
             "息屏"
         }
-        val network = status.ssid?.takeIf { it.isNotBlank() }?.let { "WiFi" } ?: "移动网络"
+        val network = if (status.network.equals("wifi", ignoreCase = true) || !status.ssid.isNullOrBlank()) {
+            "WiFi"
+        } else {
+            "移动网络"
+        }
         val music = status.music?.takeIf { it.playing }
             ?.let { "音乐：${it.title} - ${it.artist}\n" }
             ?: ""

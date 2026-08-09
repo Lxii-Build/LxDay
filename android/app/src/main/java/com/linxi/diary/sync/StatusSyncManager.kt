@@ -120,7 +120,7 @@ object StatusSyncManager {
         try {
             handleInner(text)
         } catch (t: Throwable) {
-            Logs.e("Sync", "处理 WS 消息异常: ${text.take(120)}", t)
+            Logs.e("Sync", "处理 WS 消息异常（type=${runCatching { JSONObject(text).optString("type") }.getOrDefault("unknown")}）", t)
         }
     }
 

@@ -3,6 +3,8 @@ package com.linxi.diary.ui.theme
 import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -55,9 +57,20 @@ fun LinxiTheme(appSettings: AppSettings, content: @Composable () -> Unit) {
             isAppearanceLightNavigationBars = !darkTheme
         }
     }
+    val materialColors = if (darkTheme) {
+        darkColorScheme(
+            primary = Color(0xFFE59DB9),
+            secondary = Color(0xFFB49EDE),
+        )
+    } else {
+        lightColorScheme(
+            primary = Color(0xFF9C4668),
+            secondary = Color(0xFF71558F),
+        )
+    }
     CompositionLocalProvider(LocalLinxiDarkTheme provides darkTheme) {
         MiuixTheme(controller = controller) {
-            MaterialTheme(typography = Typography(), content = content)
+            MaterialTheme(colorScheme = materialColors, typography = Typography(), content = content)
         }
     }
 }

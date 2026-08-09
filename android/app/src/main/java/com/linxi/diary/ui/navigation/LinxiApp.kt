@@ -68,7 +68,9 @@ fun LinxiApp() {
             }
         )
     }
-    Logs.i("Nav", "screen=$screen pairId=${UserPrefs.pairId} consented=${UserPrefs.privacyConsented}")
+    LaunchedEffect(screen) {
+        Logs.i("Nav", "screen=$screen pairId=${UserPrefs.pairId} consented=${UserPrefs.privacyConsented}")
+    }
 
     when (screen) {
         Screen.Bind -> BindScreen(onBound = { screen = Screen.Consent })
