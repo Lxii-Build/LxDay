@@ -50,10 +50,10 @@ jobs:
         with:
           gradle-version: '9.7.0'
 
-      - name: 构建 Debug + Release APK（先生成 wrapper 再构建）
+      - name: 运行 Android 单元测试并构建 APK
         run: |
           gradle wrapper --gradle-version 9.7.0 --no-daemon
-          ./gradlew :app:assembleDebug :app:assembleRelease --no-daemon
+          ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease --no-daemon
 
       - name: 上传 gradle wrapper
         uses: actions/upload-artifact@v4
