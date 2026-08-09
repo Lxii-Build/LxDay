@@ -1,8 +1,13 @@
 package com.linxi.diary.service
 
+data class NotificationRenderState(
+    val card: NotificationCardState,
+    val avatarFingerprint: Long,
+)
+
 object NotificationUpdatePolicy {
     fun shouldUpdate(
-        previous: NotificationCardState?,
-        current: NotificationCardState,
+        previous: NotificationRenderState?,
+        current: NotificationRenderState,
     ): Boolean = previous != current
 }

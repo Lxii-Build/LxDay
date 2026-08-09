@@ -101,7 +101,7 @@ class StatusForegroundService : Service() {
     private var screenReceiver: ScreenStateReceiver? = null
     private var wifiReceiver: BroadcastReceiver? = null
     private var lastBatteryNotified = -1 // 低电量去重
-    private var lastNotificationState: NotificationCardState? = null
+    private var lastNotificationState: NotificationRenderState? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -189,10 +189,13 @@ class StatusForegroundService : Service() {
     }
 
     private fun updateCardIfChanged(partner: DeviceStatus?) {
-        val state = NotificationCardState.from(partner)
+        val state = NotificationRenderState(
+            card = NotificationCardState.from(partner),
+            avatarFingerprint = NotificationAvatarCache.fingerprint(filesDir),
+        )
         if (!NotificationUpdatePolicy.shouldUpdate(lastNotificationState, state)) return
         lastNotificationState = state
-        runCatching { startForeground(NOTIFY_ID_CARD, buildCard(partner, state)) }
+        runCatching { startForeground(NOTIFY_ID_CARD, buildCard(partner, state.card)) }
             .onFailure { Logs.w("Service", "更新状态卡失败", it) }
     }
 
@@ -225,6 +228,7 @@ class StatusForegroundService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val updateTime = if (partner == null) "等待" else TimeUtil.nowTime()
+        val avatar = NotificationAvatarCache.load(filesDir)
         val compactCard = RemoteViews(packageName, R.layout.notification_status_card_compact).apply {
             setTextViewText(R.id.notification_update_time, updateTime)
             setTextViewText(R.id.notification_foreground, state.foreground)
@@ -232,7 +236,11 @@ class StatusForegroundService : Service() {
                 R.id.notification_summary,
                 listOf(state.sync, state.battery, state.network).joinToString(" · "),
             )
-            setImageViewResource(R.id.notification_avatar, R.drawable.notification_avatar_placeholder)
+            if (avatar != null) {
+                setImageViewBitmap(R.id.notification_avatar, avatar)
+            } else {
+                setImageViewResource(R.id.notification_avatar, R.drawable.notification_avatar_placeholder)
+            }
         }
         val expandedCard = RemoteViews(packageName, R.layout.notification_status_card).apply {
             setTextViewText(R.id.notification_update_time, updateTime)
@@ -241,7 +249,11 @@ class StatusForegroundService : Service() {
             setTextViewText(R.id.notification_phone, state.phone)
             setTextViewText(R.id.notification_battery, state.battery)
             setTextViewText(R.id.notification_network, state.network)
-            setImageViewResource(R.id.notification_avatar, R.drawable.notification_avatar_placeholder)
+            if (avatar != null) {
+                setImageViewBitmap(R.id.notification_avatar, avatar)
+            } else {
+                setImageViewResource(R.id.notification_avatar, R.drawable.notification_avatar_placeholder)
+            }
         }
         return NotificationCompat.Builder(this, CHANNEL_CARD)
             .setSmallIcon(R.drawable.ic_heart)
