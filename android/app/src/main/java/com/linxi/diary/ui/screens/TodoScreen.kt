@@ -84,7 +84,7 @@ fun TodoScreen() {
                     BasicComponent(
                         title = if (demo) "${t.title} · 示例" else t.title,
                         summary = buildSummary(t),
-                        endActions = if (demo) null else {
+                        endActions = if (demo) null else ({
                             IconButton(onClick = {
                                 scope.launch {
                                     runCatching {
@@ -98,7 +98,7 @@ fun TodoScreen() {
                                     contentDescription = "完成",
                                     tint = MiuixTheme.colorScheme.primary)
                             }
-                        }
+                        })
                     )
                 }
             }
