@@ -14,4 +14,14 @@ class LogSanitizerTest {
             LogSanitizer.sanitize(input)
         )
     }
+
+    @Test
+    fun `脱敏保留普通查询路径但移除认证查询参数`() {
+        assertEquals(
+            "request https://api.linxi.app/status?date=2026-08-09 url=https://api.linxi.app/ws?[REDACTED]",
+            LogSanitizer.sanitize(
+                "request https://api.linxi.app/status?date=2026-08-09 url=https://api.linxi.app/ws?token=secret"
+            )
+        )
+    }
 }
