@@ -103,4 +103,6 @@ dependencies {
 
     // KernelSU 同款动态取色
     implementation(libs.material.kolor)
+
+    testImplementation("junit:junit:4.13.2")
 }
