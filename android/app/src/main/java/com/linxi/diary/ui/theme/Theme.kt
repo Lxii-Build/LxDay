@@ -37,8 +37,7 @@ val LocalLinxiDarkTheme = staticCompositionLocalOf { false }
 @Composable
 fun LinxiTheme(appSettings: AppSettings, content: @Composable () -> Unit) {
     val context = LocalContext.current
-    val darkTheme = appSettings.colorMode == ColorMode.DARK ||
-        (appSettings.colorMode == ColorMode.SYSTEM && isSystemInDarkTheme())
+    val darkTheme = AppThemeResolver.isDark(appSettings.colorMode, isSystemInDarkTheme())
     val controller = remember(appSettings.colorMode, darkTheme) {
         ThemeController(
             colorSchemeMode = when (appSettings.colorMode) {
