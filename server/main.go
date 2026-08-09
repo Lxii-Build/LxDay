@@ -91,6 +91,10 @@ func main() {
 	auth.GET("/pair/status", handlePairStatus)
 	auth.POST("/pair/create-invite", handleCreateInvite)
 	auth.POST("/pair/bind", handleBind)
+	auth.PUT("/pair/anniversary", handleUpdateAnniversary)
+
+	auth.GET("/profile", handleGetProfile)
+	auth.PUT("/profile", handleUpdateProfile)
 
 	auth.GET("/partner/status", handlePartnerStatus)
 
@@ -147,6 +151,14 @@ func initStore(c *Config) (*Store, error) {
 	db.SetMaxOpenConns(50)
 	db.SetMaxIdleConns(10)
 	db.SetConnMaxLifetime(2 * time.Hour)
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := runMigrations(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     c.Redis.Addr,

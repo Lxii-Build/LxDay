@@ -169,7 +169,7 @@ func TestRunMigrationsAppliesPendingVersionOnce(t *testing.T) {
 	mock.ExpectExec("ALTER TABLE pair ADD COLUMN anniversary_date").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec("INSERT INTO schema_migrations").
-		WithArgs(1, sqlmock.AnyArg()).
+		WithArgs(1, "profile_and_anniversary").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
@@ -225,7 +225,7 @@ func expectUser(mock sqlmock.Sqlmock, id int64, nickname string, avatar, thumbna
 	mock.ExpectQuery("SELECT id,nickname,avatar_url,avatar_thumbnail_url FROM `user`").
 		WithArgs(id).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "nickname", "avatar_url", "avatar_thumbnail_url"}).
-			AddRow(id, nickname, avatar, thumbnail))
+			AddRow(id, nickname, nullableString(avatar), nullableString(thumbnail)))
 }
 
 func assertPairProfileResponse(t *testing.T, response *httptest.ResponseRecorder, nickname, anniversary string) {
@@ -263,6 +263,13 @@ func responseCode(t *testing.T, response *httptest.ResponseRecorder) int {
 }
 
 func stringPointer(value string) *string { return &value }
+
+func nullableString(value *string) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
 
 func withServerGlobals(store *Store, testHub *Hub, run func()) {
 	oldStore, oldHub, oldConfig := st, hub, cfg

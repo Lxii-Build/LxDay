@@ -6,11 +6,19 @@
 CREATE DATABASE IF NOT EXISTS `linxi` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE `linxi`;
 
+CREATE TABLE IF NOT EXISTS `schema_migrations` (
+  `version`    INT          NOT NULL,
+  `name`       VARCHAR(128) NOT NULL,
+  `applied_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`version`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='数据库迁移版本';
+
 -- 用户表
 CREATE TABLE IF NOT EXISTS `user` (
   `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `nickname`      VARCHAR(32)  NOT NULL,
   `avatar_url`    VARCHAR(255) DEFAULT NULL,
+  `avatar_thumbnail_url` VARCHAR(255) DEFAULT NULL,
   `password_hash` VARCHAR(255) NOT NULL,
   `status`        TINYINT      NOT NULL DEFAULT 1 COMMENT '1正常 0禁用',
   `created_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -25,6 +33,7 @@ CREATE TABLE IF NOT EXISTS `pair` (
   `user_a_id`    BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '空位为 0，等待对方加入',
   `user_b_id`    BIGINT UNSIGNED NOT NULL DEFAULT 0,
   `invite_code`  VARCHAR(8)   NOT NULL,
+  `anniversary_date` DATE     DEFAULT NULL,
   `status`       TINYINT      NOT NULL DEFAULT 1 COMMENT '1已绑定 0已解绑',
   `unbind_time`  DATETIME     DEFAULT NULL,
   `created_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -139,3 +148,6 @@ CREATE TABLE IF NOT EXISTS `push_token` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_user_channel` (`user_id`,`channel`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='推送令牌';
+
+INSERT IGNORE INTO `schema_migrations` (`version`, `name`)
+VALUES (1, 'profile_and_anniversary');

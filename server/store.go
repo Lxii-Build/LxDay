@@ -40,16 +40,21 @@ func (s *Store) CreateUser(nickname, hash string) (int64, error) {
 
 func (s *Store) GetUserByNickname(nickname string) (*User, error) {
 	u := &User{}
-	err := s.DB.QueryRow("SELECT id,nickname,avatar_url,password_hash FROM `user` WHERE nickname=?", nickname).
-		Scan(&u.ID, &u.Nickname, &u.AvatarURL, &u.PasswordHash)
+	err := s.DB.QueryRow("SELECT id,nickname,avatar_url,avatar_thumbnail_url,password_hash FROM `user` WHERE nickname=?", nickname).
+		Scan(&u.ID, &u.Nickname, &u.AvatarURL, &u.AvatarThumbnailURL, &u.PasswordHash)
 	return u, err
 }
 
 func (s *Store) GetUserByID(id int64) (*User, error) {
 	u := &User{}
-	err := s.DB.QueryRow("SELECT id,nickname,avatar_url FROM `user` WHERE id=?", id).
-		Scan(&u.ID, &u.Nickname, &u.AvatarURL)
+	err := s.DB.QueryRow("SELECT id,nickname,avatar_url,avatar_thumbnail_url FROM `user` WHERE id=?", id).
+		Scan(&u.ID, &u.Nickname, &u.AvatarURL, &u.AvatarThumbnailURL)
 	return u, err
+}
+
+func (s *Store) UpdateNickname(id int64, nickname string) error {
+	_, err := s.DB.Exec("UPDATE `user` SET nickname=? WHERE id=?", nickname, id)
+	return err
 }
 
 // ---------- 绑定 ----------
@@ -57,10 +62,15 @@ func (s *Store) GetUserByID(id int64) (*User, error) {
 func (s *Store) GetPairByUserID(uid int64) (*Pair, error) {
 	p := &Pair{}
 	err := s.DB.QueryRow(
-		`SELECT id,user_a_id,user_b_id,invite_code FROM pair
+		`SELECT id,user_a_id,user_b_id,invite_code,anniversary_date FROM pair
 		 WHERE status=1 AND (user_a_id=? OR user_b_id=?) LIMIT 1`, uid, uid).Scan(
-		&p.ID, &p.UserAID, &p.UserBID, &p.InviteCode)
+		&p.ID, &p.UserAID, &p.UserBID, &p.InviteCode, &p.AnniversaryDate)
 	return p, err
+}
+
+func (s *Store) UpdateAnniversary(pairID int64, anniversary time.Time) error {
+	_, err := s.DB.Exec("UPDATE pair SET anniversary_date=? WHERE id=?", anniversary, pairID)
+	return err
 }
 
 func (s *Store) PartnerID(p *Pair, me int64) int64 {
