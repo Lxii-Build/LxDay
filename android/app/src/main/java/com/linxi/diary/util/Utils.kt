@@ -42,21 +42,6 @@ object UserPrefs {
         get() = sp.getInt("color_mode", 0)
         set(v) { sp.edit().putInt("color_mode", v).apply() }
 
-    // 种子色：0=跟随系统动态色；否则为 ARGB Int
-    var keyColor: Int
-        get() = sp.getInt("key_color", 0)
-        set(v) { sp.edit().putInt("key_color", v).apply() }
-
-    // 底部栏样式：0 普通导航栏 / 1 悬浮胶囊(无 AGSL，稳定) / 2 完整液态玻璃(AGSL blur，部分 GPU 原生闪退)
-    // 迁移：旧「liquid_glass」开关数据一律落到稳定胶囊(1)，避免覆盖安装后继续触发 AGSL 原生闪退
-    var liquidGlassMode: Int
-        get() {
-            if (!sp.contains("liquid_glass_mode")) {
-                return 1
-            }
-            return sp.getInt("liquid_glass_mode", 1)
-        }
-        set(v) { sp.edit().putInt("liquid_glass_mode", v).apply() }
 
     // 状态共享总开关：false = 停止采集 + 本地清空
     var sharingEnabled: Boolean

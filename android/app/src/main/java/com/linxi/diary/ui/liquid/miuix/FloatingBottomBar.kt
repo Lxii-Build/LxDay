@@ -61,7 +61,7 @@ import com.linxi.diary.ui.liquid.miuix.rememberCombinedBackdrop
 import com.linxi.diary.ui.liquid.miuix.vibrancy
 import com.linxi.diary.ui.liquid.miuix.DampedDragAnimation
 import com.linxi.diary.ui.liquid.miuix.InteractiveHighlight
-import androidx.compose.foundation.isSystemInDarkTheme
+import com.linxi.diary.ui.theme.LocalLinxiDarkTheme
 import top.yukonga.miuix.kmp.blur.Backdrop
 import top.yukonga.miuix.kmp.blur.blur
 import top.yukonga.miuix.kmp.blur.drawBackdrop
@@ -183,7 +183,7 @@ fun FloatingBottomBar(
     isBlurEnabled: Boolean = true,
     content: @Composable RowScope.() -> Unit
 ) {
-    val isInDark = isSystemInDarkTheme()
+    val isInDark = LocalLinxiDarkTheme.current
     val pillShape = remember { CircleShape }
     val accentColor = MiuixTheme.colorScheme.primary
     val tabContentColor = MiuixTheme.colorScheme.onSurface
@@ -274,23 +274,17 @@ fun FloatingBottomBar(
         }
     }
 
-    // 关键：AGSL RuntimeShader 仅在启用 blur 时才构造，
-    // 否则在部分 GPU 上即使不绘制也会原生闪退（Java 层抓不到）。
-    val interactiveHighlight = remember(isBlurEnabled, animationScope, tabWidthPx) {
-        if (!isBlurEnabled) {
-            null
-        } else {
-            InteractiveHighlight(
-                animationScope = animationScope,
-                position = { size, _ ->
-                    Offset(
-                        if (isLtr) (dampedDragAnimation.value + 0.5f) * tabWidthPx + panelOffset
-                        else size.width - (dampedDragAnimation.value + 0.5f) * tabWidthPx + panelOffset,
-                        size.height / 2f
-                    )
-                }
-            )
-        }
+    val interactiveHighlight = remember(animationScope, tabWidthPx) {
+        InteractiveHighlight(
+            animationScope = animationScope,
+            position = { size, _ ->
+                Offset(
+                    if (isLtr) (dampedDragAnimation.value + 0.5f) * tabWidthPx + panelOffset
+                    else size.width - (dampedDragAnimation.value + 0.5f) * tabWidthPx + panelOffset,
+                    size.height / 2f
+                )
+            }
+        )
     }
 
     val baseHighlight = rememberGravityRotatedHighlight(iosIndicatorSpecular, extraDegrees = -45f)
@@ -349,7 +343,7 @@ fun FloatingBottomBar(
                         Modifier.background(containerColor, pillShape)
                     }
                 )
-                .then(interactiveHighlight?.modifier ?: Modifier)
+                .then(interactiveHighlight.modifier)
                 .height(64.dp)
                 .padding(4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -385,7 +379,7 @@ fun FloatingBottomBar(
                             },
                             onDrawSurface = { drawRect(containerColor) },
                         )
-                        .then(interactiveHighlight?.modifier ?: Modifier)
+                        .then(interactiveHighlight.modifier)
                         .height(56.dp)
                         .padding(horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -404,7 +398,7 @@ fun FloatingBottomBar(
                             val progressOffset = dampedDragAnimation.value * tabWidthPx
                             translationX = if (isLtr) progressOffset + panelOffset else -progressOffset + panelOffset
                         }
-                        .then(interactiveHighlight?.gestureModifier ?: Modifier)
+                        .then(interactiveHighlight.gestureModifier)
                         .then(dampedDragAnimation.modifier)
                         .drawBackdrop(
                             backdrop = combinedBackdrop,

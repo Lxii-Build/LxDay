@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
+import com.linxi.diary.ui.navigation.LocalMainBottomPadding
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.TopAppBar
@@ -77,7 +78,7 @@ fun KernelScreen(
                     .padding(horizontal = 12.dp),
                 contentPadding = PaddingValues(
                     top = innerPadding.calculateTopPadding(),
-                    bottom = innerPadding.calculateBottomPadding() + bottomPadding
+                    bottom = innerPadding.calculateBottomPadding() + LocalMainBottomPadding.current + bottomPadding
                 ),
                 overscrollEffect = null,
                 content = content

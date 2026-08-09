@@ -40,9 +40,7 @@ fun SettingsScreen(
     val context = LocalContext.current
     var sharing by remember { mutableStateOf(UserPrefs.sharingEnabled) }
     var cardEnabled by remember { mutableStateOf(UserPrefs.statusCardEnabled) }
-    var darkMode by remember { mutableStateOf(UserPrefs.darkMode) }
-    var dynColor by remember { mutableStateOf(UserPrefs.keyColor == 0) }
-    var liquidMode by remember { mutableStateOf(UserPrefs.liquidGlassMode) }
+    var darkMode by remember { mutableStateOf(UserPrefs.colorMode.coerceIn(0, 2)) }
     var crashCount by remember { mutableStateOf(CrashHandler.crashFiles().size) }
     val partnerName = UserPrefs.partnerName.ifBlank { "未绑定" }
     val bound = UserPrefs.pairId > 0
@@ -90,35 +88,14 @@ fun SettingsScreen(
             Card(Modifier.padding(top = 12.dp).fillMaxWidth()) {
                 OverlayDropdownPreference(
                     title = "主题模式",
-                    summary = "跟随系统 / 浅色 / 深色 / 深色 AMOLED",
-                    items = listOf("跟随系统", "浅色", "深色", "深色 AMOLED"),
+                    summary = "跟随系统 / 浅色 / 深色",
+                    items = listOf("跟随系统", "浅色", "深色"),
                     startAction = { PrefIcon(Icons.Filled.Settings, "主题模式") },
-                    selectedIndex = when (darkMode) { 1 -> 1; 2 -> 2; 3 -> 3; else -> 0 },
+                    selectedIndex = darkMode,
                     onSelectedIndexChange = { v ->
                         darkMode = v
                         UserPrefs.colorMode = v
                         UserPrefs.darkMode = v
-                    }
-                )
-                SwitchPreference(
-                    title = "动态取色",
-                    summary = "关闭后使用固定情侣主题色",
-                    startAction = { PrefIcon(Icons.Filled.Star, "动态取色") },
-                    checked = dynColor,
-                    onCheckedChange = { on ->
-                        dynColor = on
-                        UserPrefs.keyColor = if (on) 0 else com.linxi.diary.ui.theme.LinxiSeedPurple
-                    }
-                )
-                OverlayDropdownPreference(
-                    title = "底部栏样式",
-                    summary = "悬浮胶囊无 AGSL 最稳定；完整液态玻璃部分 GPU 会闪退",
-                    items = listOf("普通导航栏", "悬浮胶囊", "完整液态玻璃"),
-                    startAction = { PrefIcon(Icons.Filled.Menu, "底部栏样式") },
-                    selectedIndex = liquidMode,
-                    onSelectedIndexChange = { v ->
-                        liquidMode = v
-                        UserPrefs.liquidGlassMode = v
                     }
                 )
                 SwitchPreference(

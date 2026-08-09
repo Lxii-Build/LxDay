@@ -1,181 +1,53 @@
 package com.linxi.diary.ui.theme
 
 import android.app.Activity
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.view.WindowInsetsControllerCompat
-import com.materialkolor.PaletteStyle
-import com.materialkolor.dynamiccolor.ColorSpec
-import com.materialkolor.rememberDynamicColorScheme
+import top.yukonga.miuix.kmp.theme.ColorSchemeMode
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.theme.ThemeController
 
-/**
- * 主题模式：跟随系统 / 浅色 / 深色 / 深色 AMOLED
- * 动态取色由 keyColor 控制：keyColor==0 → 跟随系统动态色；否则用固定种子色。
- */
+/** 与 KernelSU 对齐：仅跟随系统、浅色、深色三种模式。 */
 enum class ColorMode(val value: Int) {
-    SYSTEM(0),
-    LIGHT(1),
-    DARK(2),
-    DARK_AMOLED(3);
-
+    SYSTEM(0), LIGHT(1), DARK(2);
     companion object {
-        fun fromValue(value: Int) = entries.find { it.value == value } ?: SYSTEM
+        fun fromValue(value: Int) = when (value) {
+            LIGHT.value -> LIGHT
+            DARK.value, 3 -> DARK // 兼容旧 AMOLED 偏好
+            else -> SYSTEM
+        }
     }
-
-    val isDark: Boolean get() = value == 2 || value == 3
-    val isAmoled: Boolean get() = value == 3
 }
 
-data class AppSettings(
-    val colorMode: ColorMode,
-    val keyColor: Int,          // 0 = 跟随系统动态色
-    val paletteStyle: PaletteStyle,
-    val colorSpec: ColorSpec.SpecVersion,
-)
+data class AppSettings(val colorMode: ColorMode)
 
-val PaletteStyle.supportsSpec2025: Boolean
-    get() = this == PaletteStyle.TonalSpot ||
-            this == PaletteStyle.Neutral ||
-            this == PaletteStyle.Vibrant ||
-            this == PaletteStyle.Expressive
-
-fun ColorSpec.SpecVersion.effectiveFor(style: PaletteStyle): ColorSpec.SpecVersion =
-    if (this == ColorSpec.SpecVersion.SPEC_2025 && !style.supportsSpec2025) {
-        ColorSpec.SpecVersion.SPEC_2021
-    } else {
-        this
-    }
-
-fun ColorScheme.amoledBackground(amoled: Boolean): ColorScheme =
-    if (!amoled) this
-    else copy(
-        background = Color.Black,
-        surface = Color.Black,
-        surfaceDim = Color.Black,
-        surfaceContainerLowest = Color.Black,
-        surfaceContainerLow = Color.Black,
-        surfaceContainer = Color.Black,
-        surfaceContainerHigh = Color.Black,
-        surfaceContainerHighest = Color.Black,
-    )
+val LocalLinxiDarkTheme = staticCompositionLocalOf { false }
 
 @Composable
-fun rememberLinxiColorScheme(
-    seedColor: Color,
-    isDark: Boolean,
-    isAmoled: Boolean,
-    paletteStyle: PaletteStyle,
-    colorSpec: ColorSpec.SpecVersion,
-): ColorScheme {
+fun LinxiTheme(appSettings: AppSettings, content: @Composable () -> Unit) {
     val context = LocalContext.current
-    val seed = if (seedColor == Color.Unspecified) {
-        (if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)).primary
-    } else {
-        seedColor
+    val darkTheme = appSettings.colorMode == ColorMode.DARK ||
+        (appSettings.colorMode == ColorMode.SYSTEM && isSystemInDarkTheme())
+    val controller = remember(appSettings.colorMode, darkTheme) {
+        ThemeController(
+            colorSchemeMode = when (appSettings.colorMode) {
+                ColorMode.SYSTEM -> ColorSchemeMode.System
+                ColorMode.LIGHT -> ColorSchemeMode.Light
+                ColorMode.DARK -> ColorSchemeMode.Dark
+            },
+            keyColor = Color(LinxiSeedPink),
+            isDark = darkTheme,
+        )
     }
-    return rememberDynamicColorScheme(
-        seedColor = seed,
-        isDark = isDark,
-        isAmoled = isAmoled,
-        style = paletteStyle,
-        specVersion = colorSpec.effectiveFor(paletteStyle),
-    ).amoledBackground(isAmoled)
-}
-
-/** 主题切换时逐色渐变过渡（而非硬切） */
-@Composable
-fun ColorScheme.animateAsState(): ColorScheme {
-    @Composable
-    fun animateColor(color: Color): Color = animateColorAsState(
-        targetValue = color,
-        animationSpec = spring(),
-        label = "theme_color_animation"
-    ).value
-
-    return ColorScheme(
-        primary = animateColor(primary),
-        onPrimary = animateColor(onPrimary),
-        primaryContainer = animateColor(primaryContainer),
-        onPrimaryContainer = animateColor(onPrimaryContainer),
-        inversePrimary = animateColor(inversePrimary),
-        secondary = animateColor(secondary),
-        onSecondary = animateColor(onSecondary),
-        secondaryContainer = animateColor(secondaryContainer),
-        onSecondaryContainer = animateColor(onSecondaryContainer),
-        tertiary = animateColor(tertiary),
-        onTertiary = animateColor(onTertiary),
-        tertiaryContainer = animateColor(tertiaryContainer),
-        onTertiaryContainer = animateColor(onTertiaryContainer),
-        background = animateColor(background),
-        onBackground = animateColor(onBackground),
-        surface = animateColor(surface),
-        onSurface = animateColor(onSurface),
-        surfaceVariant = animateColor(surfaceVariant),
-        onSurfaceVariant = animateColor(onSurfaceVariant),
-        surfaceTint = animateColor(surfaceTint),
-        inverseSurface = animateColor(inverseSurface),
-        inverseOnSurface = animateColor(inverseOnSurface),
-        error = animateColor(error),
-        onError = animateColor(onError),
-        errorContainer = animateColor(errorContainer),
-        onErrorContainer = animateColor(onErrorContainer),
-        outline = animateColor(outline),
-        outlineVariant = animateColor(outlineVariant),
-        scrim = animateColor(scrim),
-        surfaceBright = animateColor(surfaceBright),
-        surfaceDim = animateColor(surfaceDim),
-        surfaceContainer = animateColor(surfaceContainer),
-        surfaceContainerHigh = animateColor(surfaceContainerHigh),
-        surfaceContainerHighest = animateColor(surfaceContainerHighest),
-        surfaceContainerLow = animateColor(surfaceContainerLow),
-        surfaceContainerLowest = animateColor(surfaceContainerLowest),
-        primaryFixed = animateColor(primaryFixed),
-        primaryFixedDim = animateColor(primaryFixedDim),
-        onPrimaryFixed = animateColor(onPrimaryFixed),
-        onPrimaryFixedVariant = animateColor(onPrimaryFixedVariant),
-        secondaryFixed = animateColor(secondaryFixed),
-        secondaryFixedDim = animateColor(secondaryFixedDim),
-        onSecondaryFixed = animateColor(onSecondaryFixed),
-        onSecondaryFixedVariant = animateColor(onSecondaryFixedVariant),
-        tertiaryFixed = animateColor(tertiaryFixed),
-        tertiaryFixedDim = animateColor(tertiaryFixedDim),
-        onTertiaryFixed = animateColor(onTertiaryFixed),
-        onTertiaryFixedVariant = animateColor(onTertiaryFixedVariant)
-    )
-}
-
-/** 林曦日记主题入口（Material3 引擎 + 动态取色 + 换肤渐变） */
-@Composable
-fun LinxiTheme(
-    appSettings: AppSettings,
-    content: @Composable () -> Unit
-) {
-    val context = LocalContext.current
-    val systemDarkTheme = isSystemInDarkTheme()
-    val darkTheme = appSettings.colorMode.isDark ||
-            (appSettings.colorMode == ColorMode.SYSTEM && systemDarkTheme)
-    val amoledMode = appSettings.colorMode.isAmoled
-    val dynamicColor = appSettings.keyColor == 0
-
-    val colorScheme = rememberLinxiColorScheme(
-        seedColor = if (dynamicColor) Color.Unspecified else Color(appSettings.keyColor),
-        isDark = darkTheme,
-        isAmoled = amoledMode,
-        paletteStyle = appSettings.paletteStyle,
-        colorSpec = appSettings.colorSpec,
-    )
-
     LaunchedEffect(darkTheme) {
         val window = (context as? Activity)?.window ?: return@LaunchedEffect
         WindowInsetsControllerCompat(window, window.decorView).apply {
@@ -183,30 +55,9 @@ fun LinxiTheme(
             isAppearanceLightNavigationBars = !darkTheme
         }
     }
-
-    val animatedColorScheme = colorScheme.animateAsState()
-
-    MaterialTheme(
-        colorScheme = animatedColorScheme,
-        typography = Typography(),
-        content = {
-            // 嵌套 MiuixTheme：miuix 组件依赖其 ColorScheme。
-            // 用 remember 缓存 controller，避免每次重组重建；动态色直接用已算好的 colorScheme.primary
-            val miuixController = remember(appSettings.colorMode, darkTheme, appSettings.keyColor) {
-                top.yukonga.miuix.kmp.theme.ThemeController(
-                    colorSchemeMode = when (appSettings.colorMode) {
-                        ColorMode.LIGHT -> top.yukonga.miuix.kmp.theme.ColorSchemeMode.Light
-                        ColorMode.DARK, ColorMode.DARK_AMOLED -> top.yukonga.miuix.kmp.theme.ColorSchemeMode.Dark
-                        else -> top.yukonga.miuix.kmp.theme.ColorSchemeMode.System
-                    },
-                    keyColor = if (appSettings.keyColor != 0) Color(appSettings.keyColor) else animatedColorScheme.primary,
-                    isDark = darkTheme,
-                )
-            }
-            top.yukonga.miuix.kmp.theme.MiuixTheme(
-                controller = miuixController,
-                content = content
-            )
+    CompositionLocalProvider(LocalLinxiDarkTheme provides darkTheme) {
+        MiuixTheme(controller = controller) {
+            MaterialTheme(typography = Typography(), content = content)
         }
-    )
+    }
 }
