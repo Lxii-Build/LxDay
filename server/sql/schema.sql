@@ -148,6 +148,3 @@ CREATE TABLE IF NOT EXISTS `push_token` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_user_channel` (`user_id`,`channel`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='推送令牌';
-
-INSERT IGNORE INTO `schema_migrations` (`version`, `name`)
-VALUES (1, 'profile_and_anniversary');

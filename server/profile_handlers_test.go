@@ -104,6 +104,7 @@ func TestUpdateProfileReturnsAuthoritativePairProfileAndNotifiesPartner(t *testi
 		mock.ExpectExec("UPDATE `user` SET nickname=\\? WHERE id=\\?").
 			WithArgs("新昵称", int64(1)).
 			WillReturnResult(sqlmock.NewResult(0, 1))
+		expectPair(mock, "2024-02-29")
 		expectUser(mock, 1, "新昵称", nil, nil)
 		expectUser(mock, 2, "伴侣", nil, nil)
 		mock.ExpectCommit()
