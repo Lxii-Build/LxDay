@@ -2,6 +2,7 @@ package com.linxi.diary.ui.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -11,7 +12,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import androidx.compose.ui.unit.dp
@@ -142,7 +143,7 @@ fun SettingsScreen(
                 ArrowPreference(
                     title = "vivo/OPPO 自启动白名单",
                     summary = "防后台被杀，保证同步",
-                    startAction = { PrefIcon(Icons.Filled.Send, "自启动白名单") },
+                    startAction = { PrefIcon(Icons.AutoMirrored.Filled.Send, "自启动白名单") },
                     onClick = { PermissionHelper.toVendorAutoStart(context) }
                 )
             }

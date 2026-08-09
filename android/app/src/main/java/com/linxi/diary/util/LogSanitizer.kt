@@ -9,7 +9,7 @@ object LogSanitizer {
         "(?i)(token|invite_?code|inviteCode|ssid|api_?key|password)(\\s*[:=]\\s*)([\"'])[^\"']*\\3"
     )
     private val plainValue = Regex(
-        "(?i)(token|invite_?code|inviteCode|ssid|api_?key|password)(\\s*[:=]\\s*)([^\\s&]+)"
+        "(?i)(token|invite_?code|inviteCode|ssid|api_?key|password)(\\s*[:=]\\s*)(?![\"'])([^\\s&]+)"
     )
     private val bearer = Regex("(?i)(Bearer\\s+)[A-Za-z0-9._~-]+")
     private val cookie = Regex("(?i)(Cookie\\s*:\\s*)[^\\r\\n]+")
