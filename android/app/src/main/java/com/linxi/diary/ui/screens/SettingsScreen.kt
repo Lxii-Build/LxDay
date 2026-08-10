@@ -12,6 +12,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
@@ -64,6 +66,29 @@ fun SettingsScreen(
     val profile = if (demo) null else ProfileRuntime.repository.profile.collectAsState().value
     var showNicknameDialog by remember { mutableStateOf(false) }
     var showAnniversaryDialog by remember { mutableStateOf(false) }
+    var avatarUploading by remember { mutableStateOf(false) }
+
+    val avatarPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            avatarUploading = true
+            scope.launch {
+                runCatching {
+                    val ext = context.contentResolver.getType(uri)
+                        ?.substringAfterLast('/')?.lowercase() ?: "img"
+                    val file = java.io.File(context.cacheDir, "avatar_src_${System.currentTimeMillis()}.$ext")
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        file.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    // 中心 1:1 全幅裁剪，服务端 worker 逐帧应用同一参数。
+                    ApiClient.uploadAvatar(file, centerX = 0.5f, centerY = 0.5f, scale = 1.0f)
+                }.onSuccess { ProfileRuntime.applyAuthoritative(it) }
+                    .onFailure { Logs.w("Settings", "上传头像失败", it) }
+                avatarUploading = false
+            }
+        }
+    }
 
     // 权限状态
     val usageOk = PermissionHelper.hasUsageAccess(context)
@@ -81,6 +106,25 @@ fun SettingsScreen(
                     onClick = { if (!bound) onOpenBind() }
                 )
                 if (bound && !demo) {
+                    ArrowPreference(
+                        title = "我的头像",
+                        summary = when {
+                            avatarUploading -> "上传中…"
+                            profile?.me?.avatarUrl != null -> "点击更换（支持动态 GIF/WebP）"
+                            else -> "点击设置头像"
+                        },
+                        startAction = { PrefIcon(Icons.Filled.Face, "我的头像") },
+                        onClick = {
+                            if (!avatarUploading) {
+                                avatarPicker.launch(
+                                    arrayOf(
+                                        "image/png", "image/webp", "image/gif",
+                                        "image/heif", "image/heic", "image/avif", "image/bmp",
+                                    )
+                                )
+                            }
+                        }
+                    )
                     ArrowPreference(
                         title = "我的昵称",
                         summary = profile?.me?.nickname?.ifBlank { "未设置" } ?: "点击设置",

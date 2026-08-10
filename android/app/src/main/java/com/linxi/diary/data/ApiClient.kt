@@ -118,6 +118,36 @@ object ApiClient {
     suspend fun updateAnniversary(date: String): JSONObject =
         putJson("/pair/anniversary", JSONObject().put("anniversary_date", date))
 
+    /** 上传头像原文件与归一化裁剪参数，返回双方权威资料。 */
+    suspend fun uploadAvatar(
+        file: File,
+        centerX: Float,
+        centerY: Float,
+        scale: Float,
+    ): JSONObject = withContext(Dispatchers.IO) {
+        val ext = file.extension.lowercase()
+        val media = when (ext) {
+            "png" -> "image/png".toMediaType()
+            "webp" -> "image/webp".toMediaType()
+            "gif" -> "image/gif".toMediaType()
+            "heic", "heif" -> "image/heif".toMediaType()
+            "avif" -> "image/avif".toMediaType()
+            "bmp" -> "image/bmp".toMediaType()
+            else -> "application/octet-stream".toMediaType()
+        }
+        val mb = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("file", file.name, file.asRequestBody(media))
+            .addFormDataPart("center_x", centerX.toString())
+            .addFormDataPart("center_y", centerY.toString())
+            .addFormDataPart("scale", scale.toString())
+            .build()
+        val resp = client.newCall(request("POST", "/profile/avatar", mb).build()).execute()
+        val text = resp.body?.string().orEmpty()
+        if (!resp.isSuccessful) throw ApiException(-1, "HTTP ${resp.code}")
+        check(text).optJSONObject("data") ?: JSONObject()
+    }
+
     /** 状态历史时间线 */
     suspend fun historyTimeline(date: String?, limit: Int, offset: Int): org.json.JSONArray {
         var path = "/status/history?limit=$limit&offset=$offset"
