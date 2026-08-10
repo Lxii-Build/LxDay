@@ -118,29 +118,14 @@ object ApiClient {
     suspend fun updateAnniversary(date: String): JSONObject =
         putJson("/pair/anniversary", JSONObject().put("anniversary_date", date))
 
-    /** 上传头像原文件与归一化裁剪参数，返回双方权威资料。 */
-    suspend fun uploadAvatar(
-        file: File,
-        centerX: Float,
-        centerY: Float,
-        scale: Float,
-    ): JSONObject = withContext(Dispatchers.IO) {
-        val ext = file.extension.lowercase()
-        val media = when (ext) {
-            "png" -> "image/png".toMediaType()
-            "webp" -> "image/webp".toMediaType()
-            "gif" -> "image/gif".toMediaType()
-            "heic", "heif" -> "image/heif".toMediaType()
-            "avif" -> "image/avif".toMediaType()
-            "bmp" -> "image/bmp".toMediaType()
-            else -> "application/octet-stream".toMediaType()
-        }
+    /** 上传头像原文件，返回双方权威资料。服务端按魔数识别格式，客户端不声明具体 MIME。 */
+    suspend fun uploadAvatar(file: File): JSONObject = withContext(Dispatchers.IO) {
         val mb = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
-            .addFormDataPart("file", file.name, file.asRequestBody(media))
-            .addFormDataPart("center_x", centerX.toString())
-            .addFormDataPart("center_y", centerY.toString())
-            .addFormDataPart("scale", scale.toString())
+            .addFormDataPart(
+                "file", file.name,
+                file.asRequestBody("application/octet-stream".toMediaType()),
+            )
             .build()
         val resp = client.newCall(request("POST", "/profile/avatar", mb).build()).execute()
         val text = resp.body?.string().orEmpty()

@@ -81,8 +81,8 @@ fun SettingsScreen(
                     context.contentResolver.openInputStream(uri)?.use { input ->
                         file.outputStream().use { output -> input.copyTo(output) }
                     }
-                    // 中心 1:1 全幅裁剪，服务端 worker 逐帧应用同一参数。
-                    ApiClient.uploadAvatar(file, centerX = 0.5f, centerY = 0.5f, scale = 1.0f)
+                    // 当前为居中方裁全幅；服务端按同一约定裁剪并生成动画主图与静态缩略图。
+                    ApiClient.uploadAvatar(file)
                 }.onSuccess { ProfileRuntime.applyAuthoritative(it) }
                     .onFailure { Logs.w("Settings", "上传头像失败", it) }
                 avatarUploading = false

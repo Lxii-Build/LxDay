@@ -6,7 +6,7 @@ import java.security.MessageDigest
 object AvatarCachePolicy {
     private const val BASE_DELAY_MS = 1_000L
     private const val MAX_DELAY_MS = 300_000L // 5 分钟封顶
-    private const val MAX_SHIFT = 20
+    private const val MAX_SHIFT = 9 // 1s<<9≈512s，已超过封顶，足以覆盖增长区间
 
     /** 由 URL 派生稳定且文件名安全的缓存键；空白 URL 返回 null。 */
     fun cacheKey(url: String): String? {

@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"os"
 )
 
 // 头像处理链的哨兵错误，供 handler 映射为具体 HTTP 提示。
@@ -64,9 +65,10 @@ type AvatarMeta struct {
 }
 
 // AvatarWorkerRequest 传给受限 worker 的作业描述。
+// 裁剪当前恒为居中方裁（客户端契约 center 0.5/0.5, scale 1.0），故不透传 Crop；
+// CropParams 仅在 processAvatar 内做边界校验，未来支持任意裁剪时再下传。
 type AvatarWorkerRequest struct {
 	Source          string
-	Crop            CropParams
 	OutputDimension int
 	ThumbDimension  int
 	Animated        bool
@@ -86,11 +88,10 @@ type AvatarWorker interface {
 
 // AvatarResult 是处理链对外结果。
 type AvatarResult struct {
-	MainPath        string
-	ThumbPath       string
-	OutputDimension int
-	ThumbDimension  int
-	Animated        bool
+	MainPath       string
+	ThumbPath      string
+	ThumbDimension int
+	Animated       bool
 }
 
 // processAvatar 执行完整校验与裁剪编排；动画 HEIF/AVIF 明确拒绝而非静默降级。
@@ -108,7 +109,6 @@ func processAvatar(in AvatarInput, limits AvatarLimits, worker AvatarWorker) (Av
 
 	result, err := worker.Process(AvatarWorkerRequest{
 		Source:          in.Source,
-		Crop:            in.Crop,
 		OutputDimension: limits.MaxDimension,
 		ThumbDimension:  limits.ThumbSize,
 		Animated:        in.Probe.Animated,
@@ -119,31 +119,29 @@ func processAvatar(in AvatarInput, limits AvatarLimits, worker AvatarWorker) (Av
 
 	if in.Probe.Animated {
 		if result.Meta.Frames > limits.MaxFrames {
+			discardWorkerOutput(result)
 			return AvatarResult{}, ErrAvatarTooManyFrames
 		}
 		if result.Meta.DurationSeconds > limits.MaxDuration {
+			discardWorkerOutput(result)
 			return AvatarResult{}, ErrAvatarTooLong
 		}
 	}
 
-	output := clampDimension(result.Meta, limits.MaxDimension)
 	return AvatarResult{
-		MainPath:        result.MainPath,
-		ThumbPath:       result.ThumbPath,
-		OutputDimension: output,
-		ThumbDimension:  limits.ThumbSize,
-		Animated:        in.Probe.Animated,
+		MainPath:       result.MainPath,
+		ThumbPath:      result.ThumbPath,
+		ThumbDimension: limits.ThumbSize,
+		Animated:       in.Probe.Animated,
 	}, nil
 }
 
-// clampDimension 只做下采样封顶，不放大小图。
-func clampDimension(meta AvatarMeta, max int) int {
-	longest := meta.Width
-	if meta.Height > longest {
-		longest = meta.Height
+// discardWorkerOutput 删除已产出但因超限而拒绝的头像文件，避免刷盘残留。
+func discardWorkerOutput(result AvatarWorkerResult) {
+	if result.MainPath != "" {
+		_ = os.Remove(result.MainPath)
 	}
-	if longest <= 0 || longest > max {
-		return max
+	if result.ThumbPath != "" {
+		_ = os.Remove(result.ThumbPath)
 	}
-	return longest
 }

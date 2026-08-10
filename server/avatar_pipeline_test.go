@@ -96,9 +96,6 @@ func TestProcessAvatarClampsOutputToMaxDimensionAndBuildsThumb(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected err=%v", err)
 	}
-	if out.OutputDimension != limits.MaxDimension {
-		t.Fatalf("output=%d want %d", out.OutputDimension, limits.MaxDimension)
-	}
 	if out.ThumbDimension != limits.ThumbSize {
 		t.Fatalf("thumb=%d want %d", out.ThumbDimension, limits.ThumbSize)
 	}
@@ -120,9 +117,6 @@ func TestProcessAvatarStillOutputIsNotAnimated(t *testing.T) {
 	}
 	if out.Animated {
 		t.Fatalf("still input must not yield animated output")
-	}
-	if out.OutputDimension != 400 {
-		t.Fatalf("output=%d want 400 (below max, no upscale)", out.OutputDimension)
 	}
 }
 

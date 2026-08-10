@@ -9,9 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
+
+// bytesHeaderSlack 为 multipart 边界与表单字段预留的额外字节，避免刚好等于文件上限的合法请求被误拒。
+const bytesHeaderSlack = 1 << 20 // 1MB
 
 // handleUploadAvatar 接收 multipart 头像上传，经受限处理链裁剪并原子替换，返回权威资料。
 func handleUploadAvatar(c *gin.Context) {
@@ -21,12 +25,15 @@ func handleUploadAvatar(c *gin.Context) {
 		return
 	}
 
+	limits := defaultAvatarLimits()
+	// 在解析 multipart 之前限制请求体，避免超大 body 在 file.Size 检查前耗尽资源。
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limits.MaxBytes+bytesHeaderSlack)
+
 	file, err := c.FormFile("file")
 	if err != nil {
-		fail(c, http.StatusBadRequest, 1002, "缺少文件字段 file")
+		fail(c, http.StatusBadRequest, 1002, "文件缺失或超过 15MB")
 		return
 	}
-	limits := defaultAvatarLimits()
 	if file.Size > limits.MaxBytes {
 		fail(c, http.StatusBadRequest, 1002, "头像文件超过 15MB")
 		return
@@ -99,22 +106,11 @@ func parseCropParams(c *gin.Context) (CropParams, error) {
 }
 
 func saveTempUpload(c *gin.Context, file *multipart.FileHeader) (string, error) {
-	src, err := file.Open()
-	if err != nil {
-		return "", err
-	}
-	defer src.Close()
 	if err := os.MkdirAll(filepath.Join(uploadDir, "tmp"), 0o755); err != nil {
 		return "", err
 	}
 	tmp := filepath.Join(uploadDir, "tmp", randomCode(24))
-	dst, err := os.Create(tmp)
-	if err != nil {
-		return "", err
-	}
-	defer dst.Close()
-	if _, err := io.Copy(dst, src); err != nil {
-		os.Remove(tmp)
+	if err := c.SaveUploadedFile(file, tmp); err != nil {
 		return "", err
 	}
 	return tmp, nil
@@ -151,18 +147,18 @@ func currentAvatarPaths(uid int64) (string, string) {
 	return main, thumb
 }
 
+// removeOldAvatar 将 /uploads/... 形式的旧 URL 直接映射回本地路径删除，避免全树遍历与跨对误删。
 func removeOldAvatar(url string) {
-	if url == "" {
+	const prefix = "/uploads/"
+	if !strings.HasPrefix(url, prefix) {
 		return
 	}
-	// 仅清理本服务本地目录下的旧文件。
-	rel := filepath.Base(url)
-	_ = filepath.Walk(filepath.Join(uploadDir, "avatar"), func(p string, info os.FileInfo, err error) error {
-		if err == nil && info != nil && !info.IsDir() && filepath.Base(p) == rel {
-			os.Remove(p)
-		}
-		return nil
-	})
+	rel := filepath.Clean(strings.TrimPrefix(url, prefix))
+	// 防御路径穿越：清理后不得逃逸 uploadDir。
+	if rel == "." || strings.HasPrefix(rel, "..") {
+		return
+	}
+	_ = os.Remove(filepath.Join(uploadDir, rel))
 }
 
 func mapAvatarError(c *gin.Context, err error) {

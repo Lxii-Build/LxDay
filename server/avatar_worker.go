@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -14,15 +15,13 @@ import (
 // VipsWorker 用受限的 libvips CLI 子进程执行裁剪与缩略图，设置执行超时与内存上限。
 // 真实媒体解码依赖 CI 固定的 Ubuntu 24.04 + libheif 插件；单测使用 stubWorker 替换。
 type VipsWorker struct {
-	Bin        string        // vips 可执行文件，默认 "vips"
 	WorkDir    string        // 输出目录
 	Timeout    time.Duration // 单作业墙钟超时
-	MaxMemoryK int           // VIPS_DISC_THRESHOLD / 内存上限（KB），0 用默认
+	MaxMemoryK int           // VIPS_DISC_THRESHOLD（KB），0 用默认
 }
 
 func newVipsWorker(workDir string) VipsWorker {
 	return VipsWorker{
-		Bin:        "vips",
 		WorkDir:    workDir,
 		Timeout:    20 * time.Second,
 		MaxMemoryK: 256 * 1024, // 256MB
@@ -41,78 +40,85 @@ func (w VipsWorker) Process(req AvatarWorkerRequest) (AvatarWorkerResult, error)
 	mainPath := filepath.Join(w.WorkDir, base+"."+mainExt)
 	thumbPath := filepath.Join(w.WorkDir, base+"_thumb.png")
 
-	// 探测真实帧数/时长/尺寸，供上层校验资源上限。
-	meta, err := w.inspect(req.Source, req.Animated)
+	meta, err := w.inspect(req.Source)
 	if err != nil {
 		return AvatarWorkerResult{}, err
 	}
 
-	// 主输出：按裁剪中心与缩放取 1:1，再限制到 OutputDimension。动画保留全部帧（[]）。
-	if err := w.render(req, mainPath, req.OutputDimension, req.Animated); err != nil {
+	// 主输出：动画加载全部帧([n=-1])，居中方裁到 OutputDimension。
+	mainSource := req.Source
+	if req.Animated {
+		mainSource = req.Source + "[n=-1]"
+	}
+	if err := w.thumbnail(mainSource, mainPath, req.OutputDimension); err != nil {
 		return AvatarWorkerResult{}, err
 	}
 	// 缩略图：始终静态首帧，ThumbDimension 见方。
-	if err := w.render(req, thumbPath, req.ThumbDimension, false); err != nil {
+	if err := w.thumbnail(req.Source, thumbPath, req.ThumbDimension); err != nil {
 		_ = os.Remove(mainPath)
 		return AvatarWorkerResult{}, err
 	}
 	return AvatarWorkerResult{Meta: meta, MainPath: mainPath, ThumbPath: thumbPath}, nil
 }
 
-// inspect 读取头部帧数与尺寸；失败按处理失败上报。
-func (w VipsWorker) inspect(src string, animated bool) (AvatarMeta, error) {
+// inspect 用单次 vipsheader -a 读取尺寸、帧数与帧延迟，避免多次 fork。
+func (w VipsWorker) inspect(src string) (AvatarMeta, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), w.Timeout)
 	defer cancel()
-	width, err := w.field(ctx, src, "width")
+	out, err := w.run(ctx, "vipsheader", "-a", src)
 	if err != nil {
 		return AvatarMeta{}, err
 	}
-	height, err := w.field(ctx, src, "height")
-	if err != nil {
-		return AvatarMeta{}, err
+	fields := parseVipsHeader(out)
+	meta := AvatarMeta{
+		Width:  fields["width"],
+		Height: fields["height"],
+		Frames: 1,
 	}
-	meta := AvatarMeta{Width: width, Height: height, Frames: 1}
-	if animated {
-		if pages, err := w.field(ctx, src, "n-pages"); err == nil && pages > 0 {
-			meta.Frames = pages
-		}
-		if delay, err := w.field(ctx, src, "gif-delay"); err == nil && delay > 0 {
-			// gif-delay 单位 1/100s；用平均帧延迟乘帧数估算时长。
-			meta.DurationSeconds = float64(meta.Frames) * float64(delay) / 100.0
-		}
+	if pages := fields["n-pages"]; pages > 0 {
+		meta.Frames = pages
+	}
+	if delay := fields["gif-delay"]; delay > 0 {
+		// gif-delay 单位 1/100s；用平均帧延迟乘帧数估算时长。
+		meta.DurationSeconds = float64(meta.Frames) * float64(delay) / 100.0
 	}
 	return meta, nil
 }
 
-func (w VipsWorker) field(ctx context.Context, src, name string) (int, error) {
-	out, err := w.run(ctx, "header", "-f", name, src)
-	if err != nil {
-		return 0, err
+// parseVipsHeader 解析 `vipsheader -a` 的 "field: value" 行，仅提取所需整型字段。
+func parseVipsHeader(out string) map[string]int {
+	fields := map[string]int{}
+	scanner := bufio.NewScanner(strings.NewReader(out))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		key, value, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		field := strings.Fields(strings.TrimSpace(value))
+		if len(field) == 0 {
+			continue
+		}
+		if n, err := strconv.Atoi(field[0]); err == nil {
+			fields[key] = n
+		}
 	}
-	return strconv.Atoi(strings.TrimSpace(out))
+	return fields
 }
 
-// render 调用 vipsthumbnail 生成见方裁剪输出；animated=false 时仅取首帧 [0]。
-func (w VipsWorker) render(req AvatarWorkerRequest, dst string, dimension int, animated bool) error {
+// thumbnail 调用 vipsthumbnail：居中方裁到 dimension×dimension。
+// 当前客户端契约为居中全幅(center 0.5/0.5, scale 1.0)，故用 --crop centre 忠实实现。
+func (w VipsWorker) thumbnail(source, dst string, dimension int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), w.Timeout)
 	defer cancel()
-	source := req.Source
-	if !animated {
-		source = req.Source + "[page=0]"
-	} else {
-		source = req.Source + "[n=-1]"
-	}
 	size := fmt.Sprintf("%dx%d", dimension, dimension)
-	_, err := w.run(ctx, "thumbnail", source, dst, strconv.Itoa(dimension),
-		"--size", size, "--smartcrop", "attention")
+	_, err := w.run(ctx, "vipsthumbnail", source,
+		"--size", size, "--crop", "centre", "-o", dst)
 	return err
 }
 
-func (w VipsWorker) run(ctx context.Context, args ...string) (string, error) {
-	bin := w.Bin
-	if bin == "" {
-		bin = "vips"
-	}
+func (w VipsWorker) run(ctx context.Context, bin string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Env = append(os.Environ(),
 		"VIPS_CONCURRENCY=1",
@@ -120,7 +126,7 @@ func (w VipsWorker) run(ctx context.Context, args ...string) (string, error) {
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("vips %v: %w: %s", args, err, string(out))
+		return "", fmt.Errorf("%s %v: %w: %s", bin, args, err, string(out))
 	}
 	return string(out), nil
 }
