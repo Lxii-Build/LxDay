@@ -11,6 +11,21 @@ object UserPrefs {
     private const val PREF = "linxi_prefs"
     private lateinit var sp: SharedPreferences
 
+    val profilePreferences: com.linxi.diary.data.ProfilePreferences =
+        object : com.linxi.diary.data.ProfilePreferences {
+            override var profileCacheJson: String?
+                get() = sp.getString("couple_profile", null)
+                set(value) { sp.edit().putString("couple_profile", value).apply() }
+
+            override var pairId: Long
+                get() = UserPrefs.pairId
+                set(value) { UserPrefs.pairId = value }
+
+            override var partnerName: String
+                get() = UserPrefs.partnerName
+                set(value) { UserPrefs.partnerName = value }
+        }
+
     fun init(context: Context) {
         sp = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
     }

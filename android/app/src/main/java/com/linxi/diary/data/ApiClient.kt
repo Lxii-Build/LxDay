@@ -108,6 +108,8 @@ object ApiClient {
 
     // ============ 业务接口 ============
 
+    suspend fun pairStatus(): JSONObject = get("/pair/status")
+
     /** 状态历史时间线 */
     suspend fun historyTimeline(date: String?, limit: Int, offset: Int): org.json.JSONArray {
         var path = "/status/history?limit=$limit&offset=$offset"
