@@ -135,6 +135,33 @@ class ProfileRepositoryTest {
     }
 
     @Test
+    fun `同一会话并发刷新只提交最后发起的响应`() = runBlocking {
+        kotlinx.coroutines.coroutineScope {
+            val firstResponse = kotlinx.coroutines.CompletableDeferred<JSONObject>()
+            val secondResponse = kotlinx.coroutines.CompletableDeferred<JSONObject>()
+            var callCount = 0
+            val preferences = FakeProfilePreferences(pairId = 7, partnerName = "旧伴侣")
+            val repository = ProfileRepository(
+                PairStatusSource {
+                    callCount++
+                    if (callCount == 1) firstResponse.await() else secondResponse.await()
+                },
+                preferences,
+            )
+            val first = async { repository.refresh() }
+            val second = async { repository.refresh() }
+
+            secondResponse.complete(boundProfileJson(partnerName = "新伴侣"))
+            assertEquals("新伴侣", second.await()?.partner?.nickname)
+            firstResponse.complete(boundProfileJson(partnerName = "旧伴侣"))
+
+            assertNull(first.await())
+            assertEquals("新伴侣", repository.profile.value?.partner?.nickname)
+            assertEquals("新伴侣", preferences.partnerName)
+        }
+    }
+
+    @Test
     fun `只清真实资料缓存时保留示例模式导航字段`() {
         val preferences = FakeProfilePreferences(
             profileCacheJson = "{}",
@@ -178,25 +205,23 @@ class ProfileRepositoryTest {
     }
 }
 
-private fun boundProfileJson() = JSONObject(
-    """{
-        "bound": true,
-        "pair_id": 7,
-        "me": {
-            "id": 1,
-            "nickname": "林曦",
-            "avatar_url": null,
-            "avatar_thumbnail_url": null
-        },
-        "partner": {
-            "id": 2,
-            "nickname": "伴侣",
-            "avatar_url": null,
-            "avatar_thumbnail_url": null
-        },
-        "anniversary_date": null
-    }""".trimIndent(),
-)
+private fun boundProfileJson(partnerName: String = "伴侣") = JSONObject().apply {
+    put("bound", true)
+    put("pair_id", 7)
+    put("me", JSONObject().apply {
+        put("id", 1)
+        put("nickname", "林曦")
+        put("avatar_url", JSONObject.NULL)
+        put("avatar_thumbnail_url", JSONObject.NULL)
+    })
+    put("partner", JSONObject().apply {
+        put("id", 2)
+        put("nickname", partnerName)
+        put("avatar_url", JSONObject.NULL)
+        put("avatar_thumbnail_url", JSONObject.NULL)
+    })
+    put("anniversary_date", JSONObject.NULL)
+}
 
 private class FakeProfilePreferences(
     override var profileCacheJson: String? = null,

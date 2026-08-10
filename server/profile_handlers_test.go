@@ -220,6 +220,23 @@ func TestPairStatusReturnsUnboundOnlyWhenPairDoesNotExist(t *testing.T) {
 	})
 }
 
+func TestPairStatusReturnsServerErrorWhenBoundUserIsMissing(t *testing.T) {
+	store, mock, closeStore := newMockStore(t)
+	defer closeStore()
+	withServerGlobals(store, nil, func() {
+		expectPair(mock, "2024-02-29")
+		mock.ExpectQuery("SELECT id,nickname,avatar_url,avatar_thumbnail_url FROM `user`").
+			WithArgs(int64(1)).
+			WillReturnError(sql.ErrNoRows)
+
+		response := performHandlerRequest(handlePairStatus, 1, "")
+
+		if response.Code != http.StatusInternalServerError || responseCode(t, response) != 1010 {
+			t.Fatalf("response = %d %s", response.Code, response.Body.String())
+		}
+	})
+}
+
 func TestPairStatusReturnsServerErrorWhenProfileReadFails(t *testing.T) {
 	store, mock, closeStore := newMockStore(t)
 	defer closeStore()
