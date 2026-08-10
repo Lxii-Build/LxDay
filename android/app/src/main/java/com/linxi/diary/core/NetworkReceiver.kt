@@ -18,8 +18,7 @@ class NetworkReceiver : BroadcastReceiver() {
         val caps = cm.getNetworkCapabilities(cm.activeNetwork)
         val hasNet = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
         if (hasNet && ProfileSyncPolicy.canConnectNow()) {
-            StatusSyncManager.connect()
-            ProfileRuntime.refreshAsync()
+            ProfileRuntime.connectAndRefreshIfEligible()
             if (SharingRuntimePolicy.canRunNow()) {
                 StatusSyncManager.pushNow()
             }

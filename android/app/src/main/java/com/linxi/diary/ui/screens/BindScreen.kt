@@ -66,9 +66,8 @@ fun BindScreen(onBound: () -> Unit) {
                 UserPrefs.partnerName = partner?.optString("nickname") ?: ""
                 UserPrefs.privacyConsented = false
                 UserPrefs.sharingEnabled = false
-                StatusSyncManager.connect()
-                ProfileRuntime.refreshAsync()
                 onBound()
+                ProfileRuntime.connectAndRefreshIfEligible()
             }.onFailure { e -> error = e.message }
             busy = false
         }

@@ -25,8 +25,14 @@ object ProfileRuntime {
         }
     }
 
+    fun connectAndRefreshIfEligible() {
+        if (!com.linxi.diary.sync.ProfileSyncPolicy.canConnectNow()) return
+        com.linxi.diary.sync.StatusSyncManager.connect()
+        refreshAsync()
+    }
+
     fun refreshAsync() {
-        if (UserPrefs.demoMode) return
+        if (!com.linxi.diary.sync.ProfileSyncPolicy.canConnectNow()) return
         scope.launch {
             runCatching { repository.refresh() }
                 .onFailure { Logs.w("Profile", "刷新情侣资料失败", it) }
