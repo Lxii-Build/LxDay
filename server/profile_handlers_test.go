@@ -191,6 +191,50 @@ func TestUpdateAnniversaryStoresDateAndReturnsPairProfile(t *testing.T) {
 	})
 }
 
+func TestPairStatusReturnsUnboundOnlyWhenPairDoesNotExist(t *testing.T) {
+	store, mock, closeStore := newMockStore(t)
+	defer closeStore()
+	withServerGlobals(store, nil, func() {
+		mock.ExpectQuery("SELECT id,user_a_id,user_b_id,invite_code,anniversary_date FROM pair").
+			WithArgs(int64(1), int64(1)).
+			WillReturnError(sql.ErrNoRows)
+
+		response := performHandlerRequest(handlePairStatus, 1, "")
+
+		if response.Code != http.StatusOK {
+			t.Fatalf("response = %d %s", response.Code, response.Body.String())
+		}
+		var body struct {
+			Code int `json:"code"`
+			Data struct {
+				Bound bool `json:"bound"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if body.Code != 0 || body.Data.Bound {
+			t.Fatalf("unexpected response = %#v", body)
+		}
+	})
+}
+
+func TestPairStatusReturnsServerErrorWhenProfileReadFails(t *testing.T) {
+	store, mock, closeStore := newMockStore(t)
+	defer closeStore()
+	withServerGlobals(store, nil, func() {
+		mock.ExpectQuery("SELECT id,user_a_id,user_b_id,invite_code,anniversary_date FROM pair").
+			WithArgs(int64(1), int64(1)).
+			WillReturnError(sqlmock.ErrCancelled)
+
+		response := performHandlerRequest(handlePairStatus, 1, "")
+
+		if response.Code != http.StatusInternalServerError || responseCode(t, response) != 1010 {
+			t.Fatalf("response = %d %s", response.Code, response.Body.String())
+		}
+	})
+}
+
 func TestPairStatusIncludesBothProfilesAndAnniversary(t *testing.T) {
 	store, mock, closeStore := newMockStore(t)
 	defer closeStore()
