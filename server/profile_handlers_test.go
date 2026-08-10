@@ -16,18 +16,19 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func TestRegisterNormalizesNicknameBeforeInsert(t *testing.T) {
+func TestRegisterCreatesAccountAfterVerifyingCode(t *testing.T) {
 	store, mock, closeStore := newMockStore(t)
 	defer closeStore()
 	withServerGlobals(store, nil, func() {
+		store.Rdb.Set(context.Background(), emailCodeKey("linxi@example.com"), "123456", time.Minute)
 		mock.ExpectExec("INSERT INTO `user`").
-			WithArgs("林曦", sqlmock.AnyArg()).
+			WithArgs("Linxi", "linxi@example.com", "林曦", sqlmock.AnyArg()).
 			WillReturnResult(sqlmock.NewResult(1, 1))
 
 		response := performHandlerRequest(
 			handleRegister,
 			0,
-			`{"nickname":"  林曦  ","password":"123456"}`,
+			`{"username":"Linxi","email":"Linxi@Example.com","code":"123456","password":"123456","nickname":"  林曦  "}`,
 		)
 
 		if response.Code != http.StatusOK {
@@ -35,6 +36,22 @@ func TestRegisterNormalizesNicknameBeforeInsert(t *testing.T) {
 		}
 		if err := mock.ExpectationsWereMet(); err != nil {
 			t.Fatal(err)
+		}
+	})
+}
+
+func TestRegisterRejectsWrongCode(t *testing.T) {
+	store, _, closeStore := newMockStore(t)
+	defer closeStore()
+	withServerGlobals(store, nil, func() {
+		store.Rdb.Set(context.Background(), emailCodeKey("a@b.com"), "111111", time.Minute)
+		response := performHandlerRequest(
+			handleRegister,
+			0,
+			`{"username":"Linxi","email":"a@b.com","code":"999999","password":"123456"}`,
+		)
+		if response.Code != http.StatusBadRequest || responseCode(t, response) != 1015 {
+			t.Fatalf("response = %d %s", response.Code, response.Body.String())
 		}
 	})
 }
@@ -301,7 +318,7 @@ func TestRunMigrationsRepairsColumnsBeforeRecordingVersion(t *testing.T) {
 		WithArgs(1, "profile_and_anniversary").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	if err := runMigrations(db); err != nil {
+	if err := applyMigrations(db, migrations[:1]); err != nil {
 		t.Fatal(err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -334,7 +351,7 @@ func TestRunMigrationsAppliesPendingVersionOnce(t *testing.T) {
 		WithArgs(1, "profile_and_anniversary").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	if err := runMigrations(db); err != nil {
+	if err := applyMigrations(db, migrations[:1]); err != nil {
 		t.Fatal(err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {

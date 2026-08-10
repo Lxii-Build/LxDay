@@ -75,6 +75,9 @@ func main() {
 		log.Fatalf("初始化存储失败: %v", err)
 	}
 	st = store
+	if err := st.EnsureSuperAdmin(); err != nil {
+		log.Printf("初始化超级管理员失败: %v", err)
+	}
 	push = NewPushGateway(cfg.Push.Provider, st)
 	hub = NewHub(st, push)
 
@@ -85,6 +88,8 @@ func main() {
 	api := r.Group("/api/v1")
 	api.POST("/auth/register", handleRegister)
 	api.POST("/auth/login", handleLogin)
+	api.POST("/auth/send-code", handleSendEmailCode)
+	api.GET("/app/latest", handleCheckUpdate)
 
 	// ---- 需鉴权路由 ----
 	auth := api.Group("", JWTAuth())
@@ -95,6 +100,8 @@ func main() {
 
 	auth.GET("/profile", handleGetProfile)
 	auth.PUT("/profile", handleUpdateProfile)
+	auth.GET("/profile/me", handleGetMyProfile)
+	auth.PUT("/profile/me", handleUpdateMyProfile)
 	auth.POST("/profile/avatar", handleUploadAvatar)
 
 	auth.GET("/partner/status", handlePartnerStatus)
@@ -137,6 +144,9 @@ func main() {
 
 	// 待办到点提醒定时扫描
 	go scanDueTodos()
+
+	// ---- 后台管理路由 /api/admin ----
+	registerAdminRoutes(r)
 
 	log.Printf("林曦日记服务端启动 :%s", cfg.App.Port)
 	if err := r.Run(":" + cfg.App.Port); err != nil {

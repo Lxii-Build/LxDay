@@ -106,50 +106,7 @@ func currentUID(c *gin.Context) int64 {
 }
 
 // ================= 认证 =================
-
-type registerReq struct {
-	Nickname string `json:"nickname" binding:"required"`
-	Password string `json:"password" binding:"required"`
-}
-
-func handleRegister(c *gin.Context) {
-	var req registerReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		fail(c, 400, 1002, "参数错误")
-		return
-	}
-	nickname, err := normalizeNickname(req.Nickname)
-	if err != nil {
-		fail(c, 400, 1002, "昵称长度 2-32")
-		return
-	}
-	if len(req.Password) < 6 {
-		fail(c, 400, 1002, "密码至少 6 位")
-		return
-	}
-	id, err := st.CreateUser(nickname, hashPassword(req.Password))
-	if err != nil {
-		fail(c, 400, 1006, "昵称已被占用")
-		return
-	}
-	token, _ := signToken(id)
-	ok(c, gin.H{"user_id": id, "token": token})
-}
-
-func handleLogin(c *gin.Context) {
-	var req registerReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		fail(c, 400, 1002, "参数错误")
-		return
-	}
-	u, err := st.GetUserByNickname(req.Nickname)
-	if err != nil || u.PasswordHash != hashPassword(req.Password) {
-		fail(c, 400, 1007, "昵称或密码错误")
-		return
-	}
-	token, _ := signToken(u.ID)
-	ok(c, gin.H{"user_id": u.ID, "token": token})
-}
+// 账号体系（注册/登录/邮箱验证码/扩展资料）实现见 account.go。
 
 // ================= 绑定 =================
 
@@ -467,6 +424,8 @@ func handleCreateTodo(c *gin.Context) {
 		Note       string    `json:"note"`
 		RemindAt   time.Time `json:"remind_at"`
 		RemindType int       `json:"remind_type"` // 0普通 1强提醒
+		RepeatType int       `json:"repeat_type"` // 0仅一次 1每天 2每周
+		Weekdays   int       `json:"weekdays"`    // bit0=周一..bit6=周日
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		fail(c, 400, 1002, "参数错误")
@@ -481,13 +440,35 @@ func handleCreateTodo(c *gin.Context) {
 	if !req.RemindAt.IsZero() {
 		rp = &req.RemindAt
 	}
-	todo, err := st.CreateTodo(pair.ID, uid, assignee, req.Title, req.Note, rp, req.RemindType)
+	repeatType, weekdays := normalizeRepeat(req.RepeatType, req.Weekdays)
+	todo, err := st.CreateTodo(pair.ID, uid, assignee, req.Title, req.Note, rp, req.RemindType, repeatType, weekdays)
 	if err != nil {
 		fail(c, 500, 1010, "创建失败")
 		return
 	}
 	hub.Notify(pair, uid, WsMessage{Type: MsgTodoNew, Data: todo})
 	ok(c, todo)
+}
+
+const allWeekdaysMask = 0x7F // 周一~周日全选
+
+// normalizeRepeat 规整循环规则：每周全选→每天；每周未选→仅一次；非每周清空掩码。
+func normalizeRepeat(repeatType, weekdays int) (int, int) {
+	switch repeatType {
+	case 2:
+		weekdays &= allWeekdaysMask
+		if weekdays == 0 {
+			return 0, 0
+		}
+		if weekdays == allWeekdaysMask {
+			return 1, 0
+		}
+		return 2, weekdays
+	case 1:
+		return 1, 0
+	default:
+		return 0, 0
+	}
 }
 
 func handleListTodos(c *gin.Context) {
@@ -515,12 +496,19 @@ func handleUpdateTodo(c *gin.Context) {
 		Note       *string    `json:"note"`
 		RemindAt   *time.Time `json:"remind_at"`
 		RemindType *int       `json:"remind_type"`
+		RepeatType *int       `json:"repeat_type"`
+		Weekdays   *int       `json:"weekdays"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		fail(c, 400, 1002, "参数错误")
 		return
 	}
-	if err := st.UpdateTodo(id, req.Title, req.Note, req.RemindAt, nil, req.RemindType); err != nil {
+	if req.RepeatType != nil {
+		rt, wd := normalizeRepeat(*req.RepeatType, valueOrZero(req.Weekdays))
+		req.RepeatType = &rt
+		req.Weekdays = &wd
+	}
+	if err := st.UpdateTodo(id, req.Title, req.Note, req.RemindAt, nil, req.RemindType, req.RepeatType, req.Weekdays); err != nil {
 		fail(c, 500, 1010, "更新失败")
 		return
 	}
@@ -811,7 +799,8 @@ func scanDueTodos() {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 	for range ticker.C {
-		todos, err := st.DueTodos(time.Now())
+		now := time.Now()
+		todos, err := st.DueTodos(now)
 		if err != nil {
 			log.Printf("scanDueTodos error: %v", err)
 			continue
@@ -819,7 +808,7 @@ func scanDueTodos() {
 		for _, t := range todos {
 			payload := map[string]interface{}{
 				"todo_id": t.ID, "title": t.Title, "remind_type": t.RemindType,
-				"ts": time.Now().UnixMilli(),
+				"ts": now.UnixMilli(),
 			}
 			msg := WsMessage{Type: MsgTodoRemind, Data: payload}
 			// assignee 的伴侣（pair 内另一方）
@@ -829,6 +818,49 @@ func scanDueTodos() {
 			}
 			hub.route(t.AssigneeID, msg)
 			hub.route(creator, msg) // 创建者也提示
+			// 推进提醒时间：循环提醒滚动到下次；仅一次则置空，避免每分钟重复触发
+			var next *time.Time
+			if t.RemindAt != nil {
+				next = nextRemind(*t.RemindAt, t.RepeatType, t.Weekdays, now)
+			}
+			if err := st.AdvanceTodoRemind(t.ID, next); err != nil {
+				log.Printf("advance todo %d remind error: %v", t.ID, err)
+			}
 		}
 	}
+}
+
+func valueOrZero(p *int) int {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
+// nextRemind 依据循环规则计算严格晚于 now 的下一次提醒时间（保留原提醒的时刻）。
+// repeatType: 1每天 2每周(weekdays 位掩码 bit0=周一..bit6=周日)；其余返回 nil（仅一次）。
+func nextRemind(cur time.Time, repeatType, weekdays int, now time.Time) *time.Time {
+	switch repeatType {
+	case 1:
+		c := cur
+		for i := 0; i < 400 && !c.After(now); i++ {
+			c = c.AddDate(0, 0, 1)
+		}
+		if c.After(now) {
+			return &c
+		}
+	case 2:
+		if weekdays&allWeekdaysMask == 0 {
+			return nil
+		}
+		c := cur
+		for i := 0; i < 14; i++ {
+			idx := (int(c.Weekday()) + 6) % 7 // 周一=0 .. 周日=6
+			if c.After(now) && weekdays&(1<<uint(idx)) != 0 {
+				return &c
+			}
+			c = c.AddDate(0, 0, 1)
+		}
+	}
+	return nil
 }

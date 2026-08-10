@@ -16,15 +16,22 @@ CREATE TABLE IF NOT EXISTS `schema_migrations` (
 -- 用户表
 CREATE TABLE IF NOT EXISTS `user` (
   `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `username`      VARCHAR(32)  DEFAULT NULL COMMENT '登录用户名(大小写英文)',
+  `email`         VARCHAR(128) DEFAULT NULL,
   `nickname`      VARCHAR(32)  NOT NULL,
   `avatar_url`    VARCHAR(255) DEFAULT NULL,
   `avatar_thumbnail_url` VARCHAR(255) DEFAULT NULL,
+  `gender`        TINYINT      NOT NULL DEFAULT 0 COMMENT '0保密 1男 2女',
+  `signature`     VARCHAR(200) DEFAULT NULL,
+  `birthday`      DATE         DEFAULT NULL,
   `password_hash` VARCHAR(255) NOT NULL,
   `status`        TINYINT      NOT NULL DEFAULT 1 COMMENT '1正常 0禁用',
   `created_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_nickname` (`nickname`)
+  UNIQUE KEY `uk_nickname` (`nickname`),
+  UNIQUE KEY `uk_username` (`username`),
+  UNIQUE KEY `uk_email` (`email`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户';
 
 -- 双人绑定关系（核心数据隔离键：pair_id）
@@ -85,6 +92,8 @@ CREATE TABLE IF NOT EXISTS `todo` (
   `note`         VARCHAR(500) DEFAULT NULL,
   `remind_at`    DATETIME     DEFAULT NULL,
   `remind_type`  TINYINT      NOT NULL DEFAULT 0 COMMENT '0普通 1强提醒',
+  `repeat_type`  TINYINT      NOT NULL DEFAULT 0 COMMENT '0仅一次 1每天 2每周',
+  `weekdays`     TINYINT      NOT NULL DEFAULT 0 COMMENT '每周位掩码 bit0=周一..bit6=周日',
   `status`       TINYINT      NOT NULL DEFAULT 0 COMMENT '0待办 1已完成 2已删除',
   `completed_at` DATETIME     DEFAULT NULL,
   `created_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -148,3 +157,11 @@ CREATE TABLE IF NOT EXISTS `push_token` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_user_channel` (`user_id`,`channel`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='推送令牌';
+
+-- 后台/系统设置（键值，站点信息/存储/推送/SMTP 等）
+CREATE TABLE IF NOT EXISTS `app_setting` (
+  `k`          VARCHAR(64) NOT NULL,
+  `v`          TEXT,
+  `updated_at` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`k`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统设置(键值)';

@@ -1,0 +1,317 @@
+package main
+
+import (
+	"context"
+	"crypto/tls"
+	"errors"
+	"fmt"
+	"mime"
+	"net"
+	"net/smtp"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/gin-gonic/gin"
+)
+
+// ================= 账号体系（注册/登录/邮箱验证码/扩展资料） =================
+
+var (
+	reUsername = regexp.MustCompile(`^[A-Za-z]{3,20}$`)          // 用户名：3-20 位大小写英文
+	reEmail    = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`) // 邮箱基础校验
+)
+
+const emailCodeTTL = 10 * time.Minute
+
+func emailCodeKey(email string) string { return "emailcode:" + strings.ToLower(email) }
+func emailCodeCDKey(email string) string { return "emailcode:cd:" + strings.ToLower(email) }
+
+// ---------- SMTP（配置来自后台 app_setting，可随时修改） ----------
+
+type smtpConfig struct {
+	Host, Port, Username, Password, From string
+	SSL                                  bool
+}
+
+func loadSMTP() (smtpConfig, error) {
+	get := func(k string) string { v, _ := st.GetSetting(k); return strings.TrimSpace(v) }
+	sc := smtpConfig{
+		Host:     get("smtp.host"),
+		Port:     get("smtp.port"),
+		Username: get("smtp.username"),
+		Password: get("smtp.password"),
+		From:     get("smtp.from"),
+		SSL:      get("smtp.ssl") == "true",
+	}
+	if sc.From == "" {
+		sc.From = sc.Username
+	}
+	if sc.Host == "" || sc.Username == "" || sc.Password == "" {
+		return sc, errors.New("smtp not configured")
+	}
+	if sc.Port == "" {
+		if sc.SSL {
+			sc.Port = "465"
+		} else {
+			sc.Port = "587"
+		}
+	}
+	return sc, nil
+}
+
+// APPEND-ACCOUNT-1
+
+func buildMessage(from, to, subject, body string) []byte {
+	enc := mime.QEncoding.Encode("utf-8", subject)
+	headers := map[string]string{
+		"From":         from,
+		"To":           to,
+		"Subject":      enc,
+		"MIME-Version": "1.0",
+		"Content-Type": "text/plain; charset=utf-8",
+	}
+	var b strings.Builder
+	for k, v := range headers {
+		fmt.Fprintf(&b, "%s: %s\r\n", k, v)
+	}
+	b.WriteString("\r\n")
+	b.WriteString(body)
+	return []byte(b.String())
+}
+
+func sendMail(sc smtpConfig, to, subject, body string) error {
+	addr := net.JoinHostPort(sc.Host, sc.Port)
+	auth := smtp.PlainAuth("", sc.Username, sc.Password, sc.Host)
+	msg := buildMessage(sc.From, to, subject, body)
+	if !sc.SSL {
+		return smtp.SendMail(addr, auth, sc.From, []string{to}, msg)
+	}
+	// 465 隐式 TLS：手动建立连接
+	conn, err := tls.Dial("tcp", addr, &tls.Config{ServerName: sc.Host})
+	if err != nil {
+		return err
+	}
+	client, err := smtp.NewClient(conn, sc.Host)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	if err := client.Auth(auth); err != nil {
+		return err
+	}
+	if err := client.Mail(sc.From); err != nil {
+		return err
+	}
+	if err := client.Rcpt(to); err != nil {
+		return err
+	}
+	w, err := client.Data()
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write(msg); err != nil {
+		return err
+	}
+	if err := w.Close(); err != nil {
+		return err
+	}
+	return client.Quit()
+}
+
+// ---------- 发送邮箱验证码 ----------
+
+func handleSendEmailCode(c *gin.Context) {
+	var req struct {
+		Email string `json:"email" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, 400, 1002, "参数错误")
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if !reEmail.MatchString(email) {
+		fail(c, 400, 1002, "邮箱格式不正确")
+		return
+	}
+	ctx := context.Background()
+	// 60s 限频
+	set, err := st.Rdb.SetNX(ctx, emailCodeCDKey(email), 1, 60*time.Second).Result()
+	if err == nil && !set {
+		fail(c, 429, 1012, "验证码发送过于频繁，请稍后再试")
+		return
+	}
+	code := randomCode(6)
+	if err := st.Rdb.Set(ctx, emailCodeKey(email), code, emailCodeTTL).Err(); err != nil {
+		fail(c, 500, 1010, "验证码生成失败")
+		return
+	}
+	sc, err := loadSMTP()
+	if err != nil {
+		fail(c, 500, 1013, "邮件服务未配置，请联系管理员")
+		return
+	}
+	body := fmt.Sprintf("你的林曦日记验证码是 %s，%d 分钟内有效。若非本人操作请忽略。", code, int(emailCodeTTL.Minutes()))
+	if err := sendMail(sc, email, "林曦日记 · 邮箱验证码", body); err != nil {
+		fail(c, 500, 1014, "验证码发送失败，请稍后再试")
+		return
+	}
+	ok(c, gin.H{"sent": true, "expires_in": int(emailCodeTTL.Seconds())})
+}
+
+// APPEND-ACCOUNT-2
+
+// ---------- 注册 ----------
+
+func handleRegister(c *gin.Context) {
+	var req struct {
+		Username string `json:"username" binding:"required"`
+		Email    string `json:"email" binding:"required"`
+		Code     string `json:"code" binding:"required"`
+		Password string `json:"password" binding:"required"`
+		Nickname string `json:"nickname"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, 400, 1002, "参数错误")
+		return
+	}
+	username := strings.TrimSpace(req.Username)
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if !reUsername.MatchString(username) {
+		fail(c, 400, 1002, "用户名需为 3-20 位大小写英文字母")
+		return
+	}
+	if !reEmail.MatchString(email) {
+		fail(c, 400, 1002, "邮箱格式不正确")
+		return
+	}
+	if len(req.Password) < 6 {
+		fail(c, 400, 1002, "密码至少 6 位")
+		return
+	}
+	// 校验验证码
+	saved, err := st.Rdb.Get(context.Background(), emailCodeKey(email)).Result()
+	if err != nil || saved == "" || saved != strings.TrimSpace(req.Code) {
+		fail(c, 400, 1015, "验证码错误或已过期")
+		return
+	}
+	nickname := username
+	if strings.TrimSpace(req.Nickname) != "" {
+		n, err := normalizeNickname(req.Nickname)
+		if err != nil {
+			fail(c, 400, 1002, "昵称长度 2-32")
+			return
+		}
+		nickname = n
+	}
+	id, err := st.CreateUser(username, email, nickname, hashPassword(req.Password))
+	if err != nil {
+		fail(c, 400, 1006, "用户名或邮箱已被占用")
+		return
+	}
+	st.Rdb.Del(context.Background(), emailCodeKey(email))
+	token, _ := signToken(id)
+	ok(c, gin.H{"user_id": id, "token": token})
+}
+
+// ---------- 登录 ----------
+
+func handleLogin(c *gin.Context) {
+	var req struct {
+		Account  string `json:"account"`
+		Username string `json:"username"`
+		Email    string `json:"email"`
+		Password string `json:"password" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, 400, 1002, "参数错误")
+		return
+	}
+	account := strings.TrimSpace(req.Account)
+	if account == "" {
+		account = strings.TrimSpace(req.Username)
+	}
+	if account == "" {
+		account = strings.ToLower(strings.TrimSpace(req.Email))
+	}
+	if account == "" {
+		fail(c, 400, 1002, "请输入账号")
+		return
+	}
+	u, err := st.GetUserByLogin(account)
+	if err != nil || u.PasswordHash != hashPassword(req.Password) {
+		fail(c, 400, 1007, "账号或密码错误")
+		return
+	}
+	token, _ := signToken(u.ID)
+	ok(c, gin.H{"user_id": u.ID, "token": token})
+}
+
+// ---------- 扩展个人资料（本人） ----------
+
+func handleGetMyProfile(c *gin.Context) {
+	p, err := st.GetUserProfile(currentUID(c))
+	if err != nil {
+		fail(c, 500, 1010, "读取资料失败")
+		return
+	}
+	ok(c, p)
+}
+
+func handleUpdateMyProfile(c *gin.Context) {
+	uid := currentUID(c)
+	var req struct {
+		Nickname  string  `json:"nickname" binding:"required"`
+		Gender    int     `json:"gender"`
+		Signature *string `json:"signature"`
+		Birthday  *string `json:"birthday"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, 400, 1002, "参数错误")
+		return
+	}
+	nickname, err := normalizeNickname(req.Nickname)
+	if err != nil {
+		fail(c, 400, 1002, "昵称长度 2-32")
+		return
+	}
+	gender := req.Gender
+	if gender < 0 || gender > 2 {
+		gender = 0
+	}
+	var sig *string
+	if req.Signature != nil {
+		s := strings.TrimSpace(*req.Signature)
+		if len([]rune(s)) > 200 {
+			fail(c, 400, 1002, "简介不能超过 200 字")
+			return
+		}
+		if s != "" {
+			sig = &s
+		}
+	}
+	var birthday *string
+	if req.Birthday != nil && strings.TrimSpace(*req.Birthday) != "" {
+		b := strings.TrimSpace(*req.Birthday)
+		if _, err := parseAnniversary(b, time.Now()); err != nil {
+			fail(c, 400, 1002, "生日日期无效")
+			return
+		}
+		birthday = &b
+	}
+	if err := st.UpdateUserProfile(uid, nickname, gender, sig, birthday); err != nil {
+		fail(c, 500, 1010, "更新失败")
+		return
+	}
+	if profile, err := pairProfile(uid); err == nil {
+		notifyProfileUpdated(uid, profile)
+	}
+	p, err := st.GetUserProfile(uid)
+	if err != nil {
+		fail(c, 500, 1010, "读取资料失败")
+		return
+	}
+	ok(c, p)
+}
+
+
