@@ -17,14 +17,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
-import com.linxi.diary.sync.StatusSyncManager
+import com.linxi.diary.data.ProfileRuntime
 import com.linxi.diary.ui.navigation.LinxiApp
 import com.linxi.diary.ui.theme.LinxiTheme
 import com.linxi.diary.ui.theme.rememberThemeState
 import com.linxi.diary.util.Logs
 
 /**
- * 首页：4 Tab 导航（此刻/待办/日记/我的）。
+ * 首页：4 Tab 导航（主页/待办/日记/我的）。
  * 启动前置：请求运行时权限（通知 13+、定位 10+）；未授权时应用仍可打开，
  * 采集在「已授权 + 共享开启」时才由前台服务执行，避免闪退。
  * 主题：LinxiTheme（跟随系统 / 浅色 / 深色，SharedPreferences 即时刷新）。
@@ -53,9 +53,9 @@ class MainActivity : ComponentActivity() {
             Logs.e("Main", "请求权限失败", t)
         }
         try {
-            StatusSyncManager.connect()
+            ProfileRuntime.connectAndRefreshIfEligible()
         } catch (t: Throwable) {
-            Logs.e("Main", "连接失败", t)
+            Logs.e("Main", "连接或资料刷新失败", t)
         }
         Logs.i("Main", "setContent 之前")
         setContent {
@@ -80,11 +80,17 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun AppTheme(content: @Composable () -> Unit) {
         val themeState = rememberThemeState()
-        val settings by themeState.appSettings
-        androidx.compose.runtime.LaunchedEffect(settings.colorMode) {
-            Logs.i("Main", "主题模式=${settings.colorMode}")
+        val appearance by themeState.appearance
+        val darkTheme = com.linxi.diary.ui.theme.AppThemeResolver.isDark(
+            appearance.colorMode,
+            androidx.compose.foundation.isSystemInDarkTheme(),
+        )
+        androidx.compose.runtime.LaunchedEffect(appearance.colorMode) {
+            Logs.i("Main", "主题模式=${appearance.colorMode}")
         }
-        LinxiTheme(appSettings = settings, content = content)
+        LinxiTheme(appearance = appearance) {
+            com.linxi.diary.ui.theme.WallpaperHost(appearance = appearance, isDark = darkTheme, content = content)
+        }
     }
 
     private fun requestRuntimePermissions() {

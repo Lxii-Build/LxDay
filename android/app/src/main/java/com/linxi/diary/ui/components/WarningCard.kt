@@ -10,7 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.isSystemInDarkTheme
+import com.linxi.diary.ui.theme.LocalLinxiDarkTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Text
@@ -65,7 +65,7 @@ private fun WarningLevel.containerColor(): Color = when {
         WarningLevel.Notice -> colorScheme.tertiaryContainer
     }
 
-    isSystemInDarkTheme() -> when (this) {
+    LocalLinxiDarkTheme.current -> when (this) {
         WarningLevel.Error -> Color(0xFF310808)
         WarningLevel.Notice -> Color(0xFF3E2F1B)
     }

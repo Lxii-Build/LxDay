@@ -16,6 +16,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.linxi.diary.data.ApiClient
+import com.linxi.diary.data.ProfileRuntime
+import com.linxi.diary.service.StatusForegroundService
+import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.util.UserPrefs
 import kotlinx.coroutines.launch
 import org.json.JSONObject
@@ -32,6 +35,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
  */
 @Composable
 fun BindScreen(onBound: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     var mode by remember { mutableStateOf(0) }
     var inviteCode by remember { mutableStateOf("") }
@@ -56,11 +60,14 @@ fun BindScreen(onBound: () -> Unit) {
             runCatching {
                 val resp = ApiClient.postJson("/pair/bind",
                     JSONObject().put("invite_code", inviteCode))
+                UserPrefs.demoMode = false
                 UserPrefs.pairId = resp.optLong("pair_id")
                 val partner = resp.optJSONObject("partner")
                 UserPrefs.partnerName = partner?.optString("nickname") ?: ""
-                UserPrefs.sharingEnabled = true
+                UserPrefs.privacyConsented = false
+                UserPrefs.sharingEnabled = false
                 onBound()
+                ProfileRuntime.connectAndRefreshIfEligible()
             }.onFailure { e -> error = e.message }
             busy = false
         }
@@ -146,10 +153,15 @@ fun BindScreen(onBound: () -> Unit) {
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
                 ) {
-                    // 跳过绑定：进调试主界面，但仍需走知情同意（不设置 privacyConsented）
+                    // 调试模式只显示本地示例，不上传、不提醒、不参与真实绑定。
+                    UserPrefs.demoMode = true
                     UserPrefs.pairId = 1
                     UserPrefs.partnerName = "调试伴侣"
-                    UserPrefs.sharingEnabled = true
+                    UserPrefs.privacyConsented = false
+                    UserPrefs.sharingEnabled = false
+                    StatusSyncManager.disconnect()
+                    ProfileRuntime.clearProfileCache()
+                    StatusForegroundService.stop(context)
                     onBound()
                 }
                 .padding(12.dp)

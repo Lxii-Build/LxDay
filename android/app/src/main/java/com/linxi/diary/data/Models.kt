@@ -2,6 +2,7 @@ package com.linxi.diary.data
 
 import org.json.JSONObject
 import java.text.SimpleDateFormat
+import java.time.LocalDate
 import java.util.Date
 import java.util.Locale
 
@@ -125,3 +126,80 @@ data class BatteryPoint(val battery: Int, val charging: Boolean, val ts: Long) {
         )
     }
 }
+
+data class ProfileUser(
+    val id: Long,
+    val nickname: String,
+    val avatarUrl: String?,
+    val avatarThumbnailUrl: String?,
+) {
+    fun toJson() = JSONObject().apply {
+        put("id", id)
+        put("nickname", nickname)
+        put("avatar_url", avatarUrl ?: JSONObject.NULL)
+        put("avatar_thumbnail_url", avatarThumbnailUrl ?: JSONObject.NULL)
+    }
+
+    companion object {
+        fun fromJson(json: JSONObject) = ProfileUser(
+            id = json.getLong("id"),
+            nickname = json.getString("nickname"),
+            avatarUrl = json.optNullableString("avatar_url"),
+            avatarThumbnailUrl = json.optNullableString("avatar_thumbnail_url"),
+        )
+    }
+}
+
+data class CoupleProfile(
+    val pairId: Long,
+    val me: ProfileUser,
+    val partner: ProfileUser,
+    val anniversaryDate: LocalDate?,
+) {
+    fun toCacheJson() = JSONObject().apply {
+        put("pair_id", pairId)
+        put("me", me.toJson())
+        put("partner", partner.toJson())
+        put("anniversary_date", anniversaryDate?.toString() ?: JSONObject.NULL)
+    }
+
+    companion object {
+        fun fromPairStatus(json: JSONObject): CoupleProfile {
+            require(json.optBoolean("bound")) { "pair is not bound" }
+            return fromJson(json)
+        }
+
+        fun fromCache(json: JSONObject): CoupleProfile = fromJson(json)
+
+        private fun fromJson(json: JSONObject) = CoupleProfile(
+            pairId = json.getLong("pair_id"),
+            me = ProfileUser.fromJson(json.getJSONObject("me")),
+            partner = ProfileUser.fromJson(json.getJSONObject("partner")),
+            anniversaryDate = json.optNullableString("anniversary_date")?.let(LocalDate::parse),
+        )
+    }
+}
+
+object RelationshipDays {
+    fun dayNumber(anniversary: LocalDate, today: LocalDate): Long? =
+        if (anniversary.isAfter(today)) {
+            null
+        } else {
+            java.time.temporal.ChronoUnit.DAYS.between(anniversary, today) + 1
+        }
+}
+
+object AnniversaryDatePolicy {
+    fun daysInMonth(year: Int, month: Int): Int =
+        java.time.YearMonth.of(year, month).lengthOfMonth()
+
+    fun clampDate(year: Int, month: Int, day: Int, maxDate: LocalDate): LocalDate {
+        val candidate = LocalDate.of(year, month, day.coerceIn(1, daysInMonth(year, month)))
+        return candidate.coerceAtMost(maxDate)
+    }
+
+    fun isAllowed(date: LocalDate, today: LocalDate): Boolean = !date.isAfter(today)
+}
+
+private fun JSONObject.optNullableString(key: String): String? =
+    if (isNull(key)) null else optString(key).takeIf { it.isNotEmpty() }

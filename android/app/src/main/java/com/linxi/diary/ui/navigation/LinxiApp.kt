@@ -14,6 +14,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Article
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Person
@@ -28,19 +29,26 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.linxi.diary.data.ProfileRefreshAction
+import com.linxi.diary.data.ProfileRuntime
+import com.linxi.diary.service.StatusForegroundService
 import com.linxi.diary.ui.liquid.miuix.FloatingBottomBar
 import com.linxi.diary.ui.liquid.miuix.FloatingBottomBarItem
 import com.linxi.diary.ui.screens.BindScreen
+import com.linxi.diary.ui.screens.AppearanceScreen
 import com.linxi.diary.ui.screens.DiaryScreen
 import com.linxi.diary.ui.screens.HistoryScreen
 import com.linxi.diary.ui.screens.NowScreen
 import com.linxi.diary.ui.screens.PrivacyConsentScreen
 import com.linxi.diary.ui.screens.SettingsScreen
 import com.linxi.diary.ui.screens.TodoScreen
+import com.linxi.diary.ui.screens.WallpaperScreen
 import com.linxi.diary.util.Logs
 import com.linxi.diary.util.UserPrefs
+import top.yukonga.miuix.kmp.basic.FloatingActionButton
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
@@ -51,7 +59,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 private data class TabItem(val label: String, val icon: ImageVector)
 
 private val tabs = listOf(
-    TabItem("此刻", Icons.Rounded.Favorite),
+    TabItem("主页", Icons.Rounded.Favorite),
     TabItem("待办", Icons.Rounded.CheckCircle),
     TabItem("日记", Icons.AutoMirrored.Rounded.Article),
     TabItem("我的", Icons.Rounded.Person)
@@ -59,6 +67,8 @@ private val tabs = listOf(
 
 @Composable
 fun LinxiApp() {
+    val context = LocalContext.current.applicationContext
+    var mainInitialPage by remember { mutableStateOf(0) }
     var screen by remember {
         mutableStateOf(
             when {
@@ -71,30 +81,74 @@ fun LinxiApp() {
     LaunchedEffect(screen) {
         Logs.i("Nav", "screen=$screen pairId=${UserPrefs.pairId} consented=${UserPrefs.privacyConsented}")
     }
+    LaunchedEffect(Unit) {
+        ProfileRuntime.actions.collect { action ->
+            if (action.navigateToBind) {
+                StatusForegroundService.stop(context)
+                screen = Screen.Bind
+            }
+        }
+    }
 
-    when (screen) {
-        Screen.Bind -> BindScreen(onBound = { screen = Screen.Consent })
-        Screen.Consent -> PrivacyConsentScreen(onConsented = { screen = Screen.Main })
-        Screen.History -> HistoryScreen(onBack = { screen = Screen.Main })
-        Screen.Main -> MainTabs(
-            onOpenHistory = { screen = Screen.History },
-            onOpenBind = { screen = Screen.Bind },
-            onOpenConsent = { screen = Screen.Consent },
-            onLogout = { screen = Screen.Bind }
-        )
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+    ) { rootPadding ->
+        Box(Modifier.fillMaxSize().padding(rootPadding)) {
+            when (screen) {
+                Screen.Bind -> BindScreen(onBound = { screen = Screen.Consent })
+                Screen.Consent -> PrivacyConsentScreen(
+                    onConsented = {
+                        mainInitialPage = 0
+                        screen = Screen.Main
+                    }
+                )
+                Screen.ConsentReview -> PrivacyConsentScreen(
+                    reviewMode = true,
+                    onConsented = {},
+                    onBack = {
+                        mainInitialPage = 3
+                        screen = Screen.Main
+                    },
+                )
+                Screen.History -> HistoryScreen(onBack = {
+                    mainInitialPage = 3
+                    screen = Screen.Main
+                })
+                Screen.Appearance -> AppearanceScreen(
+                    onBack = {
+                        mainInitialPage = 3
+                        screen = Screen.Main
+                    },
+                    onOpenWallpaper = { screen = Screen.Wallpaper },
+                )
+                Screen.Wallpaper -> WallpaperScreen(onBack = { screen = Screen.Appearance })
+                Screen.Main -> MainTabs(
+                    initialPage = mainInitialPage,
+                    onOpenHistory = { screen = Screen.History },
+                    onOpenBind = { screen = Screen.Bind },
+                    onOpenConsent = { screen = Screen.ConsentReview },
+                    onOpenAppearance = { screen = Screen.Appearance },
+                    onLogout = { screen = Screen.Bind }
+                )
+            }
+        }
     }
 }
 
 /** KernelSU 完整悬浮玻璃开启态，只替换林曦日记页面与 Tab 业务。 */
 @Composable
 private fun MainTabs(
+    initialPage: Int,
     onOpenHistory: () -> Unit,
     onOpenBind: () -> Unit,
     onOpenConsent: () -> Unit,
+    onOpenAppearance: () -> Unit,
     onLogout: () -> Unit
 ) {
-    val pagerState = rememberPagerState(pageCount = { tabs.size })
+    val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { tabs.size })
     val mainState = rememberMainPagerState(pagerState)
+    val mainFabState = remember { MainFabState() }
     val surfaceColor = MiuixTheme.colorScheme.surface
     val backdrop = rememberLayerBackdrop {
         drawRect(surfaceColor)
@@ -106,18 +160,23 @@ private fun MainTabs(
     }
 
     val pagerContent: @Composable (androidx.compose.ui.unit.Dp) -> Unit = { bottomInnerPadding ->
-        CompositionLocalProvider(LocalMainBottomPadding provides bottomInnerPadding) {
+        CompositionLocalProvider(
+            LocalMainBottomPadding provides bottomInnerPadding,
+            LocalMainFabState provides mainFabState,
+        ) {
             HorizontalPager(
                 modifier = Modifier.fillMaxSize().layerBackdrop(backdrop),
                 state = pagerState
             ) { page ->
                 when (page) {
-                    0 -> NowScreen(onOpenHistory = onOpenHistory, onOpenBind = onOpenBind)
+                    0 -> NowScreen(onOpenBind = onOpenBind)
                     1 -> TodoScreen()
                     2 -> DiaryScreen()
                     3 -> SettingsScreen(
                         onOpenConsent = onOpenConsent,
                         onOpenBind = onOpenBind,
+                        onOpenHistory = onOpenHistory,
+                        onOpenAppearance = onOpenAppearance,
                         onLogout = onLogout
                     )
                 }
@@ -157,9 +216,20 @@ private fun MainTabs(
         }
     }
 
-    Scaffold(bottomBar = bottomBar) { innerPadding ->
+    val fabDestination = MainFabDestination.forPage(mainState.selectedPage)
+    val fabAction = mainFabState.actionFor(fabDestination)
+    Scaffold(
+        bottomBar = bottomBar,
+        floatingActionButton = {
+            if (fabAction != null) {
+                FloatingActionButton(onClick = fabAction) {
+                    Icon(Icons.Rounded.Add, contentDescription = if (fabDestination == MainFabDestination.Todo) "添加待办" else "发布日记")
+                }
+            }
+        }
+    ) { innerPadding ->
         pagerContent(innerPadding.calculateBottomPadding())
     }
 }
 
-private enum class Screen { Bind, Consent, Main, History }
+private enum class Screen { Bind, Consent, ConsentReview, Main, History, Appearance, Wallpaper }

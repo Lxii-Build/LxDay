@@ -3,8 +3,6 @@ package com.linxi.diary.ui.theme
 import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -14,6 +12,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.view.WindowInsetsControllerCompat
+import com.materialkolor.rememberDynamicColorScheme
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
@@ -30,18 +29,15 @@ enum class ColorMode(val value: Int) {
     }
 }
 
-data class AppSettings(val colorMode: ColorMode)
-
 val LocalLinxiDarkTheme = staticCompositionLocalOf { false }
 
 @Composable
-fun LinxiTheme(appSettings: AppSettings, content: @Composable () -> Unit) {
+fun LinxiTheme(appearance: AppearanceSettings, content: @Composable () -> Unit) {
     val context = LocalContext.current
-    val darkTheme = appSettings.colorMode == ColorMode.DARK ||
-        (appSettings.colorMode == ColorMode.SYSTEM && isSystemInDarkTheme())
-    val controller = remember(appSettings.colorMode, darkTheme) {
+    val darkTheme = AppThemeResolver.isDark(appearance.colorMode, isSystemInDarkTheme())
+    val controller = remember(appearance.colorMode, darkTheme) {
         ThemeController(
-            colorSchemeMode = when (appSettings.colorMode) {
+            colorSchemeMode = when (appearance.colorMode) {
                 ColorMode.SYSTEM -> ColorSchemeMode.System
                 ColorMode.LIGHT -> ColorSchemeMode.Light
                 ColorMode.DARK -> ColorSchemeMode.Dark
@@ -57,17 +53,20 @@ fun LinxiTheme(appSettings: AppSettings, content: @Composable () -> Unit) {
             isAppearanceLightNavigationBars = !darkTheme
         }
     }
-    val materialColors = if (darkTheme) {
-        darkColorScheme(
-            primary = Color(0xFFE59DB9),
-            secondary = Color(0xFFB49EDE),
-        )
-    } else {
-        lightColorScheme(
-            primary = Color(0xFF9C4668),
-            secondary = Color(0xFF71558F),
-        )
-    }
+    // 主题种子色：手动 > 壁纸缓存 > 品牌粉；系统动态色来源返回 null 时回落品牌粉。
+    val seedArgb = SeedColorPolicy.resolveSeed(
+        source = appearance.colorSource,
+        manualArgb = appearance.keyColorArgb,
+        wallpaperSeed = appearance.wallpaper?.cachedSeedArgb,
+        fallback = LinxiSeedPink,
+    ) ?: LinxiSeedPink
+    val materialColors = rememberDynamicColorScheme(
+        seedColor = Color(seedArgb),
+        isDark = darkTheme,
+        isAmoled = false,
+        style = MaterialKolorMapping.paletteStyle(appearance.paletteStyle),
+        specVersion = MaterialKolorMapping.specVersion(appearance.colorSpec, appearance.paletteStyle),
+    )
     CompositionLocalProvider(LocalLinxiDarkTheme provides darkTheme) {
         MiuixTheme(controller = controller) {
             MaterialTheme(colorScheme = materialColors, typography = Typography(), content = content)

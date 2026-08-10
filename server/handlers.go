@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"math/big"
@@ -117,7 +118,8 @@ func handleRegister(c *gin.Context) {
 		fail(c, 400, 1002, "参数错误")
 		return
 	}
-	if len(req.Nickname) < 2 || len(req.Nickname) > 32 {
+	nickname, err := normalizeNickname(req.Nickname)
+	if err != nil {
 		fail(c, 400, 1002, "昵称长度 2-32")
 		return
 	}
@@ -125,7 +127,7 @@ func handleRegister(c *gin.Context) {
 		fail(c, 400, 1002, "密码至少 6 位")
 		return
 	}
-	id, err := st.CreateUser(req.Nickname, hashPassword(req.Password))
+	id, err := st.CreateUser(nickname, hashPassword(req.Password))
 	if err != nil {
 		fail(c, 400, 1006, "昵称已被占用")
 		return
@@ -231,16 +233,197 @@ func handleBind(c *gin.Context) {
 }
 
 func handlePairStatus(c *gin.Context) {
-	uid := currentUID(c)
-	pair, err := st.GetPairByUserID(uid)
-	if err != nil {
+	profile, err := pairProfile(currentUID(c))
+	if errors.Is(err, errPairUnbound) {
 		ok(c, gin.H{"bound": false})
 		return
 	}
-	me, _ := st.GetUserByID(uid)
-	partner := st.PartnerID(pair, uid)
-	pu, _ := st.GetUserByID(partner)
-	ok(c, gin.H{"bound": true, "pair_id": pair.ID, "me": me, "partner": pu})
+	if err != nil {
+		fail(c, http.StatusInternalServerError, 1010, "读取资料失败")
+		return
+	}
+	ok(c, profile)
+}
+
+func handleGetProfile(c *gin.Context) {
+	profile, err := pairProfile(currentUID(c))
+	if err != nil {
+		fail(c, 200, 1001, "未绑定")
+		return
+	}
+	ok(c, profile)
+}
+
+func handleUpdateProfile(c *gin.Context) {
+	uid := currentUID(c)
+	var req struct {
+		Nickname string `json:"nickname" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, 400, 1002, "参数错误")
+		return
+	}
+	nickname, err := normalizeNickname(req.Nickname)
+	if err != nil {
+		fail(c, 400, 1002, "昵称长度 2-32")
+		return
+	}
+
+	tx, err := st.DB.Begin()
+	if err != nil {
+		fail(c, 500, 1010, "更新失败")
+		return
+	}
+	if _, err = pairFrom(tx, uid); err != nil {
+		tx.Rollback()
+		fail(c, 200, 1001, "未绑定")
+		return
+	}
+	if _, err := tx.Exec("UPDATE `user` SET nickname=? WHERE id=?", nickname, uid); err != nil {
+		tx.Rollback()
+		fail(c, 400, 1006, "昵称已被占用")
+		return
+	}
+	profile, err := pairProfileFrom(tx, uid)
+	if err != nil {
+		tx.Rollback()
+		fail(c, 500, 1010, "读取资料失败")
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		fail(c, 500, 1010, "更新失败")
+		return
+	}
+	notifyProfileUpdated(uid, profile)
+	ok(c, profile)
+}
+
+func handleUpdateAnniversary(c *gin.Context) {
+	uid := currentUID(c)
+	var req struct {
+		AnniversaryDate string `json:"anniversary_date" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, 400, 1002, "参数错误")
+		return
+	}
+	anniversary, err := parseAnniversary(req.AnniversaryDate, time.Now())
+	if err != nil {
+		fail(c, 400, 1002, "纪念日无效")
+		return
+	}
+
+	tx, err := st.DB.Begin()
+	if err != nil {
+		fail(c, 500, 1010, "更新失败")
+		return
+	}
+	pair, err := pairFrom(tx, uid)
+	if err != nil {
+		tx.Rollback()
+		fail(c, 200, 1001, "未绑定")
+		return
+	}
+	result, err := tx.Exec(
+		"UPDATE pair SET anniversary_date=? WHERE id=? AND status=1 AND (user_a_id=? OR user_b_id=?)",
+		anniversary, pair.ID, uid, uid,
+	)
+	if err != nil {
+		tx.Rollback()
+		fail(c, 500, 1010, "更新失败")
+		return
+	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		tx.Rollback()
+		fail(c, 200, 1001, "未绑定")
+		return
+	}
+	profile, err := pairProfileFrom(tx, uid)
+	if err != nil {
+		tx.Rollback()
+		fail(c, 500, 1010, "读取资料失败")
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		fail(c, 500, 1010, "更新失败")
+		return
+	}
+	notifyProfileUpdated(uid, profile)
+	ok(c, profile)
+}
+
+type profileQueryer interface {
+	QueryRow(query string, args ...interface{}) *sql.Row
+}
+
+func pairFrom(queryer profileQueryer, uid int64) (*Pair, error) {
+	pair := &Pair{}
+	err := queryer.QueryRow(
+		`SELECT id,user_a_id,user_b_id,invite_code,anniversary_date FROM pair
+		 WHERE status=1 AND (user_a_id=? OR user_b_id=?) LIMIT 1`, uid, uid).Scan(
+		&pair.ID, &pair.UserAID, &pair.UserBID, &pair.InviteCode, &pair.AnniversaryDate)
+	return pair, err
+}
+
+func userFrom(queryer profileQueryer, id int64) (*User, error) {
+	user := &User{}
+	err := queryer.QueryRow(
+		"SELECT id,nickname,avatar_url,avatar_thumbnail_url FROM `user` WHERE id=?", id).
+		Scan(&user.ID, &user.Nickname, &user.AvatarURL, &user.AvatarThumbnailURL)
+	return user, err
+}
+
+var errPairUnbound = errors.New("pair is not bound")
+
+func pairProfileFrom(queryer profileQueryer, uid int64) (gin.H, error) {
+	pair, err := pairFrom(queryer, uid)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, errPairUnbound
+	}
+	if err != nil {
+		return nil, err
+	}
+	me, err := userFrom(queryer, uid)
+	if err != nil {
+		return nil, err
+	}
+	partnerID := pair.UserAID
+	if pair.UserAID == uid {
+		partnerID = pair.UserBID
+	}
+	partner, err := userFrom(queryer, partnerID)
+	if err != nil {
+		return nil, err
+	}
+	var anniversary interface{}
+	if pair.AnniversaryDate != nil {
+		anniversary = pair.AnniversaryDate.Format("2006-01-02")
+	}
+	return gin.H{
+		"bound": true,
+		"pair_id": pair.ID,
+		"me": me,
+		"partner": partner,
+		"anniversary_date": anniversary,
+	}, nil
+}
+
+func pairProfile(uid int64) (gin.H, error) {
+	return pairProfileFrom(st.DB, uid)
+}
+
+func notifyProfileUpdated(uid int64, profile gin.H) {
+	if hub == nil {
+		return
+	}
+	partner, ok := profile["partner"].(*User)
+	if !ok {
+		return
+	}
+	hub.route(partner.ID, WsMessage{
+		Type: MsgProfileUpdated,
+		Data: map[string]interface{}{"user_id": uid},
+	})
 }
 
 // ================= 对方状态 =================

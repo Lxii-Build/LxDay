@@ -17,6 +17,7 @@ android/local.properties
 android/.idea/
 *.apk
 *.aab
+dist/
 
 # 凭据与本地配置
 *.pem

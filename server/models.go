@@ -7,18 +7,20 @@ import (
 // ================= 数据模型 =================
 
 type User struct {
-	ID           int64     `json:"id"`
-	Nickname     string    `json:"nickname"`
-	AvatarURL    string    `json:"avatar_url"`
-	PasswordHash string    `json:"-"`
-	CreatedAt    time.Time `json:"-"`
+	ID                 int64     `json:"id"`
+	Nickname           string    `json:"nickname"`
+	AvatarURL          *string   `json:"avatar_url"`
+	AvatarThumbnailURL *string   `json:"avatar_thumbnail_url"`
+	PasswordHash       string    `json:"-"`
+	CreatedAt          time.Time `json:"-"`
 }
 
 type Pair struct {
-	ID         int64  `json:"id"`
-	UserAID    int64  `json:"user_a_id"`
-	UserBID    int64  `json:"user_b_id"`
-	InviteCode string `json:"invite_code"`
+	ID               int64      `json:"id"`
+	UserAID          int64      `json:"user_a_id"`
+	UserBID          int64      `json:"user_b_id"`
+	InviteCode       string     `json:"invite_code"`
+	AnniversaryDate *time.Time `json:"anniversary_date"`
 }
 
 type AppInfo struct {
@@ -113,6 +115,7 @@ const (
 	MsgLowBattery      = "low_battery"      // 对方电量 <15%
 	MsgWifiJoined      = "wifi_joined"      // 对方连接指定 WiFi
 	MsgTodoRemind      = "todo_remind"      // 待办到点提醒
+	MsgProfileUpdated  = "profile_updated"  // 资料变化后通知对方重新拉取
 )
 
 // 高优事件：离线时必须入队（不接商业推送，靠重连补拉）

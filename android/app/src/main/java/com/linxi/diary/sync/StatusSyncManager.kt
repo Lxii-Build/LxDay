@@ -9,6 +9,7 @@ import android.content.Intent
 import androidx.core.app.NotificationCompat
 import com.linxi.diary.MainActivity
 import com.linxi.diary.core.DeviceStatus
+import com.linxi.diary.data.ProfileRuntime
 import com.linxi.diary.core.DeviceStatusHolder
 import com.linxi.diary.core.MusicInfo
 import com.linxi.diary.core.RingHelper
@@ -39,60 +40,101 @@ object StatusSyncManager {
 
     private const val WS_URL = "wss://api.linxi.app/ws"
 
-    private var client: OkHttpClient? = null
     private var ws: WebSocket? = null
     private var retry = 0
+    private var connectionGeneration = 0L
+    private var reconnectJob: kotlinx.coroutines.Job? = null
     private var appContext: Context? = null
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val dispatcher = WsMessageDispatcher(
+        refreshProfile = ProfileRuntime::refreshAsync,
+        handleSensitive = ::handleInner,
+    )
+
+    private val sharedClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(0, TimeUnit.MILLISECONDS)
+            .pingInterval(30, TimeUnit.SECONDS) // 心跳保活
+            .build()
+    }
 
     fun init(app: Application) {
         appContext = app
     }
 
+    @Synchronized
     fun connect() {
+        if (!ProfileSyncPolicy.canConnectNow()) return
         val token = UserPrefs.token ?: return
         if (ws != null) return
-        val c = OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(0, TimeUnit.MILLISECONDS)
-            .pingInterval(30, TimeUnit.SECONDS) // 心跳保活
-            .build()
-        client = c
+        val generation = connectionGeneration
         val req = Request.Builder().url("$WS_URL?token=$token").build()
-        ws = c.newWebSocket(req, object : WebSocketListener() {
+        ws = sharedClient.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(w: WebSocket, res: Response) {
-                retry = 0
+                synchronized(this@StatusSyncManager) {
+                    if (generation != connectionGeneration) return
+                    retry = 0
+                }
                 pushNow() // 上线立即上报一次全量状态
             }
 
             override fun onMessage(w: WebSocket, text: String) = handle(text)
 
             override fun onFailure(w: WebSocket, t: Throwable, res: Response?) {
-                ws = null
-                scheduleReconnect()
+                synchronized(this@StatusSyncManager) {
+                    if (ws !== w) return
+                    ws = null
+                }
+                scheduleReconnect(generation, res?.code)
             }
 
             override fun onClosed(w: WebSocket, code: Int, reason: String) {
-                ws = null
-                scheduleReconnect()
+                synchronized(this@StatusSyncManager) {
+                    if (ws !== w) return
+                    ws = null
+                }
+                scheduleReconnect(generation, httpCode = null)
             }
         })
     }
 
-    private fun scheduleReconnect() {
-        val delayMs = (1L shl retry.coerceAtMost(6)) * 1000L
-        retry++
-        scope.launch {
-            delay(delayMs)
-            connect()
+    @Synchronized
+    fun disconnect() {
+        connectionGeneration++
+        retry = 0
+        reconnectJob?.cancel()
+        reconnectJob = null
+        val socket = ws
+        ws = null
+        socket?.close(1000, "session ended")
+    }
+
+    private fun scheduleReconnect(generation: Long, httpCode: Int?) {
+        synchronized(this) {
+            if (generation != connectionGeneration) return
+            if (!WsReconnectPolicy.shouldReconnect(httpCode)) {
+                Logs.w("Sync", "WS 鉴权失败($httpCode)，停止重连")
+                return
+            }
+            if (!ProfileSyncPolicy.canConnectNow()) return
+            val delayMs = WsReconnectPolicy.backoffMillis(retry)
+            retry++
+            reconnectJob?.cancel()
+            reconnectJob = scope.launch {
+                delay(delayMs)
+                if (generation == connectionGeneration && ProfileSyncPolicy.canConnectNow()) {
+                    connect()
+                }
+            }
         }
     }
 
     /** 上报本机全量状态。共享开关关闭时不推送。关键变更调用 pushNow() 即时推送 */
     fun pushNow() {
         try {
-            if (!UserPrefs.sharingEnabled) return
+            if (!SharingRuntimePolicy.canRunNow()) return
             val w = ws ?: return
             val s = DeviceStatusHolder.current ?: return
             w.send(JSONObject().apply {
@@ -107,6 +149,7 @@ object StatusSyncManager {
     /** 触发一次性事件：comfort_request / calm_request / ring_request */
     fun sendEvent(type: String) {
         try {
+            if (!SharingRuntimePolicy.canRunNow()) return
             ws?.send(JSONObject().apply {
                 put("type", type)
                 put("data", JSONObject().put("ts", System.currentTimeMillis()))
@@ -118,14 +161,13 @@ object StatusSyncManager {
 
     private fun handle(text: String) {
         try {
-            handleInner(text)
+            dispatcher.dispatch(text, SharingRuntimePolicy.canRunNow())
         } catch (t: Throwable) {
-            Logs.e("Sync", "处理 WS 消息异常（type=${runCatching { JSONObject(text).optString("type") }.getOrDefault("unknown")}）", t)
+            Logs.e("Sync", "处理 WS 消息异常", t)
         }
     }
 
-    private fun handleInner(text: String) {
-        val m = JSONObject(text)
+    private fun handleInner(m: JSONObject) {
         when (m.getString("type")) {
             "partner_status" -> {
                 val j = m.getJSONObject("data")

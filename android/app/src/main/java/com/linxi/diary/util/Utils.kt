@@ -11,6 +11,24 @@ object UserPrefs {
     private const val PREF = "linxi_prefs"
     private lateinit var sp: SharedPreferences
 
+    val profilePreferences: com.linxi.diary.data.ProfilePreferences =
+        object : com.linxi.diary.data.ProfilePreferences {
+            override val profileCacheJson: String?
+                get() = sp.getString("couple_profile", null)
+            override val pairId: Long
+                get() = UserPrefs.pairId
+            override val partnerName: String
+                get() = UserPrefs.partnerName
+
+            override fun commit(profileCacheJson: String?, pairId: Long, partnerName: String) {
+                sp.edit()
+                    .putString("couple_profile", profileCacheJson)
+                    .putLong("pair_id", pairId)
+                    .putString("partner_name", partnerName)
+                    .apply()
+            }
+        }
+
     fun init(context: Context) {
         sp = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
     }
@@ -22,6 +40,10 @@ object UserPrefs {
     var partnerName: String
         get() = sp.getString("partner_name", "") ?: ""
         set(v) { sp.edit().putString("partner_name", v).apply() }
+
+    var demoMode: Boolean
+        get() = sp.getBoolean("demo_mode", false)
+        set(v) { sp.edit().putBoolean("demo_mode", v).apply() }
 
     var statusCardEnabled: Boolean
         get() = sp.getBoolean("status_card", true)

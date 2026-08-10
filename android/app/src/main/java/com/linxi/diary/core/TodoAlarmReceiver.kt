@@ -19,6 +19,7 @@ import android.os.Vibrator
 import androidx.core.app.NotificationCompat
 import com.linxi.diary.R
 import com.linxi.diary.service.StatusForegroundService
+import com.linxi.diary.util.UserPrefs
 
 /**
  * 待办到点本地提醒（双保险之一：服务端扫描为主 + 本地 AlarmManager 兜底）。
@@ -28,6 +29,7 @@ import com.linxi.diary.service.StatusForegroundService
 class TodoAlarmReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
+        if (UserPrefs.demoMode || UserPrefs.pairId <= 0) return
         val title = intent.getStringExtra("title") ?: "待办提醒"
         val remindType = intent.getIntExtra("remind_type", 0)
         val todoId = intent.getLongExtra("todo_id", 0)

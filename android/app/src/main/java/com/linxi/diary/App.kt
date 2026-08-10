@@ -2,6 +2,7 @@ package com.linxi.diary
 
 import android.app.Application
 import android.util.Log
+import com.linxi.diary.data.ProfileRuntime
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.util.CrashHandler
 import com.linxi.diary.util.Logs
@@ -46,6 +47,12 @@ class App : Application() {
             Logs.i("App", "UserPrefs 已初始化")
         } catch (t: Throwable) {
             Logs.e("App", "UserPrefs.init 失败", t)
+        }
+        try {
+            ProfileRuntime.init()
+            Logs.i("App", "ProfileRuntime 已初始化")
+        } catch (t: Throwable) {
+            Logs.e("App", "ProfileRuntime.init 失败", t)
         }
         try {
             StatusSyncManager.init(this)

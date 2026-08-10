@@ -1,10 +1,10 @@
 package com.linxi.diary.core
 
 import android.app.Notification
-import android.content.Intent
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import com.linxi.diary.service.StatusForegroundService
+import com.linxi.diary.sync.SharingRuntimePolicy
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.util.UserPrefs
 
@@ -27,12 +27,6 @@ class MediaNotificationListener : NotificationListenerService() {
             StatusSyncManager.pushNow() // 开始播放音乐 → 即时推送
             return
         }
-        // 常驻卡片被移除兜底重拉
-        if (sbn.id == StatusForegroundService.NOTIFY_ID_CARD &&
-            sbn.packageName == packageName && !isStoppedByUser()) {
-            startService(Intent(this, StatusForegroundService::class.java)
-                .setAction(StatusForegroundService.ACTION_REFRESH))
-        }
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
@@ -43,11 +37,11 @@ class MediaNotificationListener : NotificationListenerService() {
         }
         // 侧滑删除兜底重拉
         if (sbn.id == StatusForegroundService.NOTIFY_ID_CARD &&
-            sbn.packageName == packageName && !isStoppedByUser()) {
-            startService(Intent(this, StatusForegroundService::class.java)
-                .setAction(StatusForegroundService.ACTION_REFRESH))
+            sbn.packageName == packageName && shouldRestoreCard()) {
+            StatusForegroundService.restoreCard(this)
         }
     }
 
-    private fun isStoppedByUser() = UserPrefs.statusCardEnabled == false
+    private fun shouldRestoreCard(): Boolean =
+        UserPrefs.statusCardEnabled && SharingRuntimePolicy.canRunNow()
 }

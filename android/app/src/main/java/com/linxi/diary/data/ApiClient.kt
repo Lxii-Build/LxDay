@@ -108,6 +108,31 @@ object ApiClient {
 
     // ============ 业务接口 ============
 
+    suspend fun pairStatus(): JSONObject = get("/pair/status")
+
+    /** 更新本人昵称，返回双方权威资料 */
+    suspend fun updateNickname(nickname: String): JSONObject =
+        putJson("/profile", JSONObject().put("nickname", nickname))
+
+    /** 更新纪念日（yyyy-MM-dd），返回双方权威资料 */
+    suspend fun updateAnniversary(date: String): JSONObject =
+        putJson("/pair/anniversary", JSONObject().put("anniversary_date", date))
+
+    /** 上传头像原文件，返回双方权威资料。服务端按魔数识别格式，客户端不声明具体 MIME。 */
+    suspend fun uploadAvatar(file: File): JSONObject = withContext(Dispatchers.IO) {
+        val mb = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart(
+                "file", file.name,
+                file.asRequestBody("application/octet-stream".toMediaType()),
+            )
+            .build()
+        val resp = client.newCall(request("POST", "/profile/avatar", mb).build()).execute()
+        val text = resp.body?.string().orEmpty()
+        if (!resp.isSuccessful) throw ApiException(-1, "HTTP ${resp.code}")
+        check(text).optJSONObject("data") ?: JSONObject()
+    }
+
     /** 状态历史时间线 */
     suspend fun historyTimeline(date: String?, limit: Int, offset: Int): org.json.JSONArray {
         var path = "/status/history?limit=$limit&offset=$offset"
