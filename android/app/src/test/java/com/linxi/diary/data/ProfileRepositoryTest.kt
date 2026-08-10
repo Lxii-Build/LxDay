@@ -1,5 +1,6 @@
 package com.linxi.diary.data
 
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -113,22 +114,24 @@ class ProfileRepositoryTest {
 
     @Test
     fun `清理后的在途刷新不能恢复旧会话资料`() = runBlocking {
-        val responseGate = kotlinx.coroutines.CompletableDeferred<JSONObject>()
-        val preferences = FakeProfilePreferences(pairId = 7, partnerName = "伴侣")
-        val repository = ProfileRepository(
-            PairStatusSource { responseGate.await() },
-            preferences,
-        )
-        val refresh = kotlinx.coroutines.async { repository.refresh() }
+        kotlinx.coroutines.coroutineScope {
+            val responseGate = kotlinx.coroutines.CompletableDeferred<JSONObject>()
+            val preferences = FakeProfilePreferences(pairId = 7, partnerName = "伴侣")
+            val repository = ProfileRepository(
+                PairStatusSource { responseGate.await() },
+                preferences,
+            )
+            val refresh = async { repository.refresh() }
 
-        repository.clear()
-        responseGate.complete(boundProfileJson())
+            repository.clear()
+            responseGate.complete(boundProfileJson())
 
-        assertNull(refresh.await())
-        assertNull(repository.profile.value)
-        assertNull(preferences.profileCacheJson)
-        assertEquals(0L, preferences.pairId)
-        assertEquals("", preferences.partnerName)
+            assertNull(refresh.await())
+            assertNull(repository.profile.value)
+            assertNull(preferences.profileCacheJson)
+            assertEquals(0L, preferences.pairId)
+            assertEquals("", preferences.partnerName)
+        }
     }
 
     @Test
