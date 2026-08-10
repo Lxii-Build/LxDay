@@ -95,6 +95,7 @@ func main() {
 
 	auth.GET("/profile", handleGetProfile)
 	auth.PUT("/profile", handleUpdateProfile)
+	auth.POST("/profile/avatar", handleUploadAvatar)
 
 	auth.GET("/partner/status", handlePartnerStatus)
 

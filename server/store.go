@@ -57,6 +57,13 @@ func (s *Store) UpdateNickname(id int64, nickname string) error {
 	return err
 }
 
+func (s *Store) UpdateAvatar(id int64, avatarURL, thumbnailURL string) error {
+	_, err := s.DB.Exec(
+		"UPDATE `user` SET avatar_url=?, avatar_thumbnail_url=? WHERE id=?",
+		avatarURL, thumbnailURL, id)
+	return err
+}
+
 // ---------- 绑定 ----------
 
 func (s *Store) GetPairByUserID(uid int64) (*Pair, error) {
