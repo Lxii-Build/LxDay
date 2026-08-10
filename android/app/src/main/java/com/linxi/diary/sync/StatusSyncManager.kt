@@ -40,10 +40,10 @@ object StatusSyncManager {
 
     private const val WS_URL = "wss://api.linxi.app/ws"
 
-    private var client: OkHttpClient? = null
     private var ws: WebSocket? = null
     private var retry = 0
     private var connectionGeneration = 0L
+    private var reconnectJob: kotlinx.coroutines.Job? = null
     private var appContext: Context? = null
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -52,63 +52,81 @@ object StatusSyncManager {
         handleSensitive = ::handleInner,
     )
 
+    private val sharedClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(0, TimeUnit.MILLISECONDS)
+            .pingInterval(30, TimeUnit.SECONDS) // 心跳保活
+            .build()
+    }
+
     fun init(app: Application) {
         appContext = app
     }
 
+    @Synchronized
     fun connect() {
         if (!ProfileSyncPolicy.canConnectNow()) return
         val token = UserPrefs.token ?: return
         if (ws != null) return
         val generation = connectionGeneration
-        val c = OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(0, TimeUnit.MILLISECONDS)
-            .pingInterval(30, TimeUnit.SECONDS) // 心跳保活
-            .build()
-        client = c
         val req = Request.Builder().url("$WS_URL?token=$token").build()
-        ws = c.newWebSocket(req, object : WebSocketListener() {
+        ws = sharedClient.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(w: WebSocket, res: Response) {
-                retry = 0
+                synchronized(this@StatusSyncManager) {
+                    if (generation != connectionGeneration) return
+                    retry = 0
+                }
                 pushNow() // 上线立即上报一次全量状态
             }
 
             override fun onMessage(w: WebSocket, text: String) = handle(text)
 
             override fun onFailure(w: WebSocket, t: Throwable, res: Response?) {
-                if (ws !== w) return
-                ws = null
-                scheduleReconnect(generation)
+                synchronized(this@StatusSyncManager) {
+                    if (ws !== w) return
+                    ws = null
+                }
+                scheduleReconnect(generation, res?.code)
             }
 
             override fun onClosed(w: WebSocket, code: Int, reason: String) {
-                if (ws !== w) return
-                ws = null
-                scheduleReconnect(generation)
+                synchronized(this@StatusSyncManager) {
+                    if (ws !== w) return
+                    ws = null
+                }
+                scheduleReconnect(generation, httpCode = null)
             }
         })
     }
 
+    @Synchronized
     fun disconnect() {
         connectionGeneration++
         retry = 0
+        reconnectJob?.cancel()
+        reconnectJob = null
         val socket = ws
         ws = null
         socket?.close(1000, "session ended")
-        client?.dispatcher?.cancelAll()
-        client?.connectionPool?.evictAll()
-        client = null
     }
 
-    private fun scheduleReconnect(generation: Long) {
-        if (generation != connectionGeneration || !ProfileSyncPolicy.canConnectNow()) return
-        val delayMs = (1L shl retry.coerceAtMost(6)) * 1000L
-        retry++
-        scope.launch {
-            delay(delayMs)
-            if (generation == connectionGeneration && ProfileSyncPolicy.canConnectNow()) {
-                connect()
+    private fun scheduleReconnect(generation: Long, httpCode: Int?) {
+        synchronized(this) {
+            if (generation != connectionGeneration) return
+            if (!WsReconnectPolicy.shouldReconnect(httpCode)) {
+                Logs.w("Sync", "WS 鉴权失败($httpCode)，停止重连")
+                return
+            }
+            if (!ProfileSyncPolicy.canConnectNow()) return
+            val delayMs = WsReconnectPolicy.backoffMillis(retry)
+            retry++
+            reconnectJob?.cancel()
+            reconnectJob = scope.launch {
+                delay(delayMs)
+                if (generation == connectionGeneration && ProfileSyncPolicy.canConnectNow()) {
+                    connect()
+                }
             }
         }
     }
