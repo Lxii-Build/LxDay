@@ -21,6 +21,7 @@ class ProfileRepository(
     private val mutableProfile = MutableStateFlow<CoupleProfile?>(null)
     val profile: StateFlow<CoupleProfile?> = mutableProfile
     private var generation = 0L
+    private var refreshSequence = 0L
 
     fun loadCached(): CoupleProfile? {
         val cached = preferences.profileCacheJson
@@ -30,37 +31,59 @@ class ProfileRepository(
     }
 
     suspend fun refresh(): CoupleProfile? {
-        val refreshGeneration = generation
+        val refreshGeneration: Long
+        val sequence: Long
+        synchronized(this) {
+            refreshGeneration = generation
+            refreshSequence++
+            sequence = refreshSequence
+        }
         val response = source.get()
         val bound = requireNotNull(response.opt("bound") as? Boolean) {
             "pair status is missing boolean bound"
         }
-        if (refreshGeneration != generation) return null
-        if (!bound) {
-            clear()
-            return null
+        synchronized(this) {
+            if (refreshGeneration != generation || sequence != refreshSequence) return null
+            if (!bound) {
+                clearLocked()
+                return null
+            }
+            val authoritative = CoupleProfile.fromPairStatus(response)
+            applyLocked(authoritative)
+            return authoritative
         }
-        val authoritative = CoupleProfile.fromPairStatus(response)
-        if (refreshGeneration != generation) return null
-        apply(authoritative)
-        return authoritative
     }
 
+    @Synchronized
     fun apply(authoritative: CoupleProfile) {
+        applyLocked(authoritative)
+    }
+
+    private fun applyLocked(authoritative: CoupleProfile) {
         mutableProfile.value = authoritative
         preferences.profileCacheJson = authoritative.toCacheJson().toString()
         preferences.pairId = authoritative.pairId
         preferences.partnerName = authoritative.partner.nickname
     }
 
+    @Synchronized
     fun clearProfileCache() {
         generation++
+        refreshSequence++
         mutableProfile.value = null
         preferences.profileCacheJson = null
     }
 
+    @Synchronized
     fun clear() {
-        clearProfileCache()
+        clearLocked()
+    }
+
+    private fun clearLocked() {
+        generation++
+        refreshSequence++
+        mutableProfile.value = null
+        preferences.profileCacheJson = null
         preferences.pairId = 0
         preferences.partnerName = ""
     }

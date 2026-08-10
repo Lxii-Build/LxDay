@@ -234,7 +234,7 @@ func handleBind(c *gin.Context) {
 
 func handlePairStatus(c *gin.Context) {
 	profile, err := pairProfile(currentUID(c))
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, errPairUnbound) {
 		ok(c, gin.H{"bound": false})
 		return
 	}
@@ -373,8 +373,13 @@ func userFrom(queryer profileQueryer, id int64) (*User, error) {
 	return user, err
 }
 
+var errPairUnbound = errors.New("pair is not bound")
+
 func pairProfileFrom(queryer profileQueryer, uid int64) (gin.H, error) {
 	pair, err := pairFrom(queryer, uid)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, errPairUnbound
+	}
 	if err != nil {
 		return nil, err
 	}

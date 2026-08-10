@@ -206,9 +206,7 @@ fun SettingsScreen(
                         UserPrefs.token = null
                         UserPrefs.demoMode = false
                         UserPrefs.sharingEnabled = false
-                        UserPrefs.pairId = 0
                         UserPrefs.privacyConsented = false
-                        UserPrefs.partnerName = ""
                         StatusSyncManager.disconnect()
                         ProfileRuntime.clearSession()
                         StatusForegroundService.stop(context)
