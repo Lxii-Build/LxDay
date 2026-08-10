@@ -17,7 +17,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
-import com.linxi.diary.sync.SharingRuntimePolicy
+import com.linxi.diary.data.ProfileRuntime
+import com.linxi.diary.sync.ProfileSyncPolicy
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.ui.navigation.LinxiApp
 import com.linxi.diary.ui.theme.LinxiTheme
@@ -53,11 +54,12 @@ class MainActivity : ComponentActivity() {
         } catch (t: Throwable) {
             Logs.e("Main", "请求权限失败", t)
         }
-        if (SharingRuntimePolicy.canRunNow()) {
+        if (ProfileSyncPolicy.canConnectNow()) {
             try {
                 StatusSyncManager.connect()
+                ProfileRuntime.refreshAsync()
             } catch (t: Throwable) {
-                Logs.e("Main", "连接失败", t)
+                Logs.e("Main", "连接或资料刷新失败", t)
             }
         }
         Logs.i("Main", "setContent 之前")

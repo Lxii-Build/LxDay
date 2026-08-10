@@ -23,6 +23,7 @@ import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 import com.linxi.diary.core.PermissionHelper
+import com.linxi.diary.data.ProfileRuntime
 import com.linxi.diary.service.StatusForegroundService
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.ui.components.KernelScreen
@@ -83,7 +84,6 @@ fun SettingsScreen(
                             StatusSyncManager.connect()
                         } else {
                             DeviceStatusHolder_local.clear()
-                            StatusSyncManager.disconnect()
                             StatusForegroundService.stop(context)
                         }
                     }
@@ -210,6 +210,7 @@ fun SettingsScreen(
                         UserPrefs.privacyConsented = false
                         UserPrefs.partnerName = ""
                         StatusSyncManager.disconnect()
+                        ProfileRuntime.clear()
                         StatusForegroundService.stop(context)
                         onLogout()
                     },

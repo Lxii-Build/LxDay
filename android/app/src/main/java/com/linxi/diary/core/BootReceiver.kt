@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.linxi.diary.service.StatusForegroundService
+import com.linxi.diary.sync.ProfileSyncPolicy
 import com.linxi.diary.sync.SharingRuntimePolicy
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.util.UserPrefs
@@ -14,8 +15,8 @@ class BootReceiver : BroadcastReceiver() {
         when (intent.action) {
             Intent.ACTION_BOOT_COMPLETED,
             Intent.ACTION_LOCKED_BOOT_COMPLETED -> {
-                if (!SharingRuntimePolicy.canRunNow()) return
-                if (UserPrefs.statusCardEnabled) {
+                if (!ProfileSyncPolicy.canConnectNow()) return
+                if (SharingRuntimePolicy.canRunNow() && UserPrefs.statusCardEnabled) {
                     StatusForegroundService.start(context)
                 }
                 StatusSyncManager.connect()

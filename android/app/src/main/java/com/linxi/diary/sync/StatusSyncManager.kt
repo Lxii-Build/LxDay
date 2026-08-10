@@ -9,6 +9,7 @@ import android.content.Intent
 import androidx.core.app.NotificationCompat
 import com.linxi.diary.MainActivity
 import com.linxi.diary.core.DeviceStatus
+import com.linxi.diary.data.ProfileRuntime
 import com.linxi.diary.core.DeviceStatusHolder
 import com.linxi.diary.core.MusicInfo
 import com.linxi.diary.core.RingHelper
@@ -46,13 +47,17 @@ object StatusSyncManager {
     private var appContext: Context? = null
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val dispatcher = WsMessageDispatcher(
+        refreshProfile = ProfileRuntime::refreshAsync,
+        handleSensitive = ::handleInner,
+    )
 
     fun init(app: Application) {
         appContext = app
     }
 
     fun connect() {
-        if (!SharingRuntimePolicy.canRunNow()) return
+        if (!ProfileSyncPolicy.canConnectNow()) return
         val token = UserPrefs.token ?: return
         if (ws != null) return
         val generation = connectionGeneration
@@ -90,19 +95,19 @@ object StatusSyncManager {
         retry = 0
         val socket = ws
         ws = null
-        socket?.close(1000, "sharing disabled")
+        socket?.close(1000, "session ended")
         client?.dispatcher?.cancelAll()
         client?.connectionPool?.evictAll()
         client = null
     }
 
     private fun scheduleReconnect(generation: Long) {
-        if (generation != connectionGeneration || !SharingRuntimePolicy.canRunNow()) return
+        if (generation != connectionGeneration || !ProfileSyncPolicy.canConnectNow()) return
         val delayMs = (1L shl retry.coerceAtMost(6)) * 1000L
         retry++
         scope.launch {
             delay(delayMs)
-            if (generation == connectionGeneration && SharingRuntimePolicy.canRunNow()) {
+            if (generation == connectionGeneration && ProfileSyncPolicy.canConnectNow()) {
                 connect()
             }
         }
@@ -137,9 +142,8 @@ object StatusSyncManager {
     }
 
     private fun handle(text: String) {
-        if (!SharingRuntimePolicy.canRunNow()) return
         try {
-            handleInner(text)
+            dispatcher.dispatch(text, SharingRuntimePolicy.canRunNow())
         } catch (t: Throwable) {
             Logs.e("Sync", "处理 WS 消息异常（type=${runCatching { JSONObject(text).optString("type") }.getOrDefault("unknown")}）", t)
         }

@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.linxi.diary.data.ApiClient
+import com.linxi.diary.data.ProfileRuntime
 import com.linxi.diary.service.StatusForegroundService
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.util.UserPrefs
@@ -65,6 +66,8 @@ fun BindScreen(onBound: () -> Unit) {
                 UserPrefs.partnerName = partner?.optString("nickname") ?: ""
                 UserPrefs.privacyConsented = false
                 UserPrefs.sharingEnabled = false
+                StatusSyncManager.connect()
+                ProfileRuntime.refreshAsync()
                 onBound()
             }.onFailure { e -> error = e.message }
             busy = false
@@ -158,6 +161,7 @@ fun BindScreen(onBound: () -> Unit) {
                     UserPrefs.privacyConsented = false
                     UserPrefs.sharingEnabled = false
                     StatusSyncManager.disconnect()
+                    ProfileRuntime.clear()
                     StatusForegroundService.stop(context)
                     onBound()
                 }
