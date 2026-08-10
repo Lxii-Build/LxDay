@@ -16,7 +16,7 @@ class AvatarCachePolicyTest {
 
     @Test
     fun `同一 URL 缓存键稳定且文件名安全`() {
-        val key = AvatarCachePolicy.cacheKey("https://cdn.invalid/x.webp?v=3")
+        val key = requireNotNull(AvatarCachePolicy.cacheKey("https://cdn.invalid/x.webp?v=3"))
         assertEquals(key, AvatarCachePolicy.cacheKey("https://cdn.invalid/x.webp?v=3"))
         assertTrue(key.matches(Regex("[a-f0-9]{16,}\\.png")))
     }
