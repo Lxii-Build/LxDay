@@ -5,10 +5,14 @@ import com.linxi.diary.util.UserPrefs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 
 object ProfileRuntime {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val mutableActions = MutableSharedFlow<ProfileRefreshAction>(extraBufferCapacity = 1)
+    val actions = mutableActions.asSharedFlow()
 
     val repository by lazy {
         ProfileRepository(
@@ -35,6 +39,14 @@ object ProfileRuntime {
         if (!com.linxi.diary.sync.ProfileSyncPolicy.canConnectNow()) return
         scope.launch {
             runCatching { repository.refresh() }
+                .onSuccess { result ->
+                    ProfileRefreshAction.fromResult(result)?.let { action ->
+                        if (action.disconnectSession) {
+                            com.linxi.diary.sync.StatusSyncManager.disconnect()
+                        }
+                        mutableActions.emit(action)
+                    }
+                }
                 .onFailure { Logs.w("Profile", "刷新情侣资料失败", it) }
         }
     }

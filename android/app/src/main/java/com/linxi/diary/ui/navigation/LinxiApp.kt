@@ -29,8 +29,12 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.linxi.diary.data.ProfileRefreshAction
+import com.linxi.diary.data.ProfileRuntime
+import com.linxi.diary.service.StatusForegroundService
 import com.linxi.diary.ui.liquid.miuix.FloatingBottomBar
 import com.linxi.diary.ui.liquid.miuix.FloatingBottomBarItem
 import com.linxi.diary.ui.screens.BindScreen
@@ -61,6 +65,7 @@ private val tabs = listOf(
 
 @Composable
 fun LinxiApp() {
+    val context = LocalContext.current.applicationContext
     var mainInitialPage by remember { mutableStateOf(0) }
     var screen by remember {
         mutableStateOf(
@@ -73,6 +78,14 @@ fun LinxiApp() {
     }
     LaunchedEffect(screen) {
         Logs.i("Nav", "screen=$screen pairId=${UserPrefs.pairId} consented=${UserPrefs.privacyConsented}")
+    }
+    LaunchedEffect(Unit) {
+        ProfileRuntime.actions.collect { action ->
+            if (action.navigateToBind) {
+                StatusForegroundService.stop(context)
+                screen = Screen.Bind
+            }
+        }
     }
 
     Scaffold(

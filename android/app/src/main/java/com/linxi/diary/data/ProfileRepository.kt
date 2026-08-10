@@ -14,6 +14,12 @@ interface ProfilePreferences {
     var partnerName: String
 }
 
+sealed interface ProfileRefreshResult {
+    data class Updated(val profile: CoupleProfile) : ProfileRefreshResult
+    data object Unbound : ProfileRefreshResult
+    data object Superseded : ProfileRefreshResult
+}
+
 class ProfileRepository(
     private val source: PairStatusSource,
     private val preferences: ProfilePreferences,
@@ -30,7 +36,7 @@ class ProfileRepository(
         return cached
     }
 
-    suspend fun refresh(): CoupleProfile? {
+    suspend fun refresh(): ProfileRefreshResult {
         val refreshGeneration: Long
         val sequence: Long
         synchronized(this) {
@@ -43,14 +49,16 @@ class ProfileRepository(
             "pair status is missing boolean bound"
         }
         synchronized(this) {
-            if (refreshGeneration != generation || sequence != refreshSequence) return null
+            if (refreshGeneration != generation || sequence != refreshSequence) {
+                return ProfileRefreshResult.Superseded
+            }
             if (!bound) {
                 clearLocked()
-                return null
+                return ProfileRefreshResult.Unbound
             }
             val authoritative = CoupleProfile.fromPairStatus(response)
             applyLocked(authoritative)
-            return authoritative
+            return ProfileRefreshResult.Updated(authoritative)
         }
     }
 
