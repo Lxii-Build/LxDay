@@ -20,6 +20,7 @@ class ProfileRepository(
 ) {
     private val mutableProfile = MutableStateFlow<CoupleProfile?>(null)
     val profile: StateFlow<CoupleProfile?> = mutableProfile
+    private var generation = 0L
 
     fun loadCached(): CoupleProfile? {
         val cached = preferences.profileCacheJson
@@ -29,12 +30,18 @@ class ProfileRepository(
     }
 
     suspend fun refresh(): CoupleProfile? {
+        val refreshGeneration = generation
         val response = source.get()
-        if (!response.optBoolean("bound")) {
+        val bound = requireNotNull(response.opt("bound") as? Boolean) {
+            "pair status is missing boolean bound"
+        }
+        if (refreshGeneration != generation) return null
+        if (!bound) {
             clear()
             return null
         }
         val authoritative = CoupleProfile.fromPairStatus(response)
+        if (refreshGeneration != generation) return null
         apply(authoritative)
         return authoritative
     }
@@ -46,9 +53,14 @@ class ProfileRepository(
         preferences.partnerName = authoritative.partner.nickname
     }
 
-    fun clear() {
+    fun clearProfileCache() {
+        generation++
         mutableProfile.value = null
         preferences.profileCacheJson = null
+    }
+
+    fun clear() {
+        clearProfileCache()
         preferences.pairId = 0
         preferences.partnerName = ""
     }

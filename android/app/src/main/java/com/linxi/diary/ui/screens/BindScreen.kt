@@ -161,7 +161,7 @@ fun BindScreen(onBound: () -> Unit) {
                     UserPrefs.privacyConsented = false
                     UserPrefs.sharingEnabled = false
                     StatusSyncManager.disconnect()
-                    ProfileRuntime.clear()
+                    ProfileRuntime.clearProfileCache()
                     StatusForegroundService.stop(context)
                     onBound()
                 }

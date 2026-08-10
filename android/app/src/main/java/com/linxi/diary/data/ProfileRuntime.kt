@@ -19,7 +19,7 @@ object ProfileRuntime {
 
     fun init() {
         if (UserPrefs.demoMode) {
-            repository.clear()
+            repository.clearProfileCache()
         } else {
             repository.loadCached()
         }
@@ -33,7 +33,11 @@ object ProfileRuntime {
         }
     }
 
-    fun clear() {
+    fun clearProfileCache() {
+        repository.clearProfileCache()
+    }
+
+    fun clearSession() {
         repository.clear()
     }
 }

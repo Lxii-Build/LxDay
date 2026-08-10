@@ -210,7 +210,7 @@ fun SettingsScreen(
                         UserPrefs.privacyConsented = false
                         UserPrefs.partnerName = ""
                         StatusSyncManager.disconnect()
-                        ProfileRuntime.clear()
+                        ProfileRuntime.clearSession()
                         StatusForegroundService.stop(context)
                         onLogout()
                     },

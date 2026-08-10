@@ -233,8 +233,12 @@ func handleBind(c *gin.Context) {
 
 func handlePairStatus(c *gin.Context) {
 	profile, err := pairProfile(currentUID(c))
-	if err != nil {
+	if errors.Is(err, sql.ErrNoRows) {
 		ok(c, gin.H{"bound": false})
+		return
+	}
+	if err != nil {
+		fail(c, http.StatusInternalServerError, 1010, "读取资料失败")
 		return
 	}
 	ok(c, profile)
