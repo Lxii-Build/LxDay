@@ -145,12 +145,11 @@ object StatusSyncManager {
         try {
             dispatcher.dispatch(text, SharingRuntimePolicy.canRunNow())
         } catch (t: Throwable) {
-            Logs.e("Sync", "处理 WS 消息异常（type=${runCatching { JSONObject(text).optString("type") }.getOrDefault("unknown")}）", t)
+            Logs.e("Sync", "处理 WS 消息异常", t)
         }
     }
 
-    private fun handleInner(text: String) {
-        val m = JSONObject(text)
+    private fun handleInner(m: JSONObject) {
         when (m.getString("type")) {
             "partner_status" -> {
                 val j = m.getJSONObject("data")
