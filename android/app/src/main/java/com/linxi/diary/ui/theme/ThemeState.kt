@@ -2,7 +2,6 @@ package com.linxi.diary.ui.theme
 
 import android.content.Context
 import android.content.SharedPreferences
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -16,10 +15,15 @@ class ThemeState private constructor(
     private val _appearance = mutableStateOf(store.load())
     val appearance: State<AppearanceSettings> = _appearance
 
+    // 进程级单例常驻，监听器随单例一起注册且不注销；SharedPreferences 仅持弱引用，故强引用保存在此。
     private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key != null && (key == "color_mode" || key.startsWith("appearance_"))) {
             _appearance.value = store.load()
         }
+    }
+
+    init {
+        prefs.registerOnSharedPreferenceChangeListener(listener)
     }
 
     fun update(transform: (AppearanceSettings) -> AppearanceSettings) {
@@ -28,15 +32,12 @@ class ThemeState private constructor(
         _appearance.value = next
     }
 
-    fun startListening() = prefs.registerOnSharedPreferenceChangeListener(listener)
-    fun stopListening() = prefs.unregisterOnSharedPreferenceChangeListener(listener)
-
     companion object {
         @Volatile private var instance: ThemeState? = null
 
         fun get(context: Context): ThemeState = instance ?: synchronized(this) {
             instance ?: ThemeState(
-                context.getSharedPreferences("linxi_prefs", Context.MODE_PRIVATE)
+                context.applicationContext.getSharedPreferences("linxi_prefs", Context.MODE_PRIVATE)
             ).also { instance = it }
         }
     }
@@ -45,10 +46,5 @@ class ThemeState private constructor(
 @Composable
 fun rememberThemeState(): ThemeState {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val state = remember { ThemeState.get(context) }
-    DisposableEffect(state) {
-        state.startListening()
-        onDispose { state.stopListening() }
-    }
-    return state
+    return remember { ThemeState.get(context) }
 }

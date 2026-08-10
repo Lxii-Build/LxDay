@@ -7,14 +7,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -60,7 +54,6 @@ fun WallpaperScreen(onBack: () -> Unit) {
     var offsetY by remember { mutableStateOf(0f) }
     var frameW by remember { mutableStateOf(0) }
     var frameH by remember { mutableStateOf(0) }
-    var minScale by remember { mutableStateOf(1f) }
     var busy by remember { mutableStateOf(false) }
 
     val picker = rememberLauncherForActivityResult(
@@ -92,19 +85,15 @@ fun WallpaperScreen(onBack: () -> Unit) {
                         .aspectRatio(screenAspect)
                         .onSizeChanged {
                             frameW = it.width; frameH = it.height
-                            source?.let { bmp ->
-                                minScale = WallpaperCropPolicy.minScaleToCover(bmp.width, bmp.height, frameW, frameH)
-                                if (scale < minScale) scale = minScale
-                            }
                         }
-                        .pointerInput(source) {
+                        .pointerInput(Unit) {
                             detectTransformGestures { _, pan, zoom, _ ->
-                                val bmp = source ?: return@detectTransformGestures
-                                scale = WallpaperCropPolicy.clampScale(scale * zoom, minScale)
-                                val scaledW = bmp.width * scale
-                                val scaledH = bmp.height * scale
-                                offsetX = WallpaperCropPolicy.clampTranslation(offsetX + pan.x, scaledW, frameW.toFloat())
-                                offsetY = WallpaperCropPolicy.clampTranslation(offsetY + pan.y, scaledH, frameH.toFloat())
+                                if (source == null) return@detectTransformGestures
+                                // 预览已用 Crop 铺满框(=1x 覆盖)，scale 是额外倍率，下限 1.0 保证不露白。
+                                scale = WallpaperCropPolicy.clampScale(scale * zoom, 1f)
+                                // 元素屏上尺寸为 frame*scale（Crop 后整体缩放），据此夹平移余量。
+                                offsetX = WallpaperCropPolicy.clampTranslation(offsetX + pan.x, frameW * scale, frameW.toFloat())
+                                offsetY = WallpaperCropPolicy.clampTranslation(offsetY + pan.y, frameH * scale, frameH.toFloat())
                             }
                         },
                     contentAlignment = Alignment.Center,
@@ -176,7 +165,6 @@ fun WallpaperScreen(onBack: () -> Unit) {
         }
         if (appearance.wallpaper != null) {
             item {
-                Spacer(Modifier.width(1.dp))
                 MiuixButton(
                     onClick = {
                         themeState.update { it.copy(wallpaper = null) }
