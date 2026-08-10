@@ -38,12 +38,14 @@ import com.linxi.diary.service.StatusForegroundService
 import com.linxi.diary.ui.liquid.miuix.FloatingBottomBar
 import com.linxi.diary.ui.liquid.miuix.FloatingBottomBarItem
 import com.linxi.diary.ui.screens.BindScreen
+import com.linxi.diary.ui.screens.AppearanceScreen
 import com.linxi.diary.ui.screens.DiaryScreen
 import com.linxi.diary.ui.screens.HistoryScreen
 import com.linxi.diary.ui.screens.NowScreen
 import com.linxi.diary.ui.screens.PrivacyConsentScreen
 import com.linxi.diary.ui.screens.SettingsScreen
 import com.linxi.diary.ui.screens.TodoScreen
+import com.linxi.diary.ui.screens.WallpaperScreen
 import com.linxi.diary.util.Logs
 import com.linxi.diary.util.UserPrefs
 import top.yukonga.miuix.kmp.basic.FloatingActionButton
@@ -113,11 +115,20 @@ fun LinxiApp() {
                     mainInitialPage = 3
                     screen = Screen.Main
                 })
+                Screen.Appearance -> AppearanceScreen(
+                    onBack = {
+                        mainInitialPage = 3
+                        screen = Screen.Main
+                    },
+                    onOpenWallpaper = { screen = Screen.Wallpaper },
+                )
+                Screen.Wallpaper -> WallpaperScreen(onBack = { screen = Screen.Appearance })
                 Screen.Main -> MainTabs(
                     initialPage = mainInitialPage,
                     onOpenHistory = { screen = Screen.History },
                     onOpenBind = { screen = Screen.Bind },
                     onOpenConsent = { screen = Screen.ConsentReview },
+                    onOpenAppearance = { screen = Screen.Appearance },
                     onLogout = { screen = Screen.Bind }
                 )
             }
@@ -132,6 +143,7 @@ private fun MainTabs(
     onOpenHistory: () -> Unit,
     onOpenBind: () -> Unit,
     onOpenConsent: () -> Unit,
+    onOpenAppearance: () -> Unit,
     onLogout: () -> Unit
 ) {
     val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { tabs.size })
@@ -164,6 +176,7 @@ private fun MainTabs(
                         onOpenConsent = onOpenConsent,
                         onOpenBind = onOpenBind,
                         onOpenHistory = onOpenHistory,
+                        onOpenAppearance = onOpenAppearance,
                         onLogout = onLogout
                     )
                 }
@@ -219,4 +232,4 @@ private fun MainTabs(
     }
 }
 
-private enum class Screen { Bind, Consent, ConsentReview, Main, History }
+private enum class Screen { Bind, Consent, ConsentReview, Main, History, Appearance, Wallpaper }

@@ -49,6 +49,7 @@ fun SettingsScreen(
     onOpenConsent: () -> Unit = {},
     onOpenBind: () -> Unit = {},
     onOpenHistory: () -> Unit = {},
+    onOpenAppearance: () -> Unit = {},
     onLogout: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -57,7 +58,6 @@ fun SettingsScreen(
     val activity = context as? android.app.Activity
     var sharing by remember { mutableStateOf(UserPrefs.sharingEnabled) }
     var cardEnabled by remember { mutableStateOf(UserPrefs.statusCardEnabled) }
-    var darkMode by remember { mutableStateOf(UserPrefs.colorMode.coerceIn(0, 2)) }
     var crashCount by remember { mutableStateOf(CrashHandler.crashFiles().size) }
     val partnerName = UserPrefs.partnerName.ifBlank { "未绑定" }
     val bound = UserPrefs.pairId > 0
@@ -177,16 +177,11 @@ fun SettingsScreen(
         // 分组2：外观
         item {
             Card(Modifier.padding(top = 12.dp).fillMaxWidth()) {
-                OverlayDropdownPreference(
-                    title = "主题模式",
-                    summary = "跟随系统 / 浅色 / 深色",
-                    items = listOf("跟随系统", "浅色", "深色"),
-                    startAction = { PrefIcon(Icons.Filled.Settings, "主题模式") },
-                    selectedIndex = darkMode,
-                    onSelectedIndexChange = { v ->
-                        darkMode = v
-                        UserPrefs.colorMode = v
-                    }
+                ArrowPreference(
+                    title = "主题与界面",
+                    summary = "配色、壁纸、动态取色与界面开关",
+                    startAction = { PrefIcon(Icons.Filled.Settings, "主题与界面") },
+                    onClick = onOpenAppearance
                 )
                 SwitchPreference(
                     title = "常驻状态卡片",
