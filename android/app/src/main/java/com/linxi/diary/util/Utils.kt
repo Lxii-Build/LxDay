@@ -13,17 +13,20 @@ object UserPrefs {
 
     val profilePreferences: com.linxi.diary.data.ProfilePreferences =
         object : com.linxi.diary.data.ProfilePreferences {
-            override var profileCacheJson: String?
+            override val profileCacheJson: String?
                 get() = sp.getString("couple_profile", null)
-                set(value) { sp.edit().putString("couple_profile", value).apply() }
-
-            override var pairId: Long
+            override val pairId: Long
                 get() = UserPrefs.pairId
-                set(value) { UserPrefs.pairId = value }
-
-            override var partnerName: String
+            override val partnerName: String
                 get() = UserPrefs.partnerName
-                set(value) { UserPrefs.partnerName = value }
+
+            override fun commit(profileCacheJson: String?, pairId: Long, partnerName: String) {
+                sp.edit()
+                    .putString("couple_profile", profileCacheJson)
+                    .putLong("pair_id", pairId)
+                    .putString("partner_name", partnerName)
+                    .apply()
+            }
         }
 
     fun init(context: Context) {

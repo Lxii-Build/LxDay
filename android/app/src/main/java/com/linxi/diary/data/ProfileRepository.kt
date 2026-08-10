@@ -9,9 +9,12 @@ fun interface PairStatusSource {
 }
 
 interface ProfilePreferences {
-    var profileCacheJson: String?
-    var pairId: Long
-    var partnerName: String
+    val profileCacheJson: String?
+    val pairId: Long
+    val partnerName: String
+
+    /** 资料缓存与派生偏好一次性原子落盘，避免进程被杀导致字段间不一致。 */
+    fun commit(profileCacheJson: String?, pairId: Long, partnerName: String)
 }
 
 sealed interface ProfileRefreshResult {
@@ -69,9 +72,11 @@ class ProfileRepository(
 
     private fun applyLocked(authoritative: CoupleProfile) {
         mutableProfile.value = authoritative
-        preferences.profileCacheJson = authoritative.toCacheJson().toString()
-        preferences.pairId = authoritative.pairId
-        preferences.partnerName = authoritative.partner.nickname
+        preferences.commit(
+            profileCacheJson = authoritative.toCacheJson().toString(),
+            pairId = authoritative.pairId,
+            partnerName = authoritative.partner.nickname,
+        )
     }
 
     @Synchronized
@@ -79,7 +84,11 @@ class ProfileRepository(
         generation++
         refreshSequence++
         mutableProfile.value = null
-        preferences.profileCacheJson = null
+        preferences.commit(
+            profileCacheJson = null,
+            pairId = preferences.pairId,
+            partnerName = preferences.partnerName,
+        )
     }
 
     @Synchronized
@@ -91,8 +100,6 @@ class ProfileRepository(
         generation++
         refreshSequence++
         mutableProfile.value = null
-        preferences.profileCacheJson = null
-        preferences.pairId = 0
-        preferences.partnerName = ""
+        preferences.commit(profileCacheJson = null, pairId = 0, partnerName = "")
     }
 }

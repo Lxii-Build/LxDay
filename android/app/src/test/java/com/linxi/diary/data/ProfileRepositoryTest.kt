@@ -48,6 +48,7 @@ class ProfileRepositoryTest {
         assertEquals("伴侣", preferences.partnerName)
         assertTrue(preferences.profileCacheJson.orEmpty().isNotBlank())
         assertEquals(profile, CoupleProfile.fromCache(JSONObject(preferences.profileCacheJson!!)))
+        assertEquals(1, preferences.commitCount)
     }
 
     @Test
@@ -241,7 +242,23 @@ private fun boundProfileJson(partnerName: String = "伴侣") = JSONObject().appl
 }
 
 private class FakeProfilePreferences(
-    override var profileCacheJson: String? = null,
-    override var pairId: Long = 0,
-    override var partnerName: String = "",
-) : ProfilePreferences
+    profileCacheJson: String? = null,
+    pairId: Long = 0,
+    partnerName: String = "",
+) : ProfilePreferences {
+    override var profileCacheJson: String? = profileCacheJson
+        private set
+    override var pairId: Long = pairId
+        private set
+    override var partnerName: String = partnerName
+        private set
+    var commitCount = 0
+        private set
+
+    override fun commit(profileCacheJson: String?, pairId: Long, partnerName: String) {
+        commitCount++
+        this.profileCacheJson = profileCacheJson
+        this.pairId = pairId
+        this.partnerName = partnerName
+    }
+}
