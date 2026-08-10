@@ -53,8 +53,9 @@ fun TodoScreen() {
 
     val demo = DemoMode.shouldUseDemo(UserPrefs.demoMode)
     val mainFabState = LocalMainFabState.current
-    DisposableEffect(mainFabState, demo) {
-        mainFabState.todoAction = if (demo) null else ({ showAdd = true })
+    DisposableEffect(mainFabState) {
+        // 调试环境也显示加号，便于预览添加待办 UI。
+        mainFabState.todoAction = { showAdd = true }
         onDispose { mainFabState.todoAction = null }
     }
     LaunchedEffect(demo) {

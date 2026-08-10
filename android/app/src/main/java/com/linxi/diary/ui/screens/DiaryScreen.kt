@@ -51,8 +51,9 @@ fun DiaryScreen() {
 
     val demo = DemoMode.shouldUseDemo(UserPrefs.demoMode)
     val mainFabState = LocalMainFabState.current
-    DisposableEffect(mainFabState, demo) {
-        mainFabState.diaryAction = if (demo) null else ({ showPublish = true })
+    DisposableEffect(mainFabState) {
+        // 调试环境也显示加号，便于预览发布日记 UI。
+        mainFabState.diaryAction = { showPublish = true }
         onDispose { mainFabState.diaryAction = null }
     }
     LaunchedEffect(demo) {

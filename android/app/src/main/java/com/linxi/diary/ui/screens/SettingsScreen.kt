@@ -4,12 +4,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -18,6 +16,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.basic.Button as MiuixButton
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
@@ -272,7 +271,7 @@ fun SettingsScreen(
         // 退出登录
         item {
             Column(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp)) {
-                Button(
+                MiuixButton(
                     onClick = {
                         Logs.i("Settings", "退出登录：重置绑定与授权状态")
                         UserPrefs.token = null
@@ -284,17 +283,15 @@ fun SettingsScreen(
                         StatusForegroundService.stop(context)
                         onLogout()
                     },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error
-                    ),
+                    cornerRadius = 16.dp,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("退出登录")
+                    Text("退出登录", color = Color(0xFFD9412F))
                 }
                 Text(
                     "退出仅清除本地登录状态，服务端数据保留",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = colorScheme.onSurface.copy(alpha = 0.6f),
+                    fontSize = 12.sp,
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
@@ -362,7 +359,7 @@ private fun NicknameEditDialog(
     OverlayDialog(show = true, onDismissRequest = onDismiss) {
         Card(Modifier.fillMaxWidth().padding(16.dp)) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("修改昵称", style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
+                Text("修改昵称", fontSize = 18.sp)
                 TextField(value = value, onValueChange = { value = it }, label = "昵称（2-32 字）")
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     MiuixButton(onClick = onDismiss, cornerRadius = 12.dp) { Text("取消") }
@@ -391,7 +388,7 @@ private fun AnniversaryEditDialog(
     OverlayDialog(show = true, onDismissRequest = onDismiss) {
         Card(Modifier.fillMaxWidth().padding(16.dp)) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("设置纪念日", style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
+                Text("设置纪念日", fontSize = 18.sp)
                 Text("在一起的第一天为第 1 天", color = colorScheme.onSurface.copy(alpha = 0.7f))
                 NumberStepperRow("年", candidate.year, today.year - 80, today.year) { year = it; day = candidate.dayOfMonth }
                 NumberStepperRow("月", candidate.monthValue, 1, 12) { month = it; day = candidate.dayOfMonth }
