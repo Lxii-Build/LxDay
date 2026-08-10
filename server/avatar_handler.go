@@ -46,8 +46,8 @@ func handleUploadAvatar(c *gin.Context) {
 	}
 	defer os.Remove(tmp)
 
-	probe, ok := probeUploadedFile(tmp)
-	if !ok {
+	probe, valid := probeUploadedFile(tmp)
+	if !valid {
 		fail(c, http.StatusBadRequest, 1002, "不支持的图片格式")
 		return
 	}
