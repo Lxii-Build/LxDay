@@ -8,20 +8,25 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.Composable
 
-/** 主题偏好监听：仅 color_mode，支持旧 AMOLED 值迁移为深色。 */
+/** 外观偏好监听：加载完整 AppearanceSettings，任一外观键变化即刷新。 */
 class ThemeState private constructor(
     private val prefs: SharedPreferences
 ) {
-    private val _appSettings = mutableStateOf(readSettings())
-    val appSettings: State<AppSettings> = _appSettings
+    private val store = AppearanceStore(SharedPrefsAppearance(prefs))
+    private val _appearance = mutableStateOf(store.load())
+    val appearance: State<AppearanceSettings> = _appearance
 
     private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (key == "color_mode") _appSettings.value = readSettings()
+        if (key != null && (key == "color_mode" || key.startsWith("appearance_"))) {
+            _appearance.value = store.load()
+        }
     }
 
-    private fun readSettings() = AppSettings(
-        colorMode = ColorMode.fromValue(prefs.getInt("color_mode", 0))
-    )
+    fun update(transform: (AppearanceSettings) -> AppearanceSettings) {
+        val next = transform(_appearance.value)
+        store.save(next)
+        _appearance.value = next
+    }
 
     fun startListening() = prefs.registerOnSharedPreferenceChangeListener(listener)
     fun stopListening() = prefs.unregisterOnSharedPreferenceChangeListener(listener)

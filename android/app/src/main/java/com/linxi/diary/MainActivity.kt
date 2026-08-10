@@ -80,11 +80,11 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun AppTheme(content: @Composable () -> Unit) {
         val themeState = rememberThemeState()
-        val settings by themeState.appSettings
-        androidx.compose.runtime.LaunchedEffect(settings.colorMode) {
-            Logs.i("Main", "主题模式=${settings.colorMode}")
+        val appearance by themeState.appearance
+        androidx.compose.runtime.LaunchedEffect(appearance.colorMode) {
+            Logs.i("Main", "主题模式=${appearance.colorMode}")
         }
-        LinxiTheme(appSettings = settings, content = content)
+        LinxiTheme(appearance = appearance, content = content)
     }
 
     private fun requestRuntimePermissions() {
