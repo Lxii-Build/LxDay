@@ -117,17 +117,22 @@ class ProfileRepositoryTest {
         kotlinx.coroutines.coroutineScope {
             val responseGate = kotlinx.coroutines.CompletableDeferred<JSONObject>()
             val preferences = FakeProfilePreferences(pairId = 7, partnerName = "伴侣")
-            val repository = ProfileRepository(
-                PairStatusSource { responseGate.await() },
+            val requestStarted = kotlinx.coroutines.CompletableDeferred<Unit>()
+            val guardedRepository = ProfileRepository(
+                PairStatusSource {
+                    requestStarted.complete(Unit)
+                    responseGate.await()
+                },
                 preferences,
             )
-            val refresh = async { repository.refresh() }
+            val refresh = async { guardedRepository.refresh() }
+            requestStarted.await()
 
-            repository.clear()
+            guardedRepository.clear()
             responseGate.complete(boundProfileJson())
 
             assertNull(refresh.await())
-            assertNull(repository.profile.value)
+            assertNull(guardedRepository.profile.value)
             assertNull(preferences.profileCacheJson)
             assertEquals(0L, preferences.pairId)
             assertEquals("", preferences.partnerName)
@@ -140,16 +145,26 @@ class ProfileRepositoryTest {
             val firstResponse = kotlinx.coroutines.CompletableDeferred<JSONObject>()
             val secondResponse = kotlinx.coroutines.CompletableDeferred<JSONObject>()
             var callCount = 0
+            val firstStarted = kotlinx.coroutines.CompletableDeferred<Unit>()
+            val secondStarted = kotlinx.coroutines.CompletableDeferred<Unit>()
             val preferences = FakeProfilePreferences(pairId = 7, partnerName = "旧伴侣")
             val repository = ProfileRepository(
                 PairStatusSource {
                     callCount++
-                    if (callCount == 1) firstResponse.await() else secondResponse.await()
+                    if (callCount == 1) {
+                        firstStarted.complete(Unit)
+                        firstResponse.await()
+                    } else {
+                        secondStarted.complete(Unit)
+                        secondResponse.await()
+                    }
                 },
                 preferences,
             )
             val first = async { repository.refresh() }
+            firstStarted.await()
             val second = async { repository.refresh() }
+            secondStarted.await()
 
             secondResponse.complete(boundProfileJson(partnerName = "新伴侣"))
             assertEquals("新伴侣", second.await()?.partner?.nickname)
