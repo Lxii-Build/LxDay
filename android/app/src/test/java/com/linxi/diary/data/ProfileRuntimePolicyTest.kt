@@ -1,17 +1,23 @@
 package com.linxi.diary.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProfileRuntimePolicyTest {
     @Test
     fun `权威未绑定结果要求断开会话并返回绑定页`() {
-        val action = ProfileRefreshAction.fromResult(profile = null)
+        val action = ProfileRefreshAction.fromResult(ProfileRefreshResult.Unbound)
 
         assertEquals(ProfileRefreshAction.Unbound, action)
         assertTrue(action.disconnectSession)
         assertTrue(action.navigateToBind)
+    }
+
+    @Test
+    fun `过期刷新结果不终止当前会话`() {
+        assertNull(ProfileRefreshAction.fromResult(ProfileRefreshResult.Superseded))
     }
 
     @Test
@@ -23,6 +29,9 @@ class ProfileRuntimePolicyTest {
             anniversaryDate = null,
         )
 
-        assertEquals(ProfileRefreshAction.Updated(profile), ProfileRefreshAction.fromResult(profile))
+        assertEquals(
+            ProfileRefreshAction.Updated(profile),
+            ProfileRefreshAction.fromResult(ProfileRefreshResult.Updated(profile)),
+        )
     }
 }

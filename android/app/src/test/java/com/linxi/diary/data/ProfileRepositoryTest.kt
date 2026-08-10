@@ -39,9 +39,10 @@ class ProfileRepositoryTest {
             preferences,
         )
 
-        val profile = repository.refresh()
+        val result = repository.refresh()
+        val profile = (result as ProfileRefreshResult.Updated).profile
 
-        assertEquals(7L, profile?.pairId)
+        assertEquals(7L, profile.pairId)
         assertEquals(profile, repository.profile.value)
         assertEquals(7L, preferences.pairId)
         assertEquals("伴侣", preferences.partnerName)
@@ -131,7 +132,7 @@ class ProfileRepositoryTest {
             guardedRepository.clear()
             responseGate.complete(boundProfileJson())
 
-            assertNull(refresh.await())
+            assertEquals(ProfileRefreshResult.Superseded, refresh.await())
             assertNull(guardedRepository.profile.value)
             assertNull(preferences.profileCacheJson)
             assertEquals(0L, preferences.pairId)
@@ -167,10 +168,11 @@ class ProfileRepositoryTest {
             secondStarted.await()
 
             secondResponse.complete(boundProfileJson(partnerName = "新伴侣"))
-            assertEquals("新伴侣", second.await()?.partner?.nickname)
+            val secondResult = second.await() as ProfileRefreshResult.Updated
+            assertEquals("新伴侣", secondResult.profile.partner.nickname)
             firstResponse.complete(boundProfileJson(partnerName = "旧伴侣"))
 
-            assertNull(first.await())
+            assertEquals(ProfileRefreshResult.Superseded, first.await())
             assertEquals("新伴侣", repository.profile.value?.partner?.nickname)
             assertEquals("新伴侣", preferences.partnerName)
         }
@@ -211,7 +213,7 @@ class ProfileRepositoryTest {
         )
         repository.loadCached()
 
-        assertNull(repository.refresh())
+        assertEquals(ProfileRefreshResult.Unbound, repository.refresh())
 
         assertNull(repository.profile.value)
         assertNull(preferences.profileCacheJson)
