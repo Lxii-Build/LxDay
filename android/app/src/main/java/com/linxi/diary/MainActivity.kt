@@ -81,10 +81,16 @@ class MainActivity : ComponentActivity() {
     private fun AppTheme(content: @Composable () -> Unit) {
         val themeState = rememberThemeState()
         val appearance by themeState.appearance
+        val darkTheme = com.linxi.diary.ui.theme.AppThemeResolver.isDark(
+            appearance.colorMode,
+            androidx.compose.foundation.isSystemInDarkTheme(),
+        )
         androidx.compose.runtime.LaunchedEffect(appearance.colorMode) {
             Logs.i("Main", "主题模式=${appearance.colorMode}")
         }
-        LinxiTheme(appearance = appearance, content = content)
+        LinxiTheme(appearance = appearance) {
+            com.linxi.diary.ui.theme.WallpaperHost(appearance = appearance, isDark = darkTheme, content = content)
+        }
     }
 
     private fun requestRuntimePermissions() {
