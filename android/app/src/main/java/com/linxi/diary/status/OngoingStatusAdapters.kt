@@ -6,28 +6,29 @@ import android.os.Build
 /**
  * 常驻状态承载 Adapter 抽象。各 Adapter 只报告真实支持状态并尝试呈现，
  * 失败不抛出、不影响前台 Service，由 Controller 自动降级到标准通知。
+ * Context 由 Adapter 构造时持有，Controller 保持纯决策、无 Android 依赖。
  */
 interface OngoingStatusAdapter {
     val id: AdapterId
-    fun support(context: Context): SupportState
-    fun show(context: Context, status: OngoingStatus): Boolean
-    fun clear(context: Context)
+    fun support(): SupportState
+    fun show(status: OngoingStatus): Boolean
+    fun clear()
 }
 
 /**
  * 标准横向 RemoteViews 常驻卡：始终兜底可用，复用 StatusForegroundService。
  */
-class StandardNotificationAdapter : OngoingStatusAdapter {
+class StandardNotificationAdapter(private val appContext: Context) : OngoingStatusAdapter {
     override val id = AdapterId.STANDARD
-    override fun support(context: Context): SupportState = SupportState.Supported
+    override fun support(): SupportState = SupportState.Supported
 
-    override fun show(context: Context, status: OngoingStatus): Boolean {
-        com.linxi.diary.service.StatusForegroundService.refreshCard(context)
+    override fun show(status: OngoingStatus): Boolean {
+        com.linxi.diary.service.StatusForegroundService.refreshCard(appContext)
         return true
     }
 
-    override fun clear(context: Context) {
-        com.linxi.diary.service.StatusForegroundService.stop(context)
+    override fun clear() {
+        com.linxi.diary.service.StatusForegroundService.stop(appContext)
     }
 }
 
@@ -38,13 +39,15 @@ class StandardNotificationAdapter : OngoingStatusAdapter {
 class AndroidLiveUpdateAdapter : OngoingStatusAdapter {
     override val id = AdapterId.ANDROID_LIVE_UPDATE
 
-    override fun support(context: Context): SupportState {
+    override fun support(): SupportState {
         // Live Update 面向用户发起的时间敏感进度；长期状态卡不符合语义，不冒用。
-        return if (Build.VERSION.SDK_INT >= 36) SupportState.Unsupported else SupportState.Unsupported
+        @Suppress("UNUSED_EXPRESSION")
+        Build.VERSION.SDK_INT
+        return SupportState.Unsupported
     }
 
-    override fun show(context: Context, status: OngoingStatus): Boolean = false
-    override fun clear(context: Context) {}
+    override fun show(status: OngoingStatus): Boolean = false
+    override fun clear() {}
 }
 
 /**
@@ -53,9 +56,9 @@ class AndroidLiveUpdateAdapter : OngoingStatusAdapter {
  */
 class ColorOsStatusAdapter : OngoingStatusAdapter {
     override val id = AdapterId.COLOROS
-    override fun support(context: Context): SupportState = SupportState.Unsupported
-    override fun show(context: Context, status: OngoingStatus): Boolean = false
-    override fun clear(context: Context) {}
+    override fun support(): SupportState = SupportState.Unsupported
+    override fun show(status: OngoingStatus): Boolean = false
+    override fun clear() {}
 }
 
 /**
@@ -63,7 +66,7 @@ class ColorOsStatusAdapter : OngoingStatusAdapter {
  */
 class OriginOsStatusAdapter : OngoingStatusAdapter {
     override val id = AdapterId.ORIGINOS
-    override fun support(context: Context): SupportState = SupportState.Unsupported
-    override fun show(context: Context, status: OngoingStatus): Boolean = false
-    override fun clear(context: Context) {}
+    override fun support(): SupportState = SupportState.Unsupported
+    override fun show(status: OngoingStatus): Boolean = false
+    override fun clear() {}
 }
