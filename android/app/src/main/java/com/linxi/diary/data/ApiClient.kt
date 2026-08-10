@@ -110,6 +110,14 @@ object ApiClient {
 
     suspend fun pairStatus(): JSONObject = get("/pair/status")
 
+    /** 更新本人昵称，返回双方权威资料 */
+    suspend fun updateNickname(nickname: String): JSONObject =
+        putJson("/profile", JSONObject().put("nickname", nickname))
+
+    /** 更新纪念日（yyyy-MM-dd），返回双方权威资料 */
+    suspend fun updateAnniversary(date: String): JSONObject =
+        putJson("/pair/anniversary", JSONObject().put("anniversary_date", date))
+
     /** 状态历史时间线 */
     suspend fun historyTimeline(date: String?, limit: Int, offset: Int): org.json.JSONArray {
         var path = "/status/history?limit=$limit&offset=$offset"

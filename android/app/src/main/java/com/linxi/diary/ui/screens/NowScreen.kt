@@ -10,6 +10,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.*
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -18,6 +19,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.linxi.diary.core.DeviceStatus
 import com.linxi.diary.core.DeviceStatusHolder
+import com.linxi.diary.data.ProfileRuntime
+import com.linxi.diary.data.RelationshipDays
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.ui.components.KernelScreen
 import com.linxi.diary.ui.components.WarningCard
@@ -43,6 +46,10 @@ fun NowScreen(
     val demo = UserPrefs.demoMode
     val partner = if (demo) null else DeviceStatusHolder.partner
     val partnerName = UserPrefs.partnerName.ifBlank { "对方" }
+    val profile = if (demo) null else ProfileRuntime.repository.profile.collectAsState().value
+    val relationshipDays = profile?.anniversaryDate?.let {
+        RelationshipDays.dayNumber(it, java.time.LocalDate.now())
+    }
 
     KernelScreen(title = "主页") {
         item {
@@ -51,6 +58,9 @@ fun NowScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                if (relationshipDays != null) {
+                    RelationshipDaysCard(relationshipDays, partnerName)
+                }
                 if (partner != null && partner.batteryLevel < 15) {
                     WarningCard("对方电量不足 15%", level = WarningLevel.Error)
                 }
@@ -85,6 +95,55 @@ fun NowScreen(
                 // 我的手机信息（KernelSU InfoCard：InfoText 格式）
                 SectionTitle("我的手机")
                 MyPhoneInfoCard()
+            }
+        }
+    }
+}
+
+/** 恋爱天数卡（纪念日当天为第 1 天）。 */
+@Composable
+private fun RelationshipDaysCard(days: Long, partnerName: String) {
+    val cardColor = when {
+        isDynamicColor -> colorScheme.primaryContainer
+        LocalLinxiDarkTheme.current -> Color(0xFF3A2233)
+        else -> Color(0xFFFCE4F1)
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.defaultColors(color = cardColor),
+        pressFeedbackType = PressFeedbackType.Tilt
+    ) {
+        Box(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+            Box(
+                Modifier.fillMaxSize().offset(x = 27.dp, y = 31.dp),
+                contentAlignment = Alignment.BottomEnd
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Favorite,
+                    contentDescription = null,
+                    tint = if (isDynamicColor) colorScheme.primary.copy(alpha = 0.8f) else Color(0xFFF06AA8),
+                    modifier = Modifier.size(110.dp)
+                )
+            }
+            Box(
+                Modifier.fillMaxSize().padding(16.dp, 14.dp),
+                contentAlignment = Alignment.TopStart
+            ) {
+                Column {
+                    Text(
+                        "和 $partnerName 在一起",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = colorScheme.onBackground
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "第 $days 天",
+                        fontSize = 26.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colorScheme.onBackground
+                    )
+                }
             }
         }
     }
