@@ -8,7 +8,7 @@ import org.junit.Test
 class ProfileRuntimePolicyTest {
     @Test
     fun `权威未绑定结果要求断开会话并返回绑定页`() {
-        val action = ProfileRefreshAction.fromResult(ProfileRefreshResult.Unbound)
+        val action = requireNotNull(ProfileRefreshAction.fromResult(ProfileRefreshResult.Unbound))
 
         assertEquals(ProfileRefreshAction.Unbound, action)
         assertTrue(action.disconnectSession)
