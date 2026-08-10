@@ -1,15 +1,14 @@
 package com.linxi.diary.status
 
-import com.linxi.diary.util.Logs
-
 /**
  * 常驻状态统一控制器：识别厂商 → 选择可用 Adapter → 内容去重后呈现。
  * 专项 Adapter 失败自动降级到标准通知，绝不把普通通知伪装为系统流体云/灵动岛。
- * 纯决策，无 Android 依赖：Adapter 各自持有 Context。
+ * 纯决策，无 Android 依赖：Adapter 各自持有 Context，日志通过 log 注入以便 JVM 单测。
  */
 class OngoingStatusController(
     private val adapters: List<OngoingStatusAdapter>,
     private val vendor: Vendor,
+    private val log: (String) -> Unit = {},
 ) {
     private var lastHash: Int? = null
     private var activeAdapterId: AdapterId? = null
@@ -27,7 +26,7 @@ class OngoingStatusController(
             runCatching { byId(it).support() }.getOrDefault(SupportState.Unsupported)
         }
         val chosen = OngoingStatusPolicy.choose(order, support)
-        Logs.i("Ongoing", "vendor=$vendor chosen=$chosen support=$support")
+        log("vendor=$vendor chosen=$chosen support=$support")
 
         // 切换承载渠道时清理旧渠道。
         activeAdapterId?.takeIf { it != chosen }?.let { runCatching { byId(it).clear() } }
@@ -35,7 +34,7 @@ class OngoingStatusController(
         val shown = runCatching { byId(chosen).show(filtered) }.getOrDefault(false)
         if (!shown && chosen != AdapterId.STANDARD) {
             // 专项失败兜底标准通知，不停止前台 Service。
-            Logs.w("Ongoing", "$chosen 呈现失败，降级标准通知")
+            log("$chosen 呈现失败，降级标准通知")
             runCatching { byId(AdapterId.STANDARD).show(filtered) }
             activeAdapterId = AdapterId.STANDARD
         } else {
