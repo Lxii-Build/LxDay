@@ -44,14 +44,32 @@ class WsMessageDispatcherTest {
 
     @Test
     fun `状态共享开启时非资料事件交给现有处理链`() {
-        var sensitivePayload = ""
+        var sensitiveType = ""
         val dispatcher = WsMessageDispatcher(
             refreshProfile = {},
-            handleSensitive = { sensitivePayload = it },
+            handleSensitive = { sensitiveType = it.getString("type") },
         )
         val payload = """{"type":"partner_status","data":{"battery":80}}"""
 
         assertTrue(dispatcher.dispatch(payload, sensitiveEventsAllowed = true))
-        assertEquals(payload, sensitivePayload)
+        assertEquals("partner_status", sensitiveType)
+    }
+
+    @Test
+    fun `状态共享开启时损坏与未知事件不会进入敏感处理链`() {
+        var sensitiveCount = 0
+        val dispatcher = WsMessageDispatcher(
+            refreshProfile = {},
+            handleSensitive = { sensitiveCount++ },
+        )
+
+        assertFalse(dispatcher.dispatch("not-json", sensitiveEventsAllowed = true))
+        assertFalse(
+            dispatcher.dispatch(
+                """{"type":"unknown","data":{}}""",
+                sensitiveEventsAllowed = true,
+            ),
+        )
+        assertEquals(0, sensitiveCount)
     }
 }
