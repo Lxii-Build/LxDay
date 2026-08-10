@@ -23,7 +23,7 @@ type AvatarProbe struct {
 
 // probeAvatar 只依据魔数与容器结构判定格式与动/静态，不解码像素、不做扩展名嗅探。
 func probeAvatar(head []byte) (AvatarProbe, bool) {
-	if len(head) < 8 {
+	if len(head) < 2 {
 		return AvatarProbe{}, false
 	}
 	switch {
