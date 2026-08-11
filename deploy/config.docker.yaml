@@ -1,0 +1,22 @@
+# 林曦日记 服务端配置（Docker Compose 用）。生产务必修改 jwt_secret 与数据库密码。
+app:
+  port: 8080
+  jwt_secret: "CHANGE_ME_TO_A_LONG_RANDOM_SECRET"
+  token_ttl_hours: 720
+  ring_cooldown_seconds: 600
+  ring_cooldown_limit: 3
+
+mysql:
+  dsn: "linxi:linxi_pass@tcp(mysql:3306)/linxi?charset=utf8mb4&parseTime=true&loc=Local"
+
+redis:
+  addr: "redis:6379"
+  password: ""
+  db: 0
+
+push:
+  provider: "none"
+
+storage:
+  upload_dir: "/app/uploads"
+  upload_max_mb: 10

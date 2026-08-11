@@ -1,40 +1,30 @@
 # 林曦日记 · 完整开发工程
 
-双人情侣专属互动 APP：实时状态掌控 + 轻量远程互动 + 双人共同日记。
+双人情侣专属互动 APP（安卓）+ 运营后台（Web）+ Go 服务端：账号登录/注册、伴侣绑定、实时状态掌控、循环待办提醒、发现页、共同互动。项目将小范围免费使用，部署见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)。
 
 ## 工程结构
 
 ```
 lx/
-├── ARCHITECTURE.md          # 系统架构产物（Mermaid 图集）
-├── DESIGN.md                # 整合设计文档（五轮访谈决策固化）
-├── MilkGlassDesignScheme.md # UI 视觉规范（原始文件）
+├── docker-compose.yml       # 一键部署（Go + MySQL + Redis + Nginx[后台静态+反代]）
+├── deploy/                  # 部署配置：nginx.conf / config.docker.yaml
+├── docs/DEPLOYMENT.md       # 三种部署方式说明（Compose/单容器/手动）
 ├── server/                  # Go 服务端（Gin + WebSocket + MySQL + Redis）
 │   ├── main.go              # 入口 + 路由 + 配置
-│   ├── models.go            # 数据模型 + WS 消息协议
-│   ├── store.go             # MySQL/Redis 存储层
-│   ├── hub.go               # WebSocket 实时通道
-│   ├── push.go              # 推送网关适配层（预留占位）
-│   ├── handlers.go          # HTTP handler + JWT + 定时扫描
-│   ├── config.example.yaml  # 配置示例
+│   ├── account.go           # 账号：注册/登录/邮箱验证码(可配置SMTP)/扩展资料
+│   ├── admin.go             # 后台 /api/admin/*（JWT+RBAC，独立 {code,msg,data} 信封）
+│   ├── appversion.go        # APP 版本发布 + 客户端检查更新
+│   ├── models.go / store.go / hub.go / handlers.go / migrations.go
 │   ├── sql/schema.sql       # 建库建表
-│   └── README.md            # 服务端启动说明 + 接口速览
+│   └── Dockerfile
 │
-├── android/                 # 安卓端（Kotlin + Compose / minSdk 29）
-│   └── app/src/main/
-│       ├── AndroidManifest.xml
-│       ├── res/             # values(values-night) / layout
-│       └── java/com/linxi/diary/
-│           ├── App.kt / MainActivity.kt / RingActivity.kt
-│           ├── service/StatusForegroundService.kt   # 常驻卡片
-│           ├── sync/StatusSyncManager.kt            # WebSocket
-│           ├── core/                                # 采集/响铃/待办/权限
-│           ├── data/                                # ApiClient / DTO
-│           ├── ui/                                  # theme/components/navigation/screens
-│           └── util/Utils.kt
-│   └── README.md            # 权限/保活/Gradle/已知待补
+├── admin/                   # 运营后台前端（Vue3 + TS + ElementPlus + Vite + Pinia）
+│   └── Dockerfile           # 数据看板/用户/绑定/内容审核/版本/通知/设置/审计/管理员
 │
-└── .github/workflows/ci.yml # GitHub Actions：Go 构建测试 + 安卓源码校验
+├── android/                 # 安卓端（Kotlin + Compose / minSdk 29 / miuix）
+│   └── app/src/main/java/com/linxi/diary/  # ui(theme/components/navigation/screens) / core / data / sync
+│
+└── .github/workflows/       # ci.yml(Go测试+安卓debug/release构建) / deploy.yml(服务端部署)
 ```
 
 ## 文档导航
