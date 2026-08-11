@@ -1,10 +1,14 @@
 package com.linxi.diary.ui.navigation
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -116,8 +120,16 @@ fun LinxiApp() {
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { rootPadding ->
         Box(Modifier.fillMaxSize().padding(rootPadding)) {
-            when (screen) {
-                Screen.Login -> LoginScreen(
+            AnimatedContent(
+                targetState = screen,
+                transitionSpec = {
+                    (fadeIn(tween(240)) + slideInHorizontally(tween(320)) { it / 10 }) togetherWith
+                        fadeOut(tween(180))
+                },
+                label = "screen",
+            ) { target ->
+                when (target) {
+                    Screen.Login -> LoginScreen(
                     onLoggedIn = { screen = Screen.Bind },
                     onNavigateRegister = { screen = Screen.Register },
                     onSkipDebug = { screen = Screen.Bind },
@@ -139,7 +151,6 @@ fun LinxiApp() {
                         mainInitialPage = 3
                         screen = Screen.Main
                     },
-                    onOpenWallpaper = { screen = Screen.Wallpaper },
                 )
                 Screen.Wallpaper -> WallpaperScreen(onBack = { screen = Screen.Appearance })
                 Screen.DiscoverAlbum -> DiscoverPlaceholderScreen("相册", onBack = { mainInitialPage = 2; screen = Screen.Main })
@@ -161,6 +172,7 @@ fun LinxiApp() {
                     onOpenProfileEdit = { screen = Screen.ProfileEdit },
                     onOpenAbout = { screen = Screen.About },
                 )
+                }
             }
             pendingUpdate?.let { info -> UpdateDialog(info) { pendingUpdate = null } }
         }

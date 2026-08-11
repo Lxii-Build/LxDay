@@ -46,6 +46,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
  */
 @Composable
 fun WallpaperScreen(onBack: () -> Unit) {
+    androidx.activity.compose.BackHandler(onBack = onBack)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val themeState = rememberThemeState()

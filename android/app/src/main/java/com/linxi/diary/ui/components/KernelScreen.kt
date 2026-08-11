@@ -97,7 +97,8 @@ fun BackAction(onBack: () -> Unit) {
     top.yukonga.miuix.kmp.basic.IconButton(onClick = onBack) {
         androidx.compose.material3.Icon(
             MiuixIcons.Back,
-            contentDescription = "返回"
+            contentDescription = "返回",
+            tint = MiuixTheme.colorScheme.onBackground
         )
     }
 }
