@@ -239,7 +239,7 @@ func handleLogin(c *gin.Context) {
 		return
 	}
 	u, err := st.GetUserByLogin(account)
-	if err != nil || u.PasswordHash != hashPassword(req.Password) {
+	if err != nil || !checkPassword(u.PasswordHash, req.Password) {
 		fail(c, 400, 1007, "账号或密码错误")
 		return
 	}

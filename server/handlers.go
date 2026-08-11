@@ -2,9 +2,7 @@ package main
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -18,6 +16,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // uploadDir 为日记图片本地存储根目录（Nginx 映射 /uploads/）
@@ -43,9 +42,18 @@ func fail(c *gin.Context, httpCode, bizCode int, msg string) {
 	c.JSON(httpCode, gin.H{"code": bizCode, "message": msg})
 }
 
+// hashPassword 使用 bcrypt 生成加盐哈希（每次不同）；校验用 checkPassword。
 func hashPassword(pw string) string {
-	s := sha256.Sum256([]byte("linxi.salt." + pw))
-	return hex.EncodeToString(s[:])
+	b, err := bcrypt.GenerateFromPassword([]byte(pw), bcrypt.DefaultCost)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// checkPassword 校验明文与 bcrypt 哈希是否匹配。
+func checkPassword(hash, pw string) bool {
+	return hash != "" && bcrypt.CompareHashAndPassword([]byte(hash), []byte(pw)) == nil
 }
 
 func randomCode(n int) string {

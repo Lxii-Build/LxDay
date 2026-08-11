@@ -144,7 +144,7 @@ func handleAdminLogin(c *gin.Context) {
 		return
 	}
 	a, hash, err := st.GetAdminForLogin(strings.TrimSpace(req.Username))
-	if err != nil || hash != hashPassword(req.Password) {
+	if err != nil || !checkPassword(hash, req.Password) {
 		afail(c, 400, 400, "账号或密码错误")
 		return
 	}
@@ -187,7 +187,7 @@ func handleAdminChangeCredentials(c *gin.Context) {
 		afail(c, 404, 404, "管理员不存在")
 		return
 	}
-	if hash != hashPassword(req.OldPassword) {
+	if !checkPassword(hash, req.OldPassword) {
 		afail(c, 400, 400, "原密码错误")
 		return
 	}
