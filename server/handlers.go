@@ -788,7 +788,7 @@ func handleUploadDiaryImage(c *gin.Context) {
 		fail(c, 500, 1010, "保存失败")
 		return
 	}
-	url := fmt.Sprintf("/uploads/diary/%d/%s", pair.ID, filename)
+	url := newStorage().PublicURL(fmt.Sprintf("diary/%d/%s", pair.ID, filename))
 	ok(c, gin.H{"url": url})
 }
 
