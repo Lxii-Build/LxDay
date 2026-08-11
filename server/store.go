@@ -30,12 +30,67 @@ func keyRingCool(pairID int64) string { return fmt.Sprintf("pair:ring:cooldown:%
 
 // ---------- 用户 ----------
 
-func (s *Store) CreateUser(nickname, hash string) (int64, error) {
-	res, err := s.DB.Exec("INSERT INTO `user`(nickname, password_hash) VALUES(?,?)", nickname, hash)
+func (s *Store) CreateUser(username, email, nickname, hash string) (int64, error) {
+	res, err := s.DB.Exec(
+		"INSERT INTO `user`(username,email,nickname,password_hash) VALUES(?,?,?,?)",
+		username, email, nickname, hash)
 	if err != nil {
 		return 0, err
 	}
 	return res.LastInsertId()
+}
+
+// GetUserByLogin 按用户名或邮箱查用户（登录用），带 password_hash。
+func (s *Store) GetUserByLogin(account string) (*User, error) {
+	u := &User{}
+	err := s.DB.QueryRow(
+		"SELECT id,nickname,avatar_url,avatar_thumbnail_url,password_hash FROM `user` WHERE username=? OR email=? LIMIT 1",
+		account, account).
+		Scan(&u.ID, &u.Nickname, &u.AvatarURL, &u.AvatarThumbnailURL, &u.PasswordHash)
+	return u, err
+}
+
+// GetUserProfile 读扩展个人资料（本人）。
+func (s *Store) GetUserProfile(id int64) (*UserProfile, error) {
+	p := &UserProfile{}
+	var birthday sql.NullTime
+	err := s.DB.QueryRow(
+		"SELECT id,username,email,nickname,avatar_url,avatar_thumbnail_url,gender,signature,birthday FROM `user` WHERE id=?", id).
+		Scan(&p.ID, &p.Username, &p.Email, &p.Nickname, &p.AvatarURL, &p.AvatarThumbnailURL, &p.Gender, &p.Signature, &birthday)
+	if err != nil {
+		return nil, err
+	}
+	if birthday.Valid {
+		formatted := birthday.Time.Format("2006-01-02")
+		p.Birthday = &formatted
+	}
+	return p, nil
+}
+
+// UpdateUserProfile 更新昵称/性别/简介/生日；signature、birthday 传 nil 即置空。
+func (s *Store) UpdateUserProfile(id int64, nickname string, gender int, signature, birthday *string) error {
+	_, err := s.DB.Exec(
+		"UPDATE `user` SET nickname=?, gender=?, signature=?, birthday=? WHERE id=?",
+		nickname, gender, signature, birthday, id)
+	return err
+}
+
+// ---------- 后台/系统设置（键值） ----------
+
+func (s *Store) GetSetting(key string) (string, error) {
+	var v sql.NullString
+	err := s.DB.QueryRow("SELECT v FROM app_setting WHERE k=?", key).Scan(&v)
+	if err != nil {
+		return "", err
+	}
+	return v.String, nil
+}
+
+func (s *Store) SetSetting(key, val string) error {
+	_, err := s.DB.Exec(
+		"INSERT INTO app_setting(k,v) VALUES(?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)",
+		key, val)
+	return err
 }
 
 func (s *Store) GetUserByNickname(nickname string) (*User, error) {
@@ -129,11 +184,11 @@ func formatInviteCode(v int64) string {
 
 // ---------- 待办 ----------
 
-func (s *Store) CreateTodo(pairID, creatorID, assigneeID int64, title, note string, remindAt *time.Time, remindType int) (*Todo, error) {
-	t := &Todo{PairID: pairID, CreatorID: creatorID, AssigneeID: assigneeID, Title: title, Note: note, RemindAt: remindAt, RemindType: remindType}
+func (s *Store) CreateTodo(pairID, creatorID, assigneeID int64, title, note string, remindAt *time.Time, remindType, repeatType, weekdays int) (*Todo, error) {
+	t := &Todo{PairID: pairID, CreatorID: creatorID, AssigneeID: assigneeID, Title: title, Note: note, RemindAt: remindAt, RemindType: remindType, RepeatType: repeatType, Weekdays: weekdays}
 	res, err := s.DB.Exec(
-		`INSERT INTO todo(pair_id,creator_id,assignee_id,title,note,remind_at,remind_type,status)
-		 VALUES(?,?,?,?,?,?,?,0)`, pairID, creatorID, assigneeID, title, note, remindAt, remindType)
+		`INSERT INTO todo(pair_id,creator_id,assignee_id,title,note,remind_at,remind_type,repeat_type,weekdays,status)
+		 VALUES(?,?,?,?,?,?,?,?,?,0)`, pairID, creatorID, assigneeID, title, note, remindAt, remindType, repeatType, weekdays)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +198,7 @@ func (s *Store) CreateTodo(pairID, creatorID, assigneeID int64, title, note stri
 
 func (s *Store) ListTodos(pairID int64, status int) ([]Todo, error) {
 	rows, err := s.DB.Query(
-		`SELECT id,pair_id,creator_id,assignee_id,title,note,remind_at,remind_type,status,completed_at
+		`SELECT id,pair_id,creator_id,assignee_id,title,note,remind_at,remind_type,repeat_type,weekdays,status,completed_at
 		 FROM todo WHERE pair_id=? AND status=? ORDER BY remind_at IS NULL, remind_at ASC, id DESC`,
 		pairID, status)
 	if err != nil {
@@ -153,13 +208,13 @@ func (s *Store) ListTodos(pairID int64, status int) ([]Todo, error) {
 	var out []Todo
 	for rows.Next() {
 		var t Todo
-		rows.Scan(&t.ID, &t.PairID, &t.CreatorID, &t.AssigneeID, &t.Title, &t.Note, &t.RemindAt, &t.RemindType, &t.Status, &t.CompletedAt)
+		rows.Scan(&t.ID, &t.PairID, &t.CreatorID, &t.AssigneeID, &t.Title, &t.Note, &t.RemindAt, &t.RemindType, &t.RepeatType, &t.Weekdays, &t.Status, &t.CompletedAt)
 		out = append(out, t)
 	}
 	return out, nil
 }
 
-func (s *Store) UpdateTodo(id int64, title, note *string, remindAt *time.Time, assigneeID *int64, remindType *int) error {
+func (s *Store) UpdateTodo(id int64, title, note *string, remindAt *time.Time, assigneeID *int64, remindType, repeatType, weekdays *int) error {
 	sets, args := []string{}, []interface{}{}
 	if title != nil {
 		sets = append(sets, "title=?"); args = append(args, *title)
@@ -175,6 +230,12 @@ func (s *Store) UpdateTodo(id int64, title, note *string, remindAt *time.Time, a
 	}
 	if remindType != nil {
 		sets = append(sets, "remind_type=?"); args = append(args, *remindType)
+	}
+	if repeatType != nil {
+		sets = append(sets, "repeat_type=?"); args = append(args, *repeatType)
+	}
+	if weekdays != nil {
+		sets = append(sets, "weekdays=?"); args = append(args, *weekdays)
 	}
 	if len(sets) == 0 {
 		return nil
@@ -202,9 +263,9 @@ func (s *Store) DeleteTodo(id int64) error {
 func (s *Store) GetTodo(id int64) (*Todo, error) {
 	t := &Todo{}
 	err := s.DB.QueryRow(
-		`SELECT id,pair_id,creator_id,assignee_id,title,note,remind_at,remind_type,status,completed_at
+		`SELECT id,pair_id,creator_id,assignee_id,title,note,remind_at,remind_type,repeat_type,weekdays,status,completed_at
 		 FROM todo WHERE id=?`, id).
-		Scan(&t.ID, &t.PairID, &t.CreatorID, &t.AssigneeID, &t.Title, &t.Note, &t.RemindAt, &t.RemindType, &t.Status, &t.CompletedAt)
+		Scan(&t.ID, &t.PairID, &t.CreatorID, &t.AssigneeID, &t.Title, &t.Note, &t.RemindAt, &t.RemindType, &t.RepeatType, &t.Weekdays, &t.Status, &t.CompletedAt)
 	return t, err
 }
 
@@ -213,7 +274,7 @@ func (s *Store) GetTodo(id int64) (*Todo, error) {
 // DueTodos 返回「到点且未完成」的待办（remind_at <= now 且 status=0），用于服务端定时扫描推送
 func (s *Store) DueTodos(now time.Time) ([]Todo, error) {
 	rows, err := s.DB.Query(
-		`SELECT id,pair_id,creator_id,assignee_id,title,note,remind_at,remind_type,status,completed_at
+		`SELECT id,pair_id,creator_id,assignee_id,title,note,remind_at,remind_type,repeat_type,weekdays,status,completed_at
 		 FROM todo WHERE status=0 AND remind_at IS NOT NULL AND remind_at<=?`, now)
 	if err != nil {
 		return nil, err
@@ -222,10 +283,16 @@ func (s *Store) DueTodos(now time.Time) ([]Todo, error) {
 	var out []Todo
 	for rows.Next() {
 		var t Todo
-		rows.Scan(&t.ID, &t.PairID, &t.CreatorID, &t.AssigneeID, &t.Title, &t.Note, &t.RemindAt, &t.RemindType, &t.Status, &t.CompletedAt)
+		rows.Scan(&t.ID, &t.PairID, &t.CreatorID, &t.AssigneeID, &t.Title, &t.Note, &t.RemindAt, &t.RemindType, &t.RepeatType, &t.Weekdays, &t.Status, &t.CompletedAt)
 		out = append(out, t)
 	}
 	return out, nil
+}
+
+// AdvanceTodoRemind 更新待办的下次提醒时间（循环提醒推进；next 为 nil 表示置空不再提醒）
+func (s *Store) AdvanceTodoRemind(id int64, next *time.Time) error {
+	_, err := s.DB.Exec(`UPDATE todo SET remind_at=? WHERE id=?`, next, id)
+	return err
 }
 
 // ---------- 日记 ----------
