@@ -1,0 +1,91 @@
+name: 构建安卓 APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_url:
+        description: 服务端 API 基础地址（BASE_URL）
+        required: false
+        default: 'https://love.lxii.cc/api/v1'
+      ws_url:
+        description: WebSocket 地址（WS_URL，留空由 App 推导）
+        required: false
+        default: ''
+      app_key:
+        description: 应用密钥（APP_KEY，可选）
+        required: false
+        default: ''
+      build_type:
+        description: 构建类型
+        type: choice
+        options:
+          - Debug
+          - Release
+        default: Debug
+      version_name:
+        description: 版本名（VERSION_NAME）
+        required: false
+        default: '1.0.0'
+      version_code:
+        description: 版本号（VERSION_CODE）
+        required: false
+        default: '1'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: 单元测试并构建 APK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    env:
+      IN_BASE_URL: ${{ inputs.server_url }}
+      IN_WS_URL: ${{ inputs.ws_url }}
+      IN_APP_KEY: ${{ inputs.app_key }}
+      IN_VERSION_NAME: ${{ inputs.version_name }}
+      IN_VERSION_CODE: ${{ inputs.version_code }}
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: 配置 Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.7.0'
+
+      - name: 生成 Gradle Wrapper 9.7.0
+        run: gradle wrapper --gradle-version 9.7.0 --no-daemon
+
+      - name: 运行单元测试
+        run: |
+          ./gradlew :app:testDebugUnitTest --no-daemon \
+            -PBASE_URL="$IN_BASE_URL" \
+            -PWS_URL="$IN_WS_URL" \
+            -PAPP_KEY="$IN_APP_KEY" \
+            -PVERSION_NAME="$IN_VERSION_NAME" \
+            -PVERSION_CODE="$IN_VERSION_CODE"
+
+      - name: 构建 APK（${{ inputs.build_type }}）
+        run: |
+          ./gradlew :app:assemble${{ inputs.build_type }} --no-daemon \
+            -PBASE_URL="$IN_BASE_URL" \
+            -PWS_URL="$IN_WS_URL" \
+            -PAPP_KEY="$IN_APP_KEY" \
+            -PVERSION_NAME="$IN_VERSION_NAME" \
+            -PVERSION_CODE="$IN_VERSION_CODE"
+
+      - name: 上传 APK 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: lxday-${{ inputs.build_type }}-apk
+          path: android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
