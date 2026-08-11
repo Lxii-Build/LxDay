@@ -230,6 +230,9 @@
     "pairManage": {
       "title": "Pairs"
     },
+    "todoManage": {
+      "title": "Todos"
+    },
     "contentAudit": {
       "title": "Content Audit"
     },

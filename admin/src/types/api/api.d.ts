@@ -87,6 +87,9 @@ declare namespace Api {
       nickname: string
       avatar_url: string | null
       gender: number
+      signature: string | null
+      birthday: string | null
+      anniversary: string | null
       status: number
       created_at: string
     }
@@ -111,13 +114,20 @@ declare namespace Api {
       id: number
       pair_id: number
       creator_id: number
+      creator_name: string
       assignee_id: number
+      assignee_name: string
       title: string
       note: string
+      remind_enabled: boolean
+      remind_type: number
+      repeat_type: number
+      remind_at: string
       status: number
       created_at: string
     }
     type TodoList = Api.Common.PaginatedResponse<TodoItem>
+    type TodoSearchParams = Partial<Api.Common.CommonSearchParams & { keyword: string }>
 
     /** 日记列表项 */
     interface DiaryItem {

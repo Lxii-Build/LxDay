@@ -32,7 +32,7 @@ export function unbindPair(id: number) {
 }
 
 // ---------- 内容审核 ----------
-export function fetchTodoList(params: Api.Common.CommonSearchParams) {
+export function fetchTodoList(params: Api.Admin.TodoSearchParams) {
   return request.get<Api.Admin.TodoList>({ url: '/api/admin/todos', params })
 }
 

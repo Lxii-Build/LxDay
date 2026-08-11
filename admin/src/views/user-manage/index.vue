@@ -42,7 +42,7 @@
 
   const searchForm = ref({ keyword: '' })
 
-  const genderText = (g: number) => (g === 1 ? '男' : g === 2 ? '女' : '未知')
+  const genderText = (g: number) => (g === 1 ? '男' : g === 2 ? '女' : '保密')
 
   const {
     columns,
@@ -80,6 +80,20 @@
         },
         { prop: 'email', label: '邮箱', minWidth: 180, formatter: (row) => row.email || '-' },
         { prop: 'gender', label: '性别', width: 90, formatter: (row) => genderText(row.gender) },
+        {
+          prop: 'signature',
+          label: '简介',
+          minWidth: 180,
+          showOverflowTooltip: true,
+          formatter: (row) => row.signature || '-'
+        },
+        { prop: 'birthday', label: '生日', width: 130, formatter: (row) => row.birthday || '-' },
+        {
+          prop: 'anniversary',
+          label: '纪念日',
+          width: 130,
+          formatter: (row) => row.anniversary || '-'
+        },
         {
           prop: 'status',
           label: '状态',
