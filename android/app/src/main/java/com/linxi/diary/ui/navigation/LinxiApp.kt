@@ -39,10 +39,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.linxi.diary.data.ProfileRefreshAction
 import com.linxi.diary.data.ProfileRuntime
+import com.linxi.diary.data.ApiClient
 import com.linxi.diary.service.StatusForegroundService
 import com.linxi.diary.ui.liquid.miuix.FloatingBottomBar
 import com.linxi.diary.ui.liquid.miuix.FloatingBottomBarItem
 import com.linxi.diary.ui.screens.BindScreen
+import com.linxi.diary.ui.screens.AboutScreen
 import com.linxi.diary.ui.screens.AppearanceScreen
 import com.linxi.diary.ui.screens.DiscoverPlaceholderScreen
 import com.linxi.diary.ui.screens.DiscoverScreen
@@ -54,6 +56,8 @@ import com.linxi.diary.ui.screens.ProfileEditScreen
 import com.linxi.diary.ui.screens.RegisterScreen
 import com.linxi.diary.ui.screens.SettingsScreen
 import com.linxi.diary.ui.screens.TodoScreen
+import com.linxi.diary.ui.screens.UpdateDialog
+import com.linxi.diary.ui.screens.UpdateInfo
 import com.linxi.diary.ui.screens.WallpaperScreen
 import com.linxi.diary.util.Logs
 import com.linxi.diary.util.UserPrefs
@@ -98,6 +102,14 @@ fun LinxiApp() {
             }
         }
     }
+    // 启动检查更新：登录态下静默拉取，有新版则弹提示。
+    var pendingUpdate by remember { mutableStateOf<UpdateInfo?>(null) }
+    LaunchedEffect(Unit) {
+        if (UserPrefs.token != null) {
+            runCatching { UpdateInfo.fromJson(ApiClient.checkUpdate(com.linxi.diary.BuildConfig.VERSION_CODE)) }
+                .onSuccess { if (it.hasUpdate) pendingUpdate = it }
+        }
+    }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -134,6 +146,10 @@ fun LinxiApp() {
                 Screen.DiscoverListen -> DiscoverPlaceholderScreen("一起听", onBack = { mainInitialPage = 2; screen = Screen.Main })
                 Screen.DiscoverWatch -> DiscoverPlaceholderScreen("一起看", onBack = { mainInitialPage = 2; screen = Screen.Main })
                 Screen.ProfileEdit -> ProfileEditScreen(onBack = { mainInitialPage = 3; screen = Screen.Main })
+                Screen.About -> AboutScreen(
+                    onBack = { mainInitialPage = 3; screen = Screen.Main },
+                    onLogout = { screen = Screen.Login },
+                )
                 Screen.Main -> MainTabs(
                     initialPage = mainInitialPage,
                     onOpenHistory = { screen = Screen.History },
@@ -143,9 +159,10 @@ fun LinxiApp() {
                     onOpenListen = { screen = Screen.DiscoverListen },
                     onOpenWatch = { screen = Screen.DiscoverWatch },
                     onOpenProfileEdit = { screen = Screen.ProfileEdit },
-                    onLogout = { screen = Screen.Login }
+                    onOpenAbout = { screen = Screen.About },
                 )
             }
+            pendingUpdate?.let { info -> UpdateDialog(info) { pendingUpdate = null } }
         }
     }
 }
@@ -161,7 +178,7 @@ private fun MainTabs(
     onOpenListen: () -> Unit,
     onOpenWatch: () -> Unit,
     onOpenProfileEdit: () -> Unit,
-    onLogout: () -> Unit
+    onOpenAbout: () -> Unit
 ) {
     val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { tabs.size })
     val mainState = rememberMainPagerState(pagerState)
@@ -204,7 +221,7 @@ private fun MainTabs(
                         onOpenHistory = onOpenHistory,
                         onOpenAppearance = onOpenAppearance,
                         onOpenProfileEdit = onOpenProfileEdit,
-                        onLogout = onLogout
+                        onOpenAbout = onOpenAbout
                     )
                 }
             }
@@ -270,4 +287,4 @@ private fun MainTabs(
     )
 }
 
-private enum class Screen { Login, Register, Bind, Main, History, Appearance, Wallpaper, ProfileEdit, DiscoverAlbum, DiscoverListen, DiscoverWatch }
+private enum class Screen { Login, Register, Bind, Main, History, Appearance, Wallpaper, ProfileEdit, About, DiscoverAlbum, DiscoverListen, DiscoverWatch }

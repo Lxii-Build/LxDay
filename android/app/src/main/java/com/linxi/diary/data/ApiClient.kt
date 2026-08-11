@@ -134,6 +134,10 @@ object ApiClient {
             put("password", password)
         })
 
+    /** 检查更新，返回 {has_update,force,version:{version_name,version_code,apk_url,notes}} */
+    suspend fun checkUpdate(versionCode: Int): JSONObject =
+        get("/app/latest?platform=android&version_code=$versionCode")
+
     suspend fun pairStatus(): JSONObject = get("/pair/status")
 
     /** 获取本人资料（/profile/me） */

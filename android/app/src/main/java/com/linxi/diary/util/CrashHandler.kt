@@ -24,14 +24,14 @@ object CrashHandler {
 
     /** 提前注册（attachBaseContext 调用），尽早捕获崩溃 */
     fun initEarly(app: Application) {
-        Log.i(TAG, "initEarly 开始")
+        Log.i(TAG, "initEarly begin")
         val dir = File(app.filesDir, "crash")
         if (!dir.exists()) dir.mkdirs()
         logDir = dir
         registerHandler()
         // 标记：进程已启动到 attachBaseContext（证明 CrashHandler 已注册）
         runCatching { write("attach_pid_${android.os.Process.myPid()}-${System.currentTimeMillis()}.txt", "attachBaseContext OK") }
-        Log.i(TAG, "initEarly 完成，目录=$logDir")
+        Log.i(TAG, "initEarly done, dir=$logDir")
     }
 
     fun init(app: Application) {
@@ -40,7 +40,7 @@ object CrashHandler {
         registerHandler()
         // 标记：App.onCreate 执行到
         write("onCreate_pid_${android.os.Process.myPid()}-${System.currentTimeMillis()}.txt", "App.onCreate OK")
-        Log.i(TAG, "init 完成")
+        Log.i(TAG, "init done")
     }
 
     private fun registerHandler() {
@@ -57,7 +57,7 @@ object CrashHandler {
             logDir?.let { d -> if (!d.exists()) d.mkdirs() }
             logDir?.let { dir -> runCatching { File(dir, fileName).writeText(content) } }
             trimCrashFiles()
-            Log.i(TAG, "标记已写: $fileName")
+            Log.i(TAG, "marker written: $fileName")
         } catch (_: Throwable) { }
     }
 
@@ -65,7 +65,7 @@ object CrashHandler {
         try {
             val name = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date()) + ".txt"
             val sb = StringBuilder()
-            sb.appendLine("==== 林曦日记 崩溃日志 ${Date()} ====")
+            sb.appendLine("==== Linxi Diary crash ${Date()} ====")
             sb.appendLine("PID: ${android.os.Process.myPid()} Thread: not captured")
             sb.appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}")
             sb.appendLine("Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")

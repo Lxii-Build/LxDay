@@ -1,5 +1,6 @@
 package com.linxi.diary.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -7,7 +8,6 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -51,7 +51,7 @@ fun SettingsScreen(
     onOpenHistory: () -> Unit = {},
     onOpenAppearance: () -> Unit = {},
     onOpenProfileEdit: () -> Unit = {},
-    onLogout: () -> Unit = {}
+    onOpenAbout: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -67,6 +67,17 @@ fun SettingsScreen(
     var showNicknameDialog by remember { mutableStateOf(false) }
     var showAnniversaryDialog by remember { mutableStateOf(false) }
     var avatarUploading by remember { mutableStateOf(false) }
+    var showLogSheet by remember { mutableStateOf(false) }
+
+    val saveLogLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri ->
+        if (uri != null) {
+            activity?.let { act ->
+                lifecycleOwner.lifecycleScope.launch { DiagnosticExporter.save(act, uri) }
+            }
+        }
+    }
 
     val avatarPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -259,6 +270,12 @@ fun SettingsScreen(
                     }
                 )
                 ArrowPreference(
+                    title = "发送日志",
+                    summary = "保存到设备文件或分享诊断包",
+                    startAction = { PrefIcon(Icons.AutoMirrored.Filled.Send, "发送日志") },
+                    onClick = { showLogSheet = true }
+                )
+                ArrowPreference(
                     title = "清空崩溃日志",
                     summary = "删除本机崩溃记录",
                     startAction = { PrefIcon(Icons.Filled.Delete, "清空崩溃日志") },
@@ -270,32 +287,35 @@ fun SettingsScreen(
             }
         }
 
-        // 退出登录
+        // 关于（版本 / 仓库 / 检查更新 / 退出登录）
         item {
-            Column(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp)) {
-                MiuixButton(
-                    onClick = {
-                        Logs.i("Settings", "退出登录：重置绑定与授权状态")
-                        UserPrefs.token = null
-                        UserPrefs.demoMode = false
-                        UserPrefs.sharingEnabled = false
-                        UserPrefs.privacyConsented = false
-                        StatusSyncManager.disconnect()
-                        ProfileRuntime.clearSession()
-                        StatusForegroundService.stop(context)
-                        onLogout()
-                    },
-                    cornerRadius = 16.dp,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("退出登录", color = Color(0xFFD9412F))
-                }
-                Text(
-                    "退出仅清除本地登录状态，服务端数据保留",
-                    color = colorScheme.onSurface.copy(alpha = 0.6f),
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(top = 4.dp)
+            Card(Modifier.padding(top = 12.dp, bottom = 8.dp).fillMaxWidth()) {
+                ArrowPreference(
+                    title = "关于",
+                    summary = "版本、开源仓库、检查更新、退出登录",
+                    startAction = { PrefIcon(Icons.Filled.Info, "关于") },
+                    onClick = onOpenAbout
                 )
+            }
+        }
+    }
+
+    if (showLogSheet) {
+        top.yukonga.miuix.kmp.overlay.OverlayDialog(
+            show = true,
+            title = "发送日志",
+            onDismissRequest = { showLogSheet = false },
+            renderInRootScaffold = true,
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                LogSheetRow("保存日志", "保存诊断包到设备文件") {
+                    showLogSheet = false
+                    saveLogLauncher.launch("linxi-diagnostics-${System.currentTimeMillis()}.zip")
+                }
+                LogSheetRow("发送日志", "通过系统分享导出诊断包") {
+                    showLogSheet = false
+                    activity?.let { act -> lifecycleOwner.lifecycleScope.launch { DiagnosticExporter.share(act) } }
+                }
             }
         }
     }
@@ -339,6 +359,17 @@ private fun PrefIcon(icon: ImageVector, desc: String) {
         modifier = Modifier.padding(end = 6.dp),
         tint = colorScheme.onBackground
     )
+}
+
+/** 发送日志 BottomSheet 内的列表项。 */
+@Composable
+private fun LogSheetRow(title: String, summary: String, onClick: () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().clickable { onClick() }.padding(vertical = 14.dp),
+    ) {
+        Text(title, color = colorScheme.onBackground, fontSize = 16.sp)
+        Text(summary, color = colorScheme.onSurface.copy(alpha = 0.6f), fontSize = 13.sp)
+    }
 }
 
 /** 本地清空辅助 */

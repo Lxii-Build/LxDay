@@ -3,6 +3,7 @@ package com.linxi.diary.util
 import android.app.Activity
 import android.content.ClipData
 import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
@@ -36,6 +37,23 @@ object DiagnosticExporter {
             Toast.makeText(activity, "导出诊断日志失败", Toast.LENGTH_SHORT).show()
         } finally {
             exporting.set(false)
+        }
+    }
+
+    /** 将诊断包写入用户选择的文档 Uri（系统创建文档 → 保存日志）。 */
+    suspend fun save(activity: Activity, uri: Uri) {
+        try {
+            val zip = withContext(Dispatchers.IO) { createArchive(activity) }
+            withContext(Dispatchers.IO) {
+                activity.contentResolver.openOutputStream(uri)?.use { out ->
+                    zip.inputStream().use { it.copyTo(out) }
+                }
+            }
+            Toast.makeText(activity, "日志已保存", Toast.LENGTH_SHORT).show()
+            Logs.i("Diagnostics", "diagnostics saved to document uri")
+        } catch (t: Throwable) {
+            Logs.e("Diagnostics", "save diagnostics failed", t)
+            Toast.makeText(activity, "保存日志失败", Toast.LENGTH_SHORT).show()
         }
     }
 

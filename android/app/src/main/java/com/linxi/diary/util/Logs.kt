@@ -42,7 +42,7 @@ object Logs {
                 }
             }
         }
-        i("Logs", "文件日志初始化完成")
+        i("Logs", "file logging initialized")
     }
 
     fun d(tag: String, msg: String) = write(LogLevel.DEBUG, tag, msg, null)
@@ -74,8 +74,9 @@ object Logs {
         val dir = logDir ?: return
         runCatching {
             var file = File(dir, "runtime-${entry.timestamp.toLocalDate()}.log")
+            // 统一英文格式：TIMESTAMP LEVEL Tag [thread]: message
             val line = "${formatter.format(entry.timestamp)} ${entry.level.name.padEnd(5)} $PREFIX/${entry.tag} " +
-                "[${entry.thread}] ${entry.message.replace("\r", "\\r")}\n"
+                "[${entry.thread}]: ${entry.message.replace("\r", "\\r")}\n"
             val bytes = line.toByteArray(Charsets.UTF_8)
             if (file.length() + bytes.size > MAX_FILE_SIZE) {
                 rotate(file)
