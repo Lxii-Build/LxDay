@@ -1,5 +1,7 @@
-# 林曦日记 · Docker Compose 一键部署（Go 服务 + MySQL + Redis + Nginx[后台静态+反代]）
-# 生产务必修改 deploy/config.docker.yaml 的 jwt_secret，以及下方数据库密码。
+# 林曦日记 · Docker Compose 一键部署（一体化：Go 自托管后台前端 + API + WS + /uploads）
+# server 内嵌 admin dist 并自托管静态资源，去除独立 Nginx。
+# 生产务必修改 deploy/config.docker.yaml 的 jwt_secret / app_key，以及下方数据库密码。
+# TLS 由外部反向代理终止（部署文档另述）。
 services:
   mysql:
     image: mysql:8.0
@@ -26,7 +28,9 @@ services:
       - redis_data:/data
 
   server:
-    build: ./server
+    build:
+      context: .
+      dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
       mysql:
@@ -36,19 +40,8 @@ services:
     volumes:
       - ./deploy/config.docker.yaml:/app/config.yaml:ro
       - uploads:/app/uploads
-    expose:
-      - "8080"
-
-  web:
-    build: ./admin
-    restart: unless-stopped
-    depends_on:
-      - server
     ports:
-      - "80:80"
-    volumes:
-      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - uploads:/var/www/uploads:ro
+      - "7740:8080"
 
 volumes:
   mysql_data:

@@ -1,0 +1,28 @@
+# 仓库根 Docker 构建上下文忽略（配合根 Dockerfile）
+# 避免把 .git、android、本地依赖/产物等塞进构建上下文，缩小体积并防止跨平台污染。
+
+# 版本库与 CI
+.git
+.gitignore
+.github
+
+# 与镜像无关的端与内部文件
+android
+.claude
+.agents
+agent
+skills-lock.json
+*.md
+
+# 本地依赖 / 产物（容器内会重新安装/构建）
+admin/node_modules
+admin/dist
+server/server
+server/uploads
+
+# 系统 / 打包产物
+.DS_Store
+Thumbs.db
+*.apk
+*.aab
+*.exe
