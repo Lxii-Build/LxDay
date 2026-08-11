@@ -1,5 +1,6 @@
 package com.linxi.diary.data
 
+import com.linxi.diary.BuildConfig
 import com.linxi.diary.util.UserPrefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -22,7 +23,7 @@ data class ApiException(val bizCode: Int, override val message: String) : Except
 
 object ApiClient {
 
-    private const val BASE = "https://api.linxi.app/api/v1"
+    private val BASE = BuildConfig.BASE_URL
     private val json = "application/json; charset=utf-8".toMediaType()
 
     private val client by lazy {
@@ -36,6 +37,8 @@ object ApiClient {
     private fun request(method: String, path: String, body: RequestBody?): Request.Builder {
         val b = Request.Builder().url(BASE + path)
         UserPrefs.token?.let { b.header("Authorization", "Bearer $it") }
+        // 通讯密钥：仅当构建期注入了 APP_KEY 时附带，服务端中间件据此放行官方客户端。
+        if (BuildConfig.APP_KEY.isNotEmpty()) b.header("X-App-Key", BuildConfig.APP_KEY)
         b.method(method, body)
         return b
     }
@@ -202,6 +205,9 @@ object ApiClient {
     suspend fun todos(status: Int = 0): org.json.JSONArray = getArray("/todos?status=$status")
 
     suspend fun createTodo(body: JSONObject): JSONObject = postJson("/todos", body)
+
+    /** 更新待办（可传 remind_enabled/title/note/remind_at 等），返回更新后的待办 */
+    suspend fun updateTodo(id: Long, body: JSONObject): JSONObject = putJson("/todos/$id", body)
 
     suspend fun completeTodo(id: Long): JSONObject = postJson("/todos/$id/complete", JSONObject())
 

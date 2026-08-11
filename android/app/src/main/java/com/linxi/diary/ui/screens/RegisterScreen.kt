@@ -1,5 +1,6 @@
 package com.linxi.diary.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -51,6 +52,8 @@ fun RegisterScreen(
     onRegistered: () -> Unit,
     onBack: () -> Unit,
 ) {
+    // 注册是登录的子页：拦截系统返回键回到登录页，而非退出到桌面。
+    BackHandler { onBack() }
     val scope = rememberCoroutineScope()
     var username by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }

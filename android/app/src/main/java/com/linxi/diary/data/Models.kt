@@ -47,7 +47,8 @@ data class TodoItem(
     val remindType: Int,       // 0普通 1强提醒
     val status: Int,           // 0待办 1完成 2删除
     val repeatType: Int = 0,   // 0仅一次 1每天 2每周
-    val weekdays: Int = 0      // 位掩码 bit0=周一..bit6=周日（repeatType=2 时有效）
+    val weekdays: Int = 0,     // 位掩码 bit0=周一..bit6=周日（repeatType=2 时有效）
+    val remindEnabled: Boolean = true   // 提醒开关：false=保留待办但不提醒
 ) {
     companion object {
         fun fromJson(j: JSONObject) = TodoItem(
@@ -61,7 +62,8 @@ data class TodoItem(
             remindType = j.optInt("remind_type"),
             status = j.optInt("status"),
             repeatType = j.optInt("repeat_type"),
-            weekdays = j.optInt("weekdays")
+            weekdays = j.optInt("weekdays"),
+            remindEnabled = if (j.has("remind_enabled")) j.optBoolean("remind_enabled", true) else true
         )
     }
 }

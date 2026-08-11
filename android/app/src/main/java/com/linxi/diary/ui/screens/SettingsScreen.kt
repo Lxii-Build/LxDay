@@ -1,6 +1,5 @@
 package com.linxi.diary.ui.screens
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -34,7 +33,6 @@ import com.linxi.diary.data.RelationshipDays
 import com.linxi.diary.service.StatusForegroundService
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.ui.components.KernelScreen
-import com.linxi.diary.util.CrashHandler
 import com.linxi.diary.util.DiagnosticExporter
 import com.linxi.diary.util.Logs
 import com.linxi.diary.util.UserPrefs
@@ -59,7 +57,6 @@ fun SettingsScreen(
     val activity = context as? android.app.Activity
     var sharing by remember { mutableStateOf(UserPrefs.sharingEnabled) }
     var cardEnabled by remember { mutableStateOf(UserPrefs.statusCardEnabled) }
-    var crashCount by remember { mutableStateOf(CrashHandler.crashFiles().size) }
     val partnerName = UserPrefs.partnerName.ifBlank { "未绑定" }
     val bound = UserPrefs.pairId > 0
     val demo = UserPrefs.demoMode
@@ -247,49 +244,15 @@ fun SettingsScreen(
             }
         }
 
-        // 分组4：调试
+        // 发送日志 + 关于（连成一张卡，仿 KernelSU）
         item {
-            Card(Modifier.padding(top = 12.dp).fillMaxWidth()) {
-                ArrowPreference(
-                    title = "崩溃日志",
-                    summary = "$crashCount 条 · 本机 app 私有目录",
-                    startAction = { PrefIcon(Icons.Filled.Build, "崩溃日志") },
-                    onClick = {
-                        crashCount = CrashHandler.crashFiles().size
-                        Logs.i("Settings", "崩溃日志数=$crashCount")
-                    }
-                )
-                ArrowPreference(
-                    title = "导出诊断日志",
-                    summary = "导出私有目录中最近 7 天运行日志与崩溃记录",
-                    startAction = { PrefIcon(Icons.Filled.Share, "导出诊断日志") },
-                    onClick = {
-                        activity?.let { ownerActivity ->
-                            lifecycleOwner.lifecycleScope.launch { DiagnosticExporter.share(ownerActivity) }
-                        }
-                    }
-                )
+            Card(Modifier.padding(top = 12.dp, bottom = 8.dp).fillMaxWidth()) {
                 ArrowPreference(
                     title = "发送日志",
                     summary = "保存到设备文件或分享诊断包",
                     startAction = { PrefIcon(Icons.AutoMirrored.Filled.Send, "发送日志") },
                     onClick = { showLogSheet = true }
                 )
-                ArrowPreference(
-                    title = "清空崩溃日志",
-                    summary = "删除本机崩溃记录",
-                    startAction = { PrefIcon(Icons.Filled.Delete, "清空崩溃日志") },
-                    onClick = {
-                        CrashHandler.clearCrashes()
-                        crashCount = 0
-                    }
-                )
-            }
-        }
-
-        // 关于（版本 / 仓库 / 检查更新 / 退出登录）
-        item {
-            Card(Modifier.padding(top = 12.dp, bottom = 8.dp).fillMaxWidth()) {
                 ArrowPreference(
                     title = "关于",
                     summary = "版本、开源仓库、检查更新、退出登录",
@@ -301,21 +264,36 @@ fun SettingsScreen(
     }
 
     if (showLogSheet) {
-        top.yukonga.miuix.kmp.overlay.OverlayDialog(
+        OverlayDialog(
             show = true,
             title = "发送日志",
             onDismissRequest = { showLogSheet = false },
             renderInRootScaffold = true,
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                LogSheetRow("保存日志", "保存诊断包到设备文件") {
-                    showLogSheet = false
-                    saveLogLauncher.launch("linxi-diagnostics-${System.currentTimeMillis()}.zip")
-                }
-                LogSheetRow("发送日志", "通过系统分享导出诊断包") {
-                    showLogSheet = false
-                    activity?.let { act -> lifecycleOwner.lifecycleScope.launch { DiagnosticExporter.share(act) } }
-                }
+                ArrowPreference(
+                    title = "保存日志",
+                    summary = "保存诊断包到设备文件",
+                    startAction = { PrefIcon(Icons.Filled.Save, "保存日志") },
+                    onClick = {
+                        showLogSheet = false
+                        saveLogLauncher.launch("linxi-diagnostics-${System.currentTimeMillis()}.zip")
+                    }
+                )
+                ArrowPreference(
+                    title = "发送日志",
+                    summary = "通过系统分享导出诊断包",
+                    startAction = { PrefIcon(Icons.Filled.Share, "发送日志") },
+                    onClick = {
+                        showLogSheet = false
+                        activity?.let { act -> lifecycleOwner.lifecycleScope.launch { DiagnosticExporter.share(act) } }
+                    }
+                )
+                MiuixButton(
+                    onClick = { showLogSheet = false },
+                    cornerRadius = 12.dp,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("取消") }
             }
         }
     }
@@ -359,17 +337,6 @@ private fun PrefIcon(icon: ImageVector, desc: String) {
         modifier = Modifier.padding(end = 6.dp),
         tint = colorScheme.onBackground
     )
-}
-
-/** 发送日志 BottomSheet 内的列表项。 */
-@Composable
-private fun LogSheetRow(title: String, summary: String, onClick: () -> Unit) {
-    Column(
-        Modifier.fillMaxWidth().clickable { onClick() }.padding(vertical = 14.dp),
-    ) {
-        Text(title, color = colorScheme.onBackground, fontSize = 16.sp)
-        Text(summary, color = colorScheme.onSurface.copy(alpha = 0.6f), fontSize = 13.sp)
-    }
 }
 
 /** 本地清空辅助 */

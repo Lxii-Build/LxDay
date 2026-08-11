@@ -13,6 +13,15 @@ val androidBuildToolsVersion = rootProject.extra["androidBuildToolsVersion"] as 
 val androidSourceCompatibility = rootProject.extra["androidSourceCompatibility"] as JavaVersion
 val androidTargetCompatibility = rootProject.extra["androidTargetCompatibility"] as JavaVersion
 
+// 构建期可注入（工作流 -P 参数 / gradle.properties）；缺省用官方默认值，保证本地无参构建也能过。
+val propBaseUrl = (project.findProperty("BASE_URL") as String?)?.takeIf { it.isNotBlank() }
+    ?: "https://love.lxii.cc/api/v1"
+val propWsUrl = (project.findProperty("WS_URL") as String?) ?: ""
+val propAppKey = (project.findProperty("APP_KEY") as String?) ?: ""
+val propVersionName = (project.findProperty("VERSION_NAME") as String?)?.takeIf { it.isNotBlank() }
+    ?: "1.0.0"
+val propVersionCode = (project.findProperty("VERSION_CODE") as String?)?.toIntOrNull() ?: 1
+
 android {
     namespace = "com.linxi.diary"
 
@@ -44,11 +53,15 @@ android {
         applicationId = "com.linxi.diary"
         minSdk = androidMinSdkVersion
         targetSdk = androidTargetSdkVersion
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = propVersionCode
+        versionName = propVersionName
 
         // 安全模式：true = 启动极简 UI（跳过主题/backdrop/miuix），用于闪退二分定位
         buildConfigField("boolean", "SAFE_MODE", "false")
+        // 构建期注入的服务端地址 / WS 地址 / 通讯密钥（空则运行时回退推导 / 不发密钥头）
+        buildConfigField("String", "BASE_URL", "\"$propBaseUrl\"")
+        buildConfigField("String", "WS_URL", "\"$propWsUrl\"")
+        buildConfigField("String", "APP_KEY", "\"$propAppKey\"")
     }
 
     lint {

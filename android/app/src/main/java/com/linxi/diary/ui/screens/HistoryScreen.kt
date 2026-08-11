@@ -28,16 +28,18 @@ fun HistoryScreen(onBack: () -> Unit = {}) {
     var timeline by remember { mutableStateOf<List<HistoryEntry>>(emptyList()) }
     var curve by remember { mutableStateOf<List<BatteryPoint>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var refreshing by remember { mutableStateOf(false) }
     var showCurve by remember { mutableStateOf(false) }
 
-    fun load() {
+    fun load(pull: Boolean = false) {
         scope.launch {
-            loading = true
+            if (pull) refreshing = true else loading = true
             runCatching {
                 timeline = parseHistory(ApiClient.historyTimeline(date, 100, 0))
                 curve = parseCurve(ApiClient.batteryCurve(date))
             }
             loading = false
+            refreshing = false
         }
     }
 
@@ -46,7 +48,9 @@ fun HistoryScreen(onBack: () -> Unit = {}) {
 
     KernelScreen(
         title = "伴侣状态历史",
-        navigationIcon = { com.linxi.diary.ui.components.BackAction(onBack) }
+        navigationIcon = { com.linxi.diary.ui.components.BackAction(onBack) },
+        isRefreshing = refreshing,
+        onRefresh = { load(pull = true) },
     ) {
         item {
             Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {

@@ -1,6 +1,7 @@
 package com.linxi.diary.ui.components
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -22,6 +23,8 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import com.linxi.diary.ui.navigation.LocalMainBottomPadding
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.basic.PullToRefresh
+import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
@@ -47,6 +50,9 @@ fun KernelScreen(
     bottomPadding: androidx.compose.ui.unit.Dp = 12.dp,
     listState: LazyListState = rememberLazyListState(),
     floatingActionButton: @Composable () -> Unit = {},
+    header: (@Composable () -> Unit)? = null,
+    isRefreshing: Boolean = false,
+    onRefresh: (() -> Unit)? = null,
     content: LazyListScope.() -> Unit,
 ) {
     val scrollBehavior = MiuixScrollBehavior()
@@ -71,22 +77,43 @@ fun KernelScreen(
             .add(WindowInsets.displayCutout)
             .only(WindowInsetsSides.Horizontal)
     ) { innerPadding ->
-        Box(modifier = if (backdrop != null) Modifier.layerBackdrop(backdrop) else Modifier) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .scrollEndHaptic()
-                    .overScrollVertical()
-                    .nestedScroll(scrollBehavior.nestedScrollConnection)
-                    .padding(horizontal = 12.dp),
-                contentPadding = PaddingValues(
-                    top = innerPadding.calculateTopPadding(),
-                    bottom = innerPadding.calculateBottomPadding() + LocalMainBottomPadding.current + bottomPadding
-                ),
-                overscrollEffect = null,
-                content = content
-            )
+        val listBox: @Composable () -> Unit = {
+            Box(modifier = if (backdrop != null) Modifier.layerBackdrop(backdrop) else Modifier) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .scrollEndHaptic()
+                        .overScrollVertical()
+                        .nestedScroll(scrollBehavior.nestedScrollConnection)
+                        .padding(horizontal = 12.dp),
+                    contentPadding = PaddingValues(
+                        top = if (header != null) 8.dp else innerPadding.calculateTopPadding(),
+                        bottom = innerPadding.calculateBottomPadding() + LocalMainBottomPadding.current + bottomPadding
+                    ),
+                    overscrollEffect = null,
+                    content = content
+                )
+            }
+        }
+        Column(Modifier.fillMaxHeight()) {
+            if (header != null) {
+                Box(Modifier.padding(top = innerPadding.calculateTopPadding(), start = 12.dp, end = 12.dp)) {
+                    header()
+                }
+            }
+            if (onRefresh != null) {
+                val pullState = rememberPullToRefreshState()
+                PullToRefresh(
+                    isRefreshing = isRefreshing,
+                    pullToRefreshState = pullState,
+                    onRefresh = onRefresh,
+                    refreshTexts = listOf("下拉刷新", "松开刷新", "正在刷新…", "刷新成功"),
+                    contentPadding = PaddingValues(0.dp),
+                ) { listBox() }
+            } else {
+                listBox()
+            }
         }
     }
 }

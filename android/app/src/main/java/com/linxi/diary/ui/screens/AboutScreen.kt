@@ -1,6 +1,7 @@
 package com.linxi.diary.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.Favorite
@@ -33,10 +35,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.linxi.diary.BuildConfig
+import com.linxi.diary.R
 import com.linxi.diary.data.ApiClient
 import com.linxi.diary.data.ProfileRuntime
 import com.linxi.diary.service.StatusForegroundService
@@ -99,12 +103,11 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit) {
                 Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Box(
-                    Modifier.size(88.dp).clip(CircleShape).background(BrandBlue),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(Icons.Rounded.Favorite, contentDescription = null, tint = Color.White, modifier = Modifier.size(46.dp))
-                }
+                Image(
+                    painter = painterResource(R.mipmap.ic_launcher),
+                    contentDescription = "应用图标",
+                    modifier = Modifier.size(88.dp).clip(RoundedCornerShape(20.dp)),
+                )
                 Spacer(Modifier.height(12.dp))
                 Text("林曦日记", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = colorScheme.onBackground)
                 Spacer(Modifier.height(4.dp))

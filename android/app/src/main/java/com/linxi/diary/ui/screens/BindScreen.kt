@@ -1,5 +1,6 @@
 package com.linxi.diary.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -34,7 +35,9 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
  * 生成邀请码 / 输入邀请码，绑定后进入主界面。
  */
 @Composable
-fun BindScreen(onBound: () -> Unit) {
+fun BindScreen(onBound: () -> Unit, onBack: () -> Unit) {
+    // 绑定页拦截系统返回键回到登录页，避免直接退出到桌面。
+    BackHandler { onBack() }
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     var mode by remember { mutableStateOf(0) }

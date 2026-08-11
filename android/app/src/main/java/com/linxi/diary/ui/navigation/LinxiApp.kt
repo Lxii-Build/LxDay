@@ -1,12 +1,10 @@
 package com.linxi.diary.ui.navigation
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
@@ -18,6 +16,7 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -39,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.linxi.diary.data.ProfileRefreshAction
@@ -138,10 +138,13 @@ fun LinxiApp() {
                     onRegistered = { screen = Screen.Bind },
                     onBack = { screen = Screen.Login },
                 )
-                Screen.Bind -> BindScreen(onBound = {
-                    mainInitialPage = 0
-                    screen = Screen.Main
-                })
+                Screen.Bind -> BindScreen(
+                    onBound = {
+                        mainInitialPage = 0
+                        screen = Screen.Main
+                    },
+                    onBack = { screen = Screen.Login },
+                )
                 Screen.History -> HistoryScreen(onBack = {
                     mainInitialPage = 3
                     screen = Screen.Main
@@ -195,9 +198,9 @@ private fun MainTabs(
     val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { tabs.size })
     val mainState = rememberMainPagerState(pagerState)
     val mainFabState = remember { MainFabState() }
-    // 知情同意页内 Dialog：绑定后强制弹出（可关闭），我的页点击弹只读态。
+    // 知情同意页内 Dialog：只要已绑定(含调试跳过的 demo)且未同意，进入主页即强制弹出；我的页点击弹只读态。
     var forcedConsent by remember {
-        mutableStateOf(UserPrefs.pairId > 0 && !UserPrefs.demoMode && !UserPrefs.privacyConsented)
+        mutableStateOf(UserPrefs.pairId > 0 && !UserPrefs.privacyConsented)
     }
     var reviewConsent by remember { mutableStateOf(false) }
     val surfaceColor = MiuixTheme.colorScheme.surface
@@ -277,12 +280,17 @@ private fun MainTabs(
     Scaffold(
         bottomBar = bottomBar,
         floatingActionButton = {
-            AnimatedVisibility(
-                visible = fabAction != null && mainFabState.fabVisible,
-                enter = fadeIn() + scaleIn(initialScale = 0.7f),
-                exit = fadeOut() + scaleOut(targetScale = 0.7f),
-            ) {
-                FloatingActionButton(onClick = { fabAction?.invoke() }) {
+            // 仿 KernelSU：FAB 随列表滚动做位移隐藏/显示（下滑下移出屏，上滑回位），350ms。
+            if (fabAction != null) {
+                val fabOffsetY by animateDpAsState(
+                    targetValue = if (mainFabState.fabVisible) 0.dp else 120.dp,
+                    animationSpec = tween(350),
+                    label = "fabOffset",
+                )
+                FloatingActionButton(
+                    onClick = { fabAction.invoke() },
+                    modifier = Modifier.offset { IntOffset(0, fabOffsetY.roundToPx()) },
+                ) {
                     Icon(Icons.Rounded.Add, contentDescription = "添加待办")
                 }
             }

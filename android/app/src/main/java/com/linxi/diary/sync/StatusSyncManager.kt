@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
+import com.linxi.diary.BuildConfig
 import com.linxi.diary.MainActivity
 import com.linxi.diary.core.DeviceStatus
 import com.linxi.diary.data.ProfileRuntime
@@ -38,7 +39,14 @@ import java.util.concurrent.TimeUnit
  */
 object StatusSyncManager {
 
-    private const val WS_URL = "wss://api.linxi.app/ws"
+    // WS 地址：优先用构建期注入的 WS_URL，否则由 BASE_URL 推导（https→wss 同 host）。
+    private val WS_URL: String = BuildConfig.WS_URL.ifBlank { deriveWsUrl(BuildConfig.BASE_URL) }
+
+    private fun deriveWsUrl(baseUrl: String): String {
+        val scheme = if (baseUrl.startsWith("https", ignoreCase = true)) "wss" else "ws"
+        val host = baseUrl.substringAfter("://", baseUrl).substringBefore("/")
+        return "$scheme://$host/ws"
+    }
 
     private var ws: WebSocket? = null
     private var retry = 0

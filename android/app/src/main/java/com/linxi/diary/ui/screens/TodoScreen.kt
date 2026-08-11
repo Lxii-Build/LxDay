@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.*
@@ -39,12 +40,15 @@ import com.linxi.diary.ui.components.LxButtonVariant
 import com.linxi.diary.ui.navigation.LocalMainFabState
 import com.linxi.diary.ui.theme.BrandBlue
 import com.linxi.diary.util.UserPrefs
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Delete
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -61,23 +65,43 @@ fun TodoScreen() {
     val focusManager = LocalFocusManager.current
     var todos by remember { mutableStateOf<List<TodoItem>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var refreshing by remember { mutableStateOf(false) }
     var showAdd by remember { mutableStateOf(false) }
+    var rawQuery by remember { mutableStateOf("") }
     var query by remember { mutableStateOf("") }
     var searchFocused by remember { mutableStateOf(false) }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
 
-    fun refresh() {
+    val demo = DemoMode.shouldUseDemo(UserPrefs.demoMode)
+    val profile = if (demo) null else ProfileRuntime.repository.profile.collectAsState().value
+    val meId = profile?.me?.id ?: UserPrefs.myUserId
+    val meName = (profile?.me?.nickname ?: "").ifBlank { "我" }
+    val partnerId = profile?.partner?.id ?: 0L
+    val partnerName = (profile?.partner?.nickname ?: UserPrefs.partnerName).ifBlank { "对方" }
+    fun nameOf(id: Long): String = when (id) {
+        meId -> meName
+        partnerId -> partnerName
+        else -> "对方"
+    }
+
+    // 搜索去首尾空格 + 150ms 防抖，避免每次按键都重算过滤。
+    LaunchedEffect(rawQuery) {
+        delay(150)
+        query = rawQuery.trim()
+    }
+
+    fun refresh(pull: Boolean = false) {
         scope.launch {
-            loading = true
+            if (pull) refreshing = true else loading = true
             runCatching {
                 val data = ApiClient.todos(status = 0)
                 todos = (0 until data.length()).map { TodoItem.fromJson(data.getJSONObject(it)) }
             }
             loading = false
+            refreshing = false
         }
     }
 
-    val demo = DemoMode.shouldUseDemo(UserPrefs.demoMode)
     val mainFabState = LocalMainFabState.current
     DisposableEffect(mainFabState) {
         mainFabState.todoAction = { showAdd = true }
@@ -111,25 +135,34 @@ fun TodoScreen() {
         }
     }
 
-    val filtered = remember(todos, query) {
+    val filtered = remember(todos, query, meId, partnerId) {
         if (query.isBlank()) todos
-        else todos.filter { it.title.contains(query, true) || it.note.contains(query, true) }
+        else todos.filter {
+            it.title.contains(query, true) || it.note.contains(query, true) ||
+                nameOf(it.creatorId).contains(query, true) || nameOf(it.assigneeId).contains(query, true)
+        }
     }
 
-    KernelScreen(title = "待办", listState = listState) {
-        item {
+    KernelScreen(
+        title = "待办",
+        listState = listState,
+        isRefreshing = refreshing,
+        onRefresh = if (demo) null else ({ refresh(pull = true) }),
+        header = {
             SearchRow(
-                query = query,
-                onQueryChange = { query = it },
-                showCancel = searchFocused || query.isNotEmpty(),
+                query = rawQuery,
+                onQueryChange = { rawQuery = it },
+                showCancel = searchFocused || rawQuery.isNotEmpty(),
                 onFocusChange = { searchFocused = it },
                 onCancel = {
+                    rawQuery = ""
                     query = ""
                     searchFocused = false
                     focusManager.clearFocus()
                 },
             )
-        }
+        },
+    ) {
         when {
             loading -> item { CircularProgressIndicator(Modifier.padding(24.dp)) }
             todos.isEmpty() -> item {
@@ -154,10 +187,34 @@ fun TodoScreen() {
                 TodoCard(
                     todo = t,
                     demo = demo,
+                    creatorName = nameOf(t.creatorId),
+                    assigneeName = nameOf(t.assigneeId),
+                    onToggleRemind = { enabled ->
+                        scope.launch {
+                            runCatching {
+                                ApiClient.updateTodo(t.id, JSONObject().put("remind_enabled", enabled))
+                                if (!enabled) {
+                                    TodoAlarmScheduler.cancel(context, t.id)
+                                } else if (t.remindAtMs != null) {
+                                    TodoAlarmScheduler.schedule(context, t.id, t.title, t.remindType, t.remindAtMs)
+                                }
+                            }
+                            refresh()
+                        }
+                    },
                     onComplete = {
                         scope.launch {
                             runCatching {
                                 ApiClient.completeTodo(t.id)
+                                TodoAlarmScheduler.cancel(context, t.id)
+                            }
+                            refresh()
+                        }
+                    },
+                    onDelete = {
+                        scope.launch {
+                            runCatching {
+                                ApiClient.deleteTodo(t.id)
                                 TodoAlarmScheduler.cancel(context, t.id)
                             }
                             refresh()
@@ -170,9 +227,13 @@ fun TodoScreen() {
 
     if (showAdd) {
         AddTodoDialog(
+            meId = meId,
+            partnerId = partnerId,
+            meName = meName,
+            partnerName = partnerName,
             onDismiss = { showAdd = false },
             onAdded = { todo, ctx ->
-                if (todo.remindAtMs != null) {
+                if (todo.remindEnabled && todo.remindAtMs != null) {
                     TodoAlarmScheduler.schedule(ctx, todo.id, todo.title, todo.remindType, todo.remindAtMs)
                 }
                 showAdd = false
@@ -223,7 +284,15 @@ private fun SearchRow(
 }
 
 @Composable
-private fun TodoCard(todo: TodoItem, demo: Boolean, onComplete: () -> Unit) {
+private fun TodoCard(
+    todo: TodoItem,
+    demo: Boolean,
+    creatorName: String,
+    assigneeName: String,
+    onToggleRemind: (Boolean) -> Unit,
+    onComplete: () -> Unit,
+    onDelete: () -> Unit,
+) {
     var expanded by remember { mutableStateOf(false) }
     val hasNote = todo.note.isNotBlank()
     Card(
@@ -239,20 +308,25 @@ private fun TodoCard(todo: TodoItem, demo: Boolean, onComplete: () -> Unit) {
                         fontWeight = FontWeight.Bold,
                         color = MiuixTheme.colorScheme.onSurface,
                     )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "提出者：$creatorName · 被提醒：$assigneeName",
+                        fontSize = 12.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
                     val schedule = buildScheduleLine(todo)
                     if (schedule.isNotEmpty()) {
                         Spacer(Modifier.height(3.dp))
                         Text(
                             schedule,
                             fontSize = 13.sp,
-                            color = MiuixTheme.colorScheme.primary,
+                            color = if (todo.remindEnabled) MiuixTheme.colorScheme.primary
+                            else MiuixTheme.colorScheme.onSurface.copy(alpha = 0.4f),
                         )
                     }
                 }
                 if (!demo) {
-                    IconButton(onClick = onComplete) {
-                        Icon(Icons.Filled.Check, contentDescription = "完成", tint = MiuixTheme.colorScheme.primary)
-                    }
+                    Switch(checked = todo.remindEnabled, onCheckedChange = onToggleRemind)
                 }
             }
             if (hasNote) {
@@ -264,6 +338,22 @@ private fun TodoCard(todo: TodoItem, demo: Boolean, onComplete: () -> Unit) {
                     maxLines = if (expanded) Int.MAX_VALUE else 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+            }
+            if (!demo) {
+                HorizontalDivider(
+                    Modifier.padding(vertical = 8.dp),
+                    thickness = 0.5.dp,
+                    color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Spacer(Modifier.weight(1f))
+                    IconButton(onClick = onComplete) {
+                        Icon(Icons.Filled.Check, contentDescription = "完成", tint = MiuixTheme.colorScheme.primary)
+                    }
+                    IconButton(onClick = onDelete) {
+                        Icon(MiuixIcons.Delete, contentDescription = "删除", tint = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                    }
+                }
             }
         }
     }
@@ -289,6 +379,10 @@ private fun buildScheduleLine(t: TodoItem): String {
 
 @Composable
 private fun AddTodoDialog(
+    meId: Long,
+    partnerId: Long,
+    meName: String,
+    partnerName: String,
     onDismiss: () -> Unit,
     onAdded: (TodoItem, android.content.Context) -> Unit,
 ) {
@@ -296,6 +390,7 @@ private fun AddTodoDialog(
     val scope = rememberCoroutineScope()
     var title by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
+    var assigneeToPartner by remember { mutableStateOf(true) }   // 被提醒者：true=对方 false=我自己
     var remindEnabled by remember { mutableStateOf(false) }
     var strong by remember { mutableStateOf(false) }
     var repeatMode by remember { mutableStateOf(0) }   // 0 仅一次, 1 重复
@@ -333,6 +428,12 @@ private fun AddTodoDialog(
         ) {
             TextField(value = title, onValueChange = { title = it }, label = "事件", singleLine = true, modifier = Modifier.fillMaxWidth())
             TextField(value = note, onValueChange = { note = it }, label = "详情（可选）", modifier = Modifier.fillMaxWidth())
+
+            Text("被提醒者", fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ChipToggle(partnerName.ifBlank { "对方" }, assigneeToPartner) { assigneeToPartner = true }
+                ChipToggle(meName.ifBlank { "我自己" }, !assigneeToPartner) { assigneeToPartner = false }
+            }
 
             LabeledSwitchRow("是否提醒", remindEnabled) { remindEnabled = it }
 
@@ -400,11 +501,12 @@ private fun AddTodoDialog(
                                 }
                                 cal.timeInMillis
                             }
-                            val partnerId = ProfileRuntime.repository.profile.value?.partner?.id ?: 0L
+                            val assigneeId = if (assigneeToPartner) partnerId else meId
                             val body = JSONObject().apply {
                                 put("title", title)
                                 put("note", note)
-                                if (partnerId > 0) put("assignee_id", partnerId)
+                                if (assigneeId > 0) put("assignee_id", assigneeId)
+                                put("remind_enabled", remindEnabled)
                                 put("remind_type", if (remindEnabled && strong) 1 else 0)
                                 put("repeat_type", if (remindEnabled) repeatType else 0)
                                 if (remindEnabled && repeatType == 2) put("weekdays", weekdays)
