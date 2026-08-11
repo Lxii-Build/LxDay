@@ -45,7 +45,9 @@ data class TodoItem(
     val note: String,
     val remindAtMs: Long?,     // epoch 毫秒
     val remindType: Int,       // 0普通 1强提醒
-    val status: Int            // 0待办 1完成 2删除
+    val status: Int,           // 0待办 1完成 2删除
+    val repeatType: Int = 0,   // 0仅一次 1每天 2每周
+    val weekdays: Int = 0      // 位掩码 bit0=周一..bit6=周日（repeatType=2 时有效）
 ) {
     companion object {
         fun fromJson(j: JSONObject) = TodoItem(
@@ -57,7 +59,9 @@ data class TodoItem(
             note = j.optString("note"),
             remindAtMs = optTimeSec(j, "remind_at").takeIf { it > 0 },
             remindType = j.optInt("remind_type"),
-            status = j.optInt("status")
+            status = j.optInt("status"),
+            repeatType = j.optInt("repeat_type"),
+            weekdays = j.optInt("weekdays")
         )
     }
 }

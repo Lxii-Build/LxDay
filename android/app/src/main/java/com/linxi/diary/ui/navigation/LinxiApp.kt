@@ -1,5 +1,10 @@
 package com.linxi.diary.ui.navigation
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -224,9 +229,13 @@ private fun MainTabs(
     Scaffold(
         bottomBar = bottomBar,
         floatingActionButton = {
-            if (fabAction != null) {
-                FloatingActionButton(onClick = fabAction) {
-                    Icon(Icons.Rounded.Add, contentDescription = if (fabDestination == MainFabDestination.Todo) "添加待办" else "发布日记")
+            AnimatedVisibility(
+                visible = fabAction != null && mainFabState.fabVisible,
+                enter = fadeIn() + scaleIn(initialScale = 0.7f),
+                exit = fadeOut() + scaleOut(targetScale = 0.7f),
+            ) {
+                FloatingActionButton(onClick = { fabAction?.invoke() }) {
+                    Icon(Icons.Rounded.Add, contentDescription = "添加待办")
                 }
             }
         }
