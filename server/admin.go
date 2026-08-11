@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"errors"
 	"net/http"
 	"os"
@@ -29,10 +30,10 @@ func afail(c *gin.Context, httpCode, bizCode int, msg string) {
 
 func signAdminToken(aid int64, role string) (string, error) {
 	claims := jwt.MapClaims{
-		"aid":  aid,
-		"role": role,
+		"aid":   aid,
+		"role":  role,
 		"scope": "admin",
-		"exp":  time.Now().Add(time.Duration(cfg.App.TokenTTLHours) * time.Hour).Unix(),
+		"exp":   time.Now().Add(time.Duration(cfg.App.TokenTTLHours) * time.Hour).Unix(),
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.App.JWTSecret))
 }
@@ -276,31 +277,36 @@ func handleAdminStats(c *gin.Context) { aok(c, st.DashboardStats()) }
 // ---------- 用户管理 ----------
 
 type AdminUserRow struct {
-	ID        int64     `json:"id"`
-	Username  *string   `json:"username"`
-	Email     *string   `json:"email"`
-	Nickname  string    `json:"nickname"`
-	AvatarURL *string   `json:"avatar_url"`
-	Gender    int       `json:"gender"`
-	Status    int       `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
+	ID          int64     `json:"id"`
+	Username    *string   `json:"username"`
+	Email       *string   `json:"email"`
+	Nickname    string    `json:"nickname"`
+	AvatarURL   *string   `json:"avatar_url"`
+	Gender      int       `json:"gender"`
+	Signature   *string   `json:"signature"`
+	Birthday    *string   `json:"birthday"`
+	Anniversary *string   `json:"anniversary"`
+	Status      int       `json:"status"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 func (s *Store) ListUsers(keyword string, limit, offset int) ([]AdminUserRow, int, error) {
 	where := ""
 	args := []interface{}{}
 	if keyword != "" {
-		where = " WHERE username LIKE ? OR email LIKE ? OR nickname LIKE ?"
+		where = " WHERE u.username LIKE ? OR u.email LIKE ? OR u.nickname LIKE ?"
 		kw := "%" + keyword + "%"
 		args = append(args, kw, kw, kw)
 	}
 	var total int
-	if err := s.DB.QueryRow("SELECT COUNT(*) FROM `user`"+where, args...).Scan(&total); err != nil {
+	if err := s.DB.QueryRow("SELECT COUNT(*) FROM `user` u"+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	rows, err := s.DB.Query(
-		"SELECT id,username,email,nickname,avatar_url,gender,status,created_at FROM `user`"+where+
-			" ORDER BY id DESC LIMIT ? OFFSET ?", append(args, limit, offset)...)
+		"SELECT u.id,u.username,u.email,u.nickname,u.avatar_url,u.gender,u.signature,u.birthday,u.status,u.created_at,"+
+			"(SELECT p.anniversary_date FROM pair p WHERE p.status=1 AND (p.user_a_id=u.id OR p.user_b_id=u.id) LIMIT 1) "+
+			"FROM `user` u"+where+
+			" ORDER BY u.id DESC LIMIT ? OFFSET ?", append(args, limit, offset)...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -308,7 +314,16 @@ func (s *Store) ListUsers(keyword string, limit, offset int) ([]AdminUserRow, in
 	out := []AdminUserRow{}
 	for rows.Next() {
 		var u AdminUserRow
-		rows.Scan(&u.ID, &u.Username, &u.Email, &u.Nickname, &u.AvatarURL, &u.Gender, &u.Status, &u.CreatedAt)
+		var birthday, anniversary sql.NullTime
+		rows.Scan(&u.ID, &u.Username, &u.Email, &u.Nickname, &u.AvatarURL, &u.Gender, &u.Signature, &birthday, &u.Status, &u.CreatedAt, &anniversary)
+		if birthday.Valid {
+			b := birthday.Time.Format("2006-01-02")
+			u.Birthday = &b
+		}
+		if anniversary.Valid {
+			a := anniversary.Time.Format("2006-01-02")
+			u.Anniversary = &a
+		}
 		out = append(out, u)
 	}
 	return out, total, nil
@@ -353,8 +368,8 @@ func (s *Store) ListPairs(limit, offset int) ([]gin.H, int, error) {
 		return nil, 0, err
 	}
 	rows, err := s.DB.Query(
-		"SELECT p.id,p.user_a_id,p.user_b_id,COALESCE(ua.nickname,''),COALESCE(ub.nickname,''),p.status,p.invite_code,p.created_at " +
-			"FROM pair p LEFT JOIN `user` ua ON ua.id=p.user_a_id LEFT JOIN `user` ub ON ub.id=p.user_b_id " +
+		"SELECT p.id,p.user_a_id,p.user_b_id,COALESCE(ua.nickname,''),COALESCE(ub.nickname,''),p.status,p.invite_code,p.created_at "+
+			"FROM pair p LEFT JOIN `user` ua ON ua.id=p.user_a_id LEFT JOIN `user` ub ON ub.id=p.user_b_id "+
 			"ORDER BY p.id DESC LIMIT ? OFFSET ?", limit, offset)
 	if err != nil {
 		return nil, 0, err
@@ -402,14 +417,26 @@ func handleAdminUnbindPair(c *gin.Context) {
 
 // ---------- 内容审核（待办 / 日记） ----------
 
-func (s *Store) ListTodosAll(limit, offset int) ([]gin.H, int, error) {
+// ListTodosAll 后台待办列表（分页 + keyword，creator/assignee 名字从 user 解析）。
+// 契约字段：id,title,note,creator_id,creator_name,assignee_id,assignee_name,remind_enabled,remind_type,repeat_type,remind_at,status,pair_id
+func (s *Store) ListTodosAll(keyword string, limit, offset int) ([]gin.H, int, error) {
+	base := "FROM todo t " +
+		"LEFT JOIN `user` uc ON uc.id=t.creator_id " +
+		"LEFT JOIN `user` ua ON ua.id=t.assignee_id"
+	args := []interface{}{}
+	if keyword != "" {
+		base += " WHERE t.title LIKE ? OR t.note LIKE ? OR uc.nickname LIKE ? OR ua.nickname LIKE ?"
+		kw := "%" + keyword + "%"
+		args = append(args, kw, kw, kw, kw)
+	}
 	var total int
-	if err := s.DB.QueryRow("SELECT COUNT(*) FROM todo").Scan(&total); err != nil {
+	if err := s.DB.QueryRow("SELECT COUNT(*) "+base, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	rows, err := s.DB.Query(
-		"SELECT id,pair_id,creator_id,assignee_id,title,COALESCE(note,''),status,created_at FROM todo ORDER BY id DESC LIMIT ? OFFSET ?",
-		limit, offset)
+		"SELECT t.id,t.pair_id,t.creator_id,COALESCE(uc.nickname,''),t.assignee_id,COALESCE(ua.nickname,''),"+
+			"t.title,COALESCE(t.note,''),t.remind_at,t.remind_type,t.repeat_type,t.remind_enabled,t.status "+
+			base+" ORDER BY t.id DESC LIMIT ? OFFSET ?", append(args, limit, offset)...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -417,12 +444,24 @@ func (s *Store) ListTodosAll(limit, offset int) ([]gin.H, int, error) {
 	out := []gin.H{}
 	for rows.Next() {
 		var id, pid, cid, aid int64
-		var title, note string
-		var status int
-		var created time.Time
-		rows.Scan(&id, &pid, &cid, &aid, &title, &note, &status, &created)
-		out = append(out, gin.H{"id": id, "pair_id": pid, "creator_id": cid, "assignee_id": aid,
-			"title": title, "note": note, "status": status, "created_at": created})
+		var creatorName, assigneeName, title, note string
+		var remindAt sql.NullTime
+		var remindType, repeatType, status int
+		var remindEnabled bool
+		rows.Scan(&id, &pid, &cid, &creatorName, &aid, &assigneeName,
+			&title, &note, &remindAt, &remindType, &repeatType, &remindEnabled, &status)
+		var ra interface{}
+		if remindAt.Valid {
+			ra = remindAt.Time
+		}
+		out = append(out, gin.H{
+			"id": id, "title": title, "note": note,
+			"creator_id": cid, "creator_name": creatorName,
+			"assignee_id": aid, "assignee_name": assigneeName,
+			"remind_enabled": remindEnabled, "remind_type": remindType,
+			"repeat_type": repeatType, "remind_at": ra,
+			"status": status, "pair_id": pid,
+		})
 	}
 	return out, total, nil
 }
@@ -453,13 +492,14 @@ func (s *Store) ListDiariesAll(limit, offset int) ([]gin.H, int, error) {
 }
 
 func handleAdminListTodos(c *gin.Context) {
-	limit, offset, current, size := pageParams(c)
-	list, total, err := st.ListTodosAll(limit, offset)
+	limit, offset, _, _ := pageParams(c)
+	list, total, err := st.ListTodosAll(strings.TrimSpace(c.Query("keyword")), limit, offset)
 	if err != nil {
 		afail(c, 500, 500, "查询失败")
 		return
 	}
-	pageResp(c, list, total, current, size)
+	// 契约：data:{list,total}
+	aok(c, gin.H{"list": list, "total": total})
 }
 
 func handleAdminDeleteTodo(c *gin.Context) {
@@ -894,12 +934,3 @@ func registerAdminRoutes(r *gin.Engine) {
 	auth.GET("/notify-records", handleAdminListRecords)
 	auth.POST("/notify", handleAdminSendNotify)
 }
-
-
-
-
-
-
-
-
-

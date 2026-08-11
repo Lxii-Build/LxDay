@@ -22,17 +22,17 @@ type migrationColumn struct {
 var migrations = []migration{
 	{
 		version: 1,
-		name: "profile_and_anniversary",
+		name:    "profile_and_anniversary",
 		columns: []migrationColumn{
 			{
-				table: "user",
+				table:  "user",
 				column: "avatar_thumbnail_url",
-				alter: "ALTER TABLE `user` ADD COLUMN avatar_thumbnail_url VARCHAR(255) NULL AFTER avatar_url",
+				alter:  "ALTER TABLE `user` ADD COLUMN avatar_thumbnail_url VARCHAR(255) NULL AFTER avatar_url",
 			},
 			{
-				table: "pair",
+				table:  "pair",
 				column: "anniversary_date",
-				alter: "ALTER TABLE pair ADD COLUMN anniversary_date DATE NULL AFTER invite_code",
+				alter:  "ALTER TABLE pair ADD COLUMN anniversary_date DATE NULL AFTER invite_code",
 			},
 		},
 	},
@@ -125,6 +125,13 @@ var migrations = []migration{
 				created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 				PRIMARY KEY (id)
 			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		},
+	},
+	{
+		version: 5,
+		name:    "todo_remind_enabled",
+		columns: []migrationColumn{
+			{table: "todo", column: "remind_enabled", alter: "ALTER TABLE todo ADD COLUMN remind_enabled TINYINT(1) NOT NULL DEFAULT 1 AFTER weekdays"},
 		},
 	},
 }

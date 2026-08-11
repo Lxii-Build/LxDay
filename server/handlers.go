@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -19,7 +20,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// uploadDir 为日记图片本地存储根目录（Nginx 映射 /uploads/）
+// uploadDir 为本地上传根目录（Go 自托管 /uploads/ 静态映射）
 var uploadDir = "uploads"
 
 func initUploadDir() {
@@ -111,6 +112,25 @@ func JWTAuth() gin.HandlerFunc {
 
 func currentUID(c *gin.Context) int64 {
 	return c.GetInt64("uid")
+}
+
+// AppKeyGuard 通讯密钥中间件：校验请求头 X-App-Key 是否与配置 app_key 一致。
+// 仅挂在 /api/v1/* 分组；app_key 为空时禁用（放行）。错误沿用 /api/v1 错误信封。
+func AppKeyGuard() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		expected := cfg.App.AppKey
+		if expected == "" {
+			c.Next()
+			return
+		}
+		got := c.GetHeader("X-App-Key")
+		if subtle.ConstantTimeCompare([]byte(got), []byte(expected)) != 1 {
+			fail(c, http.StatusForbidden, 1016, "客户端校验失败")
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
 }
 
 // ================= 认证 =================
@@ -365,10 +385,10 @@ func pairProfileFrom(queryer profileQueryer, uid int64) (gin.H, error) {
 		anniversary = pair.AnniversaryDate.Format("2006-01-02")
 	}
 	return gin.H{
-		"bound": true,
-		"pair_id": pair.ID,
-		"me": me,
-		"partner": partner,
+		"bound":            true,
+		"pair_id":          pair.ID,
+		"me":               me,
+		"partner":          partner,
 		"anniversary_date": anniversary,
 	}, nil
 }
@@ -427,29 +447,35 @@ func handleCreateTodo(c *gin.Context) {
 	}
 	uid := currentUID(c)
 	var req struct {
-		Title      string    `json:"title" binding:"required"`
-		AssigneeID int64     `json:"assignee_id"`
-		Note       string    `json:"note"`
-		RemindAt   time.Time `json:"remind_at"`
-		RemindType int       `json:"remind_type"` // 0普通 1强提醒
-		RepeatType int       `json:"repeat_type"` // 0仅一次 1每天 2每周
-		Weekdays   int       `json:"weekdays"`    // bit0=周一..bit6=周日
+		Title         string    `json:"title" binding:"required"`
+		AssigneeID    int64     `json:"assignee_id"`
+		Note          string    `json:"note"`
+		RemindAt      time.Time `json:"remind_at"`
+		RemindType    int       `json:"remind_type"`    // 0普通 1强提醒
+		RepeatType    int       `json:"repeat_type"`    // 0仅一次 1每天 2每周
+		Weekdays      int       `json:"weekdays"`       // bit0=周一..bit6=周日
+		RemindEnabled *bool     `json:"remind_enabled"` // 缺省=true
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		fail(c, 400, 1002, "参数错误")
 		return
 	}
-	// assignee 缺省 = 对方
-	assignee := pair.UserBID
-	if req.AssigneeID == uid {
-		assignee = uid
+	// assignee 允许 pair 任一成员（本人或伴侣）：给定即用，缺省=伴侣
+	partner := st.PartnerID(pair, uid)
+	assignee := partner
+	if req.AssigneeID == uid || req.AssigneeID == partner {
+		assignee = req.AssigneeID
+	}
+	remindEnabled := true
+	if req.RemindEnabled != nil {
+		remindEnabled = *req.RemindEnabled
 	}
 	var rp *time.Time
 	if !req.RemindAt.IsZero() {
 		rp = &req.RemindAt
 	}
 	repeatType, weekdays := normalizeRepeat(req.RepeatType, req.Weekdays)
-	todo, err := st.CreateTodo(pair.ID, uid, assignee, req.Title, req.Note, rp, req.RemindType, repeatType, weekdays)
+	todo, err := st.CreateTodo(pair.ID, uid, assignee, req.Title, req.Note, rp, req.RemindType, repeatType, weekdays, remindEnabled)
 	if err != nil {
 		fail(c, 500, 1010, "创建失败")
 		return
@@ -500,12 +526,13 @@ func handleUpdateTodo(c *gin.Context) {
 	}
 	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
 	var req struct {
-		Title      *string    `json:"title"`
-		Note       *string    `json:"note"`
-		RemindAt   *time.Time `json:"remind_at"`
-		RemindType *int       `json:"remind_type"`
-		RepeatType *int       `json:"repeat_type"`
-		Weekdays   *int       `json:"weekdays"`
+		Title         *string    `json:"title"`
+		Note          *string    `json:"note"`
+		RemindAt      *time.Time `json:"remind_at"`
+		RemindType    *int       `json:"remind_type"`
+		RepeatType    *int       `json:"repeat_type"`
+		Weekdays      *int       `json:"weekdays"`
+		RemindEnabled *bool      `json:"remind_enabled"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		fail(c, 400, 1002, "参数错误")
@@ -516,7 +543,7 @@ func handleUpdateTodo(c *gin.Context) {
 		req.RepeatType = &rt
 		req.Weekdays = &wd
 	}
-	if err := st.UpdateTodo(id, req.Title, req.Note, req.RemindAt, nil, req.RemindType, req.RepeatType, req.Weekdays); err != nil {
+	if err := st.UpdateTodo(id, req.Title, req.Note, req.RemindAt, nil, req.RemindType, req.RepeatType, req.Weekdays, req.RemindEnabled); err != nil {
 		fail(c, 500, 1010, "更新失败")
 		return
 	}
@@ -711,14 +738,14 @@ func handleHistoryTimeline(c *gin.Context) {
 	}
 	// 时间戳统一为 epoch 毫秒（客户端按 ms 解析）
 	type entry struct {
-		Battery        int    `json:"battery"`
-		Charging       bool   `json:"charging"`
-		ScreenOn       bool   `json:"screen_on"`
-		Locked         bool   `json:"locked"`
-		ForegroundApp  string `json:"foreground_app"`
-		SSID           string `json:"ssid"`
-		Network        string `json:"network"`
-		Ts             int64  `json:"ts"`
+		Battery       int    `json:"battery"`
+		Charging      bool   `json:"charging"`
+		ScreenOn      bool   `json:"screen_on"`
+		Locked        bool   `json:"locked"`
+		ForegroundApp string `json:"foreground_app"`
+		SSID          string `json:"ssid"`
+		Network       string `json:"network"`
+		Ts            int64  `json:"ts"`
 	}
 	out := make([]entry, 0, len(list))
 	for _, h := range list {
@@ -761,7 +788,7 @@ func handleBatteryCurve(c *gin.Context) {
 
 // ================= 日记图片上传（本地磁盘） =================
 // 存储：uploads/diary/{pairId}/{uuid}.jpg
-// Nginx 静态服务 /uploads/；URL 带不可猜测 uuid，纯自用场景免鉴权。
+// Go 自托管静态服务 /uploads/；URL 带不可猜测 uuid，纯自用场景免鉴权。
 
 func handleUploadDiaryImage(c *gin.Context) {
 	pair, okP := mustPair(c)

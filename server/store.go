@@ -184,11 +184,11 @@ func formatInviteCode(v int64) string {
 
 // ---------- 待办 ----------
 
-func (s *Store) CreateTodo(pairID, creatorID, assigneeID int64, title, note string, remindAt *time.Time, remindType, repeatType, weekdays int) (*Todo, error) {
-	t := &Todo{PairID: pairID, CreatorID: creatorID, AssigneeID: assigneeID, Title: title, Note: note, RemindAt: remindAt, RemindType: remindType, RepeatType: repeatType, Weekdays: weekdays}
+func (s *Store) CreateTodo(pairID, creatorID, assigneeID int64, title, note string, remindAt *time.Time, remindType, repeatType, weekdays int, remindEnabled bool) (*Todo, error) {
+	t := &Todo{PairID: pairID, CreatorID: creatorID, AssigneeID: assigneeID, Title: title, Note: note, RemindAt: remindAt, RemindType: remindType, RepeatType: repeatType, Weekdays: weekdays, RemindEnabled: remindEnabled}
 	res, err := s.DB.Exec(
-		`INSERT INTO todo(pair_id,creator_id,assignee_id,title,note,remind_at,remind_type,repeat_type,weekdays,status)
-		 VALUES(?,?,?,?,?,?,?,?,?,0)`, pairID, creatorID, assigneeID, title, note, remindAt, remindType, repeatType, weekdays)
+		`INSERT INTO todo(pair_id,creator_id,assignee_id,title,note,remind_at,remind_type,repeat_type,weekdays,remind_enabled,status)
+		 VALUES(?,?,?,?,?,?,?,?,?,?,0)`, pairID, creatorID, assigneeID, title, note, remindAt, remindType, repeatType, weekdays, remindEnabled)
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +198,7 @@ func (s *Store) CreateTodo(pairID, creatorID, assigneeID int64, title, note stri
 
 func (s *Store) ListTodos(pairID int64, status int) ([]Todo, error) {
 	rows, err := s.DB.Query(
-		`SELECT id,pair_id,creator_id,assignee_id,title,note,remind_at,remind_type,repeat_type,weekdays,status,completed_at
+		`SELECT id,pair_id,creator_id,assignee_id,title,note,remind_at,remind_type,repeat_type,weekdays,remind_enabled,status,completed_at
 		 FROM todo WHERE pair_id=? AND status=? ORDER BY remind_at IS NULL, remind_at ASC, id DESC`,
 		pairID, status)
 	if err != nil {
@@ -208,34 +208,45 @@ func (s *Store) ListTodos(pairID int64, status int) ([]Todo, error) {
 	var out []Todo
 	for rows.Next() {
 		var t Todo
-		rows.Scan(&t.ID, &t.PairID, &t.CreatorID, &t.AssigneeID, &t.Title, &t.Note, &t.RemindAt, &t.RemindType, &t.RepeatType, &t.Weekdays, &t.Status, &t.CompletedAt)
+		rows.Scan(&t.ID, &t.PairID, &t.CreatorID, &t.AssigneeID, &t.Title, &t.Note, &t.RemindAt, &t.RemindType, &t.RepeatType, &t.Weekdays, &t.RemindEnabled, &t.Status, &t.CompletedAt)
 		out = append(out, t)
 	}
 	return out, nil
 }
 
-func (s *Store) UpdateTodo(id int64, title, note *string, remindAt *time.Time, assigneeID *int64, remindType, repeatType, weekdays *int) error {
+func (s *Store) UpdateTodo(id int64, title, note *string, remindAt *time.Time, assigneeID *int64, remindType, repeatType, weekdays *int, remindEnabled *bool) error {
 	sets, args := []string{}, []interface{}{}
 	if title != nil {
-		sets = append(sets, "title=?"); args = append(args, *title)
+		sets = append(sets, "title=?")
+		args = append(args, *title)
 	}
 	if note != nil {
-		sets = append(sets, "note=?"); args = append(args, *note)
+		sets = append(sets, "note=?")
+		args = append(args, *note)
 	}
 	if remindAt != nil {
-		sets = append(sets, "remind_at=?"); args = append(args, *remindAt)
+		sets = append(sets, "remind_at=?")
+		args = append(args, *remindAt)
 	}
 	if assigneeID != nil {
-		sets = append(sets, "assignee_id=?"); args = append(args, *assigneeID)
+		sets = append(sets, "assignee_id=?")
+		args = append(args, *assigneeID)
 	}
 	if remindType != nil {
-		sets = append(sets, "remind_type=?"); args = append(args, *remindType)
+		sets = append(sets, "remind_type=?")
+		args = append(args, *remindType)
 	}
 	if repeatType != nil {
-		sets = append(sets, "repeat_type=?"); args = append(args, *repeatType)
+		sets = append(sets, "repeat_type=?")
+		args = append(args, *repeatType)
 	}
 	if weekdays != nil {
-		sets = append(sets, "weekdays=?"); args = append(args, *weekdays)
+		sets = append(sets, "weekdays=?")
+		args = append(args, *weekdays)
+	}
+	if remindEnabled != nil {
+		sets = append(sets, "remind_enabled=?")
+		args = append(args, *remindEnabled)
 	}
 	if len(sets) == 0 {
 		return nil
@@ -263,19 +274,19 @@ func (s *Store) DeleteTodo(id int64) error {
 func (s *Store) GetTodo(id int64) (*Todo, error) {
 	t := &Todo{}
 	err := s.DB.QueryRow(
-		`SELECT id,pair_id,creator_id,assignee_id,title,note,remind_at,remind_type,repeat_type,weekdays,status,completed_at
+		`SELECT id,pair_id,creator_id,assignee_id,title,note,remind_at,remind_type,repeat_type,weekdays,remind_enabled,status,completed_at
 		 FROM todo WHERE id=?`, id).
-		Scan(&t.ID, &t.PairID, &t.CreatorID, &t.AssigneeID, &t.Title, &t.Note, &t.RemindAt, &t.RemindType, &t.RepeatType, &t.Weekdays, &t.Status, &t.CompletedAt)
+		Scan(&t.ID, &t.PairID, &t.CreatorID, &t.AssigneeID, &t.Title, &t.Note, &t.RemindAt, &t.RemindType, &t.RepeatType, &t.Weekdays, &t.RemindEnabled, &t.Status, &t.CompletedAt)
 	return t, err
 }
 
 // ---------- 待办到点提醒扫描 ----------
 
-// DueTodos 返回「到点且未完成」的待办（remind_at <= now 且 status=0），用于服务端定时扫描推送
+// DueTodos 返回「到点且未完成」的待办（remind_at <= now 且 status=0 且 remind_enabled=1），用于服务端定时扫描推送
 func (s *Store) DueTodos(now time.Time) ([]Todo, error) {
 	rows, err := s.DB.Query(
-		`SELECT id,pair_id,creator_id,assignee_id,title,note,remind_at,remind_type,repeat_type,weekdays,status,completed_at
-		 FROM todo WHERE status=0 AND remind_at IS NOT NULL AND remind_at<=?`, now)
+		`SELECT id,pair_id,creator_id,assignee_id,title,note,remind_at,remind_type,repeat_type,weekdays,remind_enabled,status,completed_at
+		 FROM todo WHERE status=0 AND remind_enabled=1 AND remind_at IS NOT NULL AND remind_at<=?`, now)
 	if err != nil {
 		return nil, err
 	}
@@ -283,7 +294,7 @@ func (s *Store) DueTodos(now time.Time) ([]Todo, error) {
 	var out []Todo
 	for rows.Next() {
 		var t Todo
-		rows.Scan(&t.ID, &t.PairID, &t.CreatorID, &t.AssigneeID, &t.Title, &t.Note, &t.RemindAt, &t.RemindType, &t.RepeatType, &t.Weekdays, &t.Status, &t.CompletedAt)
+		rows.Scan(&t.ID, &t.PairID, &t.CreatorID, &t.AssigneeID, &t.Title, &t.Note, &t.RemindAt, &t.RemindType, &t.RepeatType, &t.Weekdays, &t.RemindEnabled, &t.Status, &t.CompletedAt)
 		out = append(out, t)
 	}
 	return out, nil
@@ -362,10 +373,12 @@ func (s *Store) AddDiaryImages(id int64, urls []string) error {
 func (s *Store) UpdateDiary(id int64, title, content *string) error {
 	sets, args := []string{}, []interface{}{}
 	if title != nil {
-		sets = append(sets, "title=?"); args = append(args, *title)
+		sets = append(sets, "title=?")
+		args = append(args, *title)
 	}
 	if content != nil {
-		sets = append(sets, "content=?"); args = append(args, *content)
+		sets = append(sets, "content=?")
+		args = append(args, *content)
 	}
 	if len(sets) == 0 {
 		return nil

@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS `todo` (
   `remind_type`  TINYINT      NOT NULL DEFAULT 0 COMMENT '0普通 1强提醒',
   `repeat_type`  TINYINT      NOT NULL DEFAULT 0 COMMENT '0仅一次 1每天 2每周',
   `weekdays`     TINYINT      NOT NULL DEFAULT 0 COMMENT '每周位掩码 bit0=周一..bit6=周日',
+  `remind_enabled` TINYINT(1) NOT NULL DEFAULT 1 COMMENT '提醒开关：0关闭 1开启',
   `status`       TINYINT      NOT NULL DEFAULT 0 COMMENT '0待办 1已完成 2已删除',
   `completed_at` DATETIME     DEFAULT NULL,
   `created_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,

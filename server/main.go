@@ -20,6 +20,7 @@ type Config struct {
 		TokenTTLHours       int    `yaml:"token_ttl_hours"`
 		RingCooldownSeconds int    `yaml:"ring_cooldown_seconds"`
 		RingCooldownLimit   int    `yaml:"ring_cooldown_limit"`
+		AppKey              string `yaml:"app_key"` // 通讯密钥；非空时校验 /api/v1/* 请求头 X-App-Key，可用环境变量 APP_KEY 覆盖
 	} `yaml:"app"`
 	MySQL struct {
 		DSN string `yaml:"dsn"`
@@ -53,15 +54,19 @@ func loadConfig() *Config {
 	if c.App.TokenTTLHours == 0 {
 		c.App.TokenTTLHours = 720
 	}
+	// 环境变量 APP_KEY 覆盖 yaml 中的 app_key（便于容器注入）
+	if v := os.Getenv("APP_KEY"); v != "" {
+		c.App.AppKey = v
+	}
 	return c
 }
 
 // ================= 全局依赖 =================
 
 var (
-	cfg *Config
-	st  *Store
-	hub *Hub
+	cfg  *Config
+	st   *Store
+	hub  *Hub
 	push *PushGateway
 )
 
@@ -85,7 +90,8 @@ func main() {
 	r.Use(gin.Logger(), gin.Recovery())
 
 	// ---- 公开路由 ----
-	api := r.Group("/api/v1")
+	// 通讯密钥中间件仅拦截 /api/v1/*（app_key 为空则禁用）；不影响 /ws、/uploads、SPA、/healthz、/api/admin
+	api := r.Group("/api/v1", AppKeyGuard())
 	api.POST("/auth/register", handleRegister)
 	api.POST("/auth/login", handleLogin)
 	api.POST("/auth/send-code", handleSendEmailCode)
@@ -147,6 +153,9 @@ func main() {
 
 	// ---- 后台管理路由 /api/admin ----
 	registerAdminRoutes(r)
+
+	// ---- 静态托管（去 Nginx）：SPA + /uploads + /healthz ----
+	registerStatic(r)
 
 	log.Printf("林曦日记服务端启动 :%s", cfg.App.Port)
 	if err := r.Run(":" + cfg.App.Port); err != nil {

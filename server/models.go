@@ -30,10 +30,10 @@ type UserProfile struct {
 }
 
 type Pair struct {
-	ID               int64      `json:"id"`
-	UserAID          int64      `json:"user_a_id"`
-	UserBID          int64      `json:"user_b_id"`
-	InviteCode       string     `json:"invite_code"`
+	ID              int64      `json:"id"`
+	UserAID         int64      `json:"user_a_id"`
+	UserBID         int64      `json:"user_b_id"`
+	InviteCode      string     `json:"invite_code"`
 	AnniversaryDate *time.Time `json:"anniversary_date"`
 }
 
@@ -77,31 +77,32 @@ type StatusHistory struct {
 }
 
 type Todo struct {
-	ID          int64      `json:"id"`
-	PairID      int64      `json:"pair_id"`
-	CreatorID   int64      `json:"creator_id"`
-	AssigneeID  int64      `json:"assignee_id"`
-	Title       string     `json:"title"`
-	Note        string     `json:"note,omitempty"`
-	RemindAt    *time.Time `json:"remind_at,omitempty"`
-	RemindType  int        `json:"remind_type"` // 0普通 1强提醒
-	RepeatType  int        `json:"repeat_type"` // 0仅一次 1每天 2每周
-	Weekdays    int        `json:"weekdays"`    // 位掩码 bit0=周一..bit6=周日（repeat_type=2 时有效）
-	Status      int        `json:"status"`      // 0待办 1已完成 2已删除
-	CompletedAt *time.Time `json:"completed_at,omitempty"`
+	ID            int64      `json:"id"`
+	PairID        int64      `json:"pair_id"`
+	CreatorID     int64      `json:"creator_id"`
+	AssigneeID    int64      `json:"assignee_id"`
+	Title         string     `json:"title"`
+	Note          string     `json:"note,omitempty"`
+	RemindAt      *time.Time `json:"remind_at,omitempty"`
+	RemindType    int        `json:"remind_type"`    // 0普通 1强提醒
+	RepeatType    int        `json:"repeat_type"`    // 0仅一次 1每天 2每周
+	Weekdays      int        `json:"weekdays"`       // 位掩码 bit0=周一..bit6=周日（repeat_type=2 时有效）
+	RemindEnabled bool       `json:"remind_enabled"` // 提醒开关，缺省 true；关闭后扫描跳过
+	Status        int        `json:"status"`         // 0待办 1已完成 2已删除
+	CompletedAt   *time.Time `json:"completed_at,omitempty"`
 }
 
 type Diary struct {
-	ID        int64     `json:"id"`
-	PairID    int64     `json:"pair_id"`
-	AuthorID  int64     `json:"author_id"`
-	AuthorName string   `json:"author_name"`
-	Title     string    `json:"title"`
-	Content   string    `json:"content"`
-	DiaryDate string    `json:"diary_date"` // YYYY-MM-DD
-	Images    []string  `json:"images,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID         int64     `json:"id"`
+	PairID     int64     `json:"pair_id"`
+	AuthorID   int64     `json:"author_id"`
+	AuthorName string    `json:"author_name"`
+	Title      string    `json:"title"`
+	Content    string    `json:"content"`
+	DiaryDate  string    `json:"diary_date"` // YYYY-MM-DD
+	Images     []string  `json:"images,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 type PushToken struct {
@@ -132,20 +133,20 @@ type WsMessage struct {
 }
 
 const (
-	MsgStatusUpdate    = "status_update"    // 客户端→服务端 上报状态
-	MsgPartnerStatus   = "partner_status"   // 服务端→对方 转发状态
-	MsgComfortRequest  = "comfort_request"  // 求陪伴
-	MsgCalmRequest     = "calm_request"     // 求冷静
-	MsgRingRequest     = "ring_request"     // 强制响铃
-	MsgTodoNew         = "todo_new"         // 新待办
-	MsgTodoCompleted   = "todo_completed"   // 待办完成
-	MsgDiaryNew        = "diary_new"        // 新日记
-	MsgDiaryUpdated    = "diary_updated"    // 日记更新
-	MsgLowBattery      = "low_battery"      // 对方电量 <15%
-	MsgWifiJoined      = "wifi_joined"      // 对方连接指定 WiFi
-	MsgTodoRemind      = "todo_remind"      // 待办到点提醒
-	MsgProfileUpdated  = "profile_updated"  // 资料变化后通知对方重新拉取
-	MsgAdminNotice     = "admin_notice"     // 后台广播通知
+	MsgStatusUpdate   = "status_update"   // 客户端→服务端 上报状态
+	MsgPartnerStatus  = "partner_status"  // 服务端→对方 转发状态
+	MsgComfortRequest = "comfort_request" // 求陪伴
+	MsgCalmRequest    = "calm_request"    // 求冷静
+	MsgRingRequest    = "ring_request"    // 强制响铃
+	MsgTodoNew        = "todo_new"        // 新待办
+	MsgTodoCompleted  = "todo_completed"  // 待办完成
+	MsgDiaryNew       = "diary_new"       // 新日记
+	MsgDiaryUpdated   = "diary_updated"   // 日记更新
+	MsgLowBattery     = "low_battery"     // 对方电量 <15%
+	MsgWifiJoined     = "wifi_joined"     // 对方连接指定 WiFi
+	MsgTodoRemind     = "todo_remind"     // 待办到点提醒
+	MsgProfileUpdated = "profile_updated" // 资料变化后通知对方重新拉取
+	MsgAdminNotice    = "admin_notice"    // 后台广播通知
 )
 
 // 高优事件：离线时必须入队（不接商业推送，靠重连补拉）
