@@ -108,6 +108,32 @@ object ApiClient {
 
     // ============ 业务接口 ============
 
+    /** 发送邮箱验证码，返回 {sent,expires_in} */
+    suspend fun sendCode(email: String): JSONObject =
+        postJson("/auth/send-code", JSONObject().put("email", email))
+
+    /** 注册（username 3-20 位大小写英文），返回 {user_id,token} */
+    suspend fun register(
+        username: String,
+        email: String,
+        code: String,
+        password: String,
+        nickname: String? = null,
+    ): JSONObject = postJson("/auth/register", JSONObject().apply {
+        put("username", username)
+        put("email", email)
+        put("code", code)
+        put("password", password)
+        if (!nickname.isNullOrBlank()) put("nickname", nickname)
+    })
+
+    /** 登录（account = 用户名或邮箱），返回 {user_id,token} */
+    suspend fun login(account: String, password: String): JSONObject =
+        postJson("/auth/login", JSONObject().apply {
+            put("account", account)
+            put("password", password)
+        })
+
     suspend fun pairStatus(): JSONObject = get("/pair/status")
 
     /** 更新本人昵称，返回双方权威资料 */

@@ -41,8 +41,10 @@ import com.linxi.diary.ui.screens.BindScreen
 import com.linxi.diary.ui.screens.AppearanceScreen
 import com.linxi.diary.ui.screens.DiaryScreen
 import com.linxi.diary.ui.screens.HistoryScreen
+import com.linxi.diary.ui.screens.LoginScreen
 import com.linxi.diary.ui.screens.NowScreen
 import com.linxi.diary.ui.screens.PrivacyConsentScreen
+import com.linxi.diary.ui.screens.RegisterScreen
 import com.linxi.diary.ui.screens.SettingsScreen
 import com.linxi.diary.ui.screens.TodoScreen
 import com.linxi.diary.ui.screens.WallpaperScreen
@@ -72,6 +74,7 @@ fun LinxiApp() {
     var screen by remember {
         mutableStateOf(
             when {
+                UserPrefs.token == null -> Screen.Login
                 UserPrefs.pairId <= 0 -> Screen.Bind
                 !UserPrefs.privacyConsented -> Screen.Consent
                 else -> Screen.Main
@@ -96,6 +99,15 @@ fun LinxiApp() {
     ) { rootPadding ->
         Box(Modifier.fillMaxSize().padding(rootPadding)) {
             when (screen) {
+                Screen.Login -> LoginScreen(
+                    onLoggedIn = { screen = Screen.Bind },
+                    onNavigateRegister = { screen = Screen.Register },
+                    onSkipDebug = { screen = Screen.Bind },
+                )
+                Screen.Register -> RegisterScreen(
+                    onRegistered = { screen = Screen.Bind },
+                    onBack = { screen = Screen.Login },
+                )
                 Screen.Bind -> BindScreen(onBound = { screen = Screen.Consent })
                 Screen.Consent -> PrivacyConsentScreen(
                     onConsented = {
@@ -129,7 +141,7 @@ fun LinxiApp() {
                     onOpenBind = { screen = Screen.Bind },
                     onOpenConsent = { screen = Screen.ConsentReview },
                     onOpenAppearance = { screen = Screen.Appearance },
-                    onLogout = { screen = Screen.Bind }
+                    onLogout = { screen = Screen.Login }
                 )
             }
         }
@@ -232,4 +244,4 @@ private fun MainTabs(
     }
 }
 
-private enum class Screen { Bind, Consent, ConsentReview, Main, History, Appearance, Wallpaper }
+private enum class Screen { Login, Register, Bind, Consent, ConsentReview, Main, History, Appearance, Wallpaper }
