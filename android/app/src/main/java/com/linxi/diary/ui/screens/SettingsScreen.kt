@@ -50,6 +50,7 @@ fun SettingsScreen(
     onOpenBind: () -> Unit = {},
     onOpenHistory: () -> Unit = {},
     onOpenAppearance: () -> Unit = {},
+    onOpenProfileEdit: () -> Unit = {},
     onLogout: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -98,6 +99,12 @@ fun SettingsScreen(
         // 分组1：共享与绑定
         item {
             Card(Modifier.padding(top = 12.dp).fillMaxWidth()) {
+                ArrowPreference(
+                    title = "编辑资料",
+                    summary = "头像、名称、性别、简介与生日",
+                    startAction = { PrefIcon(Icons.Filled.AccountCircle, "编辑资料") },
+                    onClick = onOpenProfileEdit
+                )
                 ArrowPreference(
                     title = "伴侣",
                     summary = if (bound) partnerName else "未绑定",

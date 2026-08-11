@@ -154,6 +154,33 @@ data class ProfileUser(
     }
 }
 
+/** 本人资料（/profile/me）。gender: 0保密 1男 2女；birthday: YYYY-MM-DD。 */
+data class MyProfile(
+    val id: Long,
+    val username: String,
+    val email: String,
+    val nickname: String,
+    val avatarUrl: String?,
+    val avatarThumbnailUrl: String?,
+    val gender: Int,
+    val signature: String,
+    val birthday: String,
+) {
+    companion object {
+        fun fromJson(j: JSONObject) = MyProfile(
+            id = j.optLong("id"),
+            username = j.optString("username"),
+            email = j.optString("email"),
+            nickname = j.optString("nickname"),
+            avatarUrl = j.optNullableString("avatar_url"),
+            avatarThumbnailUrl = j.optNullableString("avatar_thumbnail_url"),
+            gender = j.optInt("gender"),
+            signature = j.optString("signature"),
+            birthday = j.optString("birthday"),
+        )
+    }
+}
+
 data class CoupleProfile(
     val pairId: Long,
     val me: ProfileUser,

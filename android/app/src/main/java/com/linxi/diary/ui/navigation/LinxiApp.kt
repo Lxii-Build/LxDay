@@ -50,6 +50,7 @@ import com.linxi.diary.ui.screens.HistoryScreen
 import com.linxi.diary.ui.screens.LoginScreen
 import com.linxi.diary.ui.screens.NowScreen
 import com.linxi.diary.ui.screens.PrivacyConsentDialog
+import com.linxi.diary.ui.screens.ProfileEditScreen
 import com.linxi.diary.ui.screens.RegisterScreen
 import com.linxi.diary.ui.screens.SettingsScreen
 import com.linxi.diary.ui.screens.TodoScreen
@@ -132,6 +133,7 @@ fun LinxiApp() {
                 Screen.DiscoverAlbum -> DiscoverPlaceholderScreen("相册", onBack = { mainInitialPage = 2; screen = Screen.Main })
                 Screen.DiscoverListen -> DiscoverPlaceholderScreen("一起听", onBack = { mainInitialPage = 2; screen = Screen.Main })
                 Screen.DiscoverWatch -> DiscoverPlaceholderScreen("一起看", onBack = { mainInitialPage = 2; screen = Screen.Main })
+                Screen.ProfileEdit -> ProfileEditScreen(onBack = { mainInitialPage = 3; screen = Screen.Main })
                 Screen.Main -> MainTabs(
                     initialPage = mainInitialPage,
                     onOpenHistory = { screen = Screen.History },
@@ -140,6 +142,7 @@ fun LinxiApp() {
                     onOpenAlbum = { screen = Screen.DiscoverAlbum },
                     onOpenListen = { screen = Screen.DiscoverListen },
                     onOpenWatch = { screen = Screen.DiscoverWatch },
+                    onOpenProfileEdit = { screen = Screen.ProfileEdit },
                     onLogout = { screen = Screen.Login }
                 )
             }
@@ -157,6 +160,7 @@ private fun MainTabs(
     onOpenAlbum: () -> Unit,
     onOpenListen: () -> Unit,
     onOpenWatch: () -> Unit,
+    onOpenProfileEdit: () -> Unit,
     onLogout: () -> Unit
 ) {
     val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { tabs.size })
@@ -199,6 +203,7 @@ private fun MainTabs(
                         onOpenBind = onOpenBind,
                         onOpenHistory = onOpenHistory,
                         onOpenAppearance = onOpenAppearance,
+                        onOpenProfileEdit = onOpenProfileEdit,
                         onLogout = onLogout
                     )
                 }
@@ -265,4 +270,4 @@ private fun MainTabs(
     )
 }
 
-private enum class Screen { Login, Register, Bind, Main, History, Appearance, Wallpaper, DiscoverAlbum, DiscoverListen, DiscoverWatch }
+private enum class Screen { Login, Register, Bind, Main, History, Appearance, Wallpaper, ProfileEdit, DiscoverAlbum, DiscoverListen, DiscoverWatch }

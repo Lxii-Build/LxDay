@@ -136,6 +136,30 @@ object ApiClient {
 
     suspend fun pairStatus(): JSONObject = get("/pair/status")
 
+    /** 获取本人资料（/profile/me） */
+    suspend fun getMyProfile(): JSONObject = get("/profile/me")
+
+    /** 更新本人资料（nickname/gender/signature/birthday），返回同 /profile/me */
+    suspend fun updateMyProfile(
+        nickname: String,
+        gender: Int,
+        signature: String,
+        birthday: String,
+    ): JSONObject = putJson("/profile/me", JSONObject().apply {
+        put("nickname", nickname)
+        put("gender", gender)
+        put("signature", signature)
+        put("birthday", birthday)
+    })
+
+    /** 下载任意绝对 URL 的字节（用于无三方图片库时显示头像位图）。失败返回 null。 */
+    suspend fun downloadBytes(url: String): ByteArray? = withContext(Dispatchers.IO) {
+        runCatching {
+            val resp = client.newCall(Request.Builder().url(url).build()).execute()
+            if (!resp.isSuccessful) null else resp.body?.bytes()
+        }.getOrNull()
+    }
+
     /** 更新本人昵称，返回双方权威资料 */
     suspend fun updateNickname(nickname: String): JSONObject =
         putJson("/profile", JSONObject().put("nickname", nickname))
