@@ -42,7 +42,7 @@ fun LinxiTheme(appearance: AppearanceSettings, content: @Composable () -> Unit) 
                 ColorMode.LIGHT -> ColorSchemeMode.Light
                 ColorMode.DARK -> ColorSchemeMode.Dark
             },
-            keyColor = Color(LinxiSeedPink),
+            keyColor = Color(LinxiSeedBlue),
             isDark = darkTheme,
         )
     }
@@ -53,13 +53,8 @@ fun LinxiTheme(appearance: AppearanceSettings, content: @Composable () -> Unit) 
             isAppearanceLightNavigationBars = !darkTheme
         }
     }
-    // 主题种子色：手动 > 壁纸缓存 > 品牌粉；系统动态色来源返回 null 时回落品牌粉。
-    val seedArgb = SeedColorPolicy.resolveSeed(
-        source = appearance.colorSource,
-        manualArgb = appearance.keyColorArgb,
-        wallpaperSeed = appearance.wallpaper?.cachedSeedArgb,
-        fallback = LinxiSeedPink,
-    ) ?: LinxiSeedPink
+    // 品牌固定蓝：不再受壁纸/系统动态取色/手动色影响（需求 3.5：仅保留主题模式）
+    val seedArgb = LinxiSeedBlue
     val materialColors = rememberDynamicColorScheme(
         seedColor = Color(seedArgb),
         isDark = darkTheme,
