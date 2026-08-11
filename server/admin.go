@@ -3,6 +3,8 @@ package main
 import (
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -826,6 +828,34 @@ func handleAdminSendNotify(c *gin.Context) {
 
 // APPEND-ADMIN-9
 
+// ---------- 通用文件上传（APK / LOGO 等，落存储抽象层） ----------
+
+func handleAdminUpload(c *gin.Context) {
+	file, err := c.FormFile("file")
+	if err != nil {
+		afail(c, 400, 400, "缺少文件字段 file")
+		return
+	}
+	if file.Size > 300*1024*1024 {
+		afail(c, 400, 400, "文件过大（不超过 300MB）")
+		return
+	}
+	ext := strings.ToLower(filepath.Ext(file.Filename))
+	rel := "upload/" + randomCode(20) + ext
+	dst := filepath.Join(uploadDir, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		afail(c, 500, 500, "存储目录创建失败")
+		return
+	}
+	if err := c.SaveUploadedFile(file, dst); err != nil {
+		afail(c, 500, 500, "保存失败")
+		return
+	}
+	url := newStorage().PublicURL(rel)
+	st.AddAudit(c.GetInt64("aid"), "", "upload", rel, c.ClientIP())
+	aok(c, gin.H{"url": url, "apk_url": url})
+}
+
 func registerAdminRoutes(r *gin.Engine) {
 	g := r.Group("/api/admin")
 	g.POST("/login", handleAdminLogin)
@@ -833,6 +863,7 @@ func registerAdminRoutes(r *gin.Engine) {
 	auth := g.Group("", AdminAuth())
 	auth.GET("/user/info", handleAdminInfo)
 	auth.POST("/change-credentials", handleAdminChangeCredentials)
+	auth.POST("/upload", handleAdminUpload)
 	auth.GET("/stats", handleAdminStats)
 
 	auth.GET("/users", handleAdminListUsers)

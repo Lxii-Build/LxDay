@@ -1,0 +1,11 @@
+node_modules
+.DS_Store
+dist
+dist-ssr
+*.local
+.cursorrules
+
+# Auto-generated files
+# 注意：components.d.ts / auto-imports.d.ts 需提交，
+# 否则全新检出执行 `npm run build`（vue-tsc 先于 vite 运行）会因缺失全局组件类型而失败。
+.auto-import.json

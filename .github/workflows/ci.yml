@@ -32,6 +32,24 @@ jobs:
       - name: 单元测试
         run: go test ./...
 
+  admin-web:
+    name: 后台前端构建
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 安装依赖并构建
+        run: |
+          npm install
+          npm run build
+
   android-build:
     name: 安卓 Debug APK 构建
     runs-on: ubuntu-latest
