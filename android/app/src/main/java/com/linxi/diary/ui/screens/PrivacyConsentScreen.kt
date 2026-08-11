@@ -1,6 +1,5 @@
 package com.linxi.diary.ui.screens
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -26,33 +25,40 @@ import androidx.compose.ui.unit.dp
 import com.linxi.diary.service.StatusForegroundService
 import com.linxi.diary.sync.SharingRuntimePolicy
 import com.linxi.diary.sync.StatusSyncManager
+import com.linxi.diary.ui.components.LxButton
+import com.linxi.diary.ui.components.LxButtonVariant
 import com.linxi.diary.util.Logs
 import com.linxi.diary.util.UserPrefs
-import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Checkbox
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
+/**
+ * 知情同意（页内 Dialog，覆盖在当前页之上）：
+ * - 绑定成功后强制弹出（未同意=不开启共享但可留在应用，可关闭）。
+ * - 「我的」页点“知情同意”弹只读态。
+ * 沿用 miuix OverlayDialog，按钮统一 LxButton。
+ */
 @Composable
-fun PrivacyConsentScreen(
-    reviewMode: Boolean = false,
+fun PrivacyConsentDialog(
+    show: Boolean,
+    reviewMode: Boolean,
     onConsented: () -> Unit,
-    onBack: () -> Unit = {},
+    onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
-    var agreed by remember { mutableStateOf(false) }
+    var agreed by remember(show) { mutableStateOf(false) }
 
-    LaunchedEffect(reviewMode) {
-        Logs.i("Consent", if (reviewMode) "查看知情同意内容" else "显示强制知情同意弹窗")
+    LaunchedEffect(show, reviewMode) {
+        if (show) Logs.i("Consent", if (reviewMode) "show consent (review)" else "show consent (forced)")
     }
-    BackHandler(enabled = !reviewMode) { }
 
     OverlayDialog(
-        show = true,
+        show = show,
         title = "知情同意 · 状态共享",
         summary = if (reviewMode) "你已完成授权，可随时返回。" else "请完整阅读并确认后开启共享。",
-        onDismissRequest = if (reviewMode) onBack else null,
+        onDismissRequest = onDismiss,
         renderInRootScaffold = true,
     ) {
         Column(
@@ -85,11 +91,15 @@ fun PrivacyConsentScreen(
                 "你可以随时在「我的」中关闭状态共享；关闭后立即停止采集和同步。数据仅在你和伴侣之间传输。",
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
+            Spacer(Modifier.height(4.dp))
 
             if (reviewMode) {
-                Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
-                    Text("返回")
-                }
+                LxButton(
+                    text = "关闭",
+                    onClick = onDismiss,
+                    variant = LxButtonVariant.Neutral,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             } else {
                 Row(
                     Modifier
@@ -107,25 +117,33 @@ fun PrivacyConsentScreen(
                         modifier = Modifier.padding(start = 10.dp),
                     )
                 }
-                Button(
-                    onClick = {
-                        if (!agreed) return@Button
-                        val enableSharing = SharingRuntimePolicy.enableSharingAfterConsent(UserPrefs.demoMode)
-                        UserPrefs.privacyConsented = true
-                        UserPrefs.sharingEnabled = enableSharing
-                        if (enableSharing) {
-                            runCatching { StatusForegroundService.start(context) }
-                            runCatching { StatusSyncManager.connect() }
-                            Logs.i("Consent", "用户同意，已开启真实状态共享")
-                        } else {
-                            Logs.i("Consent", "用户同意，调试模式保持真实状态共享关闭")
-                        }
-                        onConsented()
-                    },
-                    enabled = agreed,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(if (UserPrefs.demoMode) "同意并进入示例模式" else "同意并开启")
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    LxButton(
+                        text = "暂不开启",
+                        onClick = onDismiss,
+                        variant = LxButtonVariant.Neutral,
+                        modifier = Modifier.weight(1f),
+                    )
+                    LxButton(
+                        text = if (UserPrefs.demoMode) "同意并进入示例" else "同意并开启",
+                        onClick = {
+                            if (!agreed) return@LxButton
+                            val enableSharing = SharingRuntimePolicy.enableSharingAfterConsent(UserPrefs.demoMode)
+                            UserPrefs.privacyConsented = true
+                            UserPrefs.sharingEnabled = enableSharing
+                            if (enableSharing) {
+                                runCatching { StatusForegroundService.start(context) }
+                                runCatching { StatusSyncManager.connect() }
+                                Logs.i("Consent", "consent granted, sharing enabled")
+                            } else {
+                                Logs.i("Consent", "consent granted, sharing kept off (demo)")
+                            }
+                            onConsented()
+                        },
+                        enabled = agreed,
+                        variant = LxButtonVariant.Positive,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
             }
         }

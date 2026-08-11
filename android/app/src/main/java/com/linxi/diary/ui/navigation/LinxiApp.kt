@@ -43,7 +43,7 @@ import com.linxi.diary.ui.screens.DiaryScreen
 import com.linxi.diary.ui.screens.HistoryScreen
 import com.linxi.diary.ui.screens.LoginScreen
 import com.linxi.diary.ui.screens.NowScreen
-import com.linxi.diary.ui.screens.PrivacyConsentScreen
+import com.linxi.diary.ui.screens.PrivacyConsentDialog
 import com.linxi.diary.ui.screens.RegisterScreen
 import com.linxi.diary.ui.screens.SettingsScreen
 import com.linxi.diary.ui.screens.TodoScreen
@@ -76,7 +76,6 @@ fun LinxiApp() {
             when {
                 UserPrefs.token == null -> Screen.Login
                 UserPrefs.pairId <= 0 -> Screen.Bind
-                !UserPrefs.privacyConsented -> Screen.Consent
                 else -> Screen.Main
             }
         )
@@ -108,21 +107,10 @@ fun LinxiApp() {
                     onRegistered = { screen = Screen.Bind },
                     onBack = { screen = Screen.Login },
                 )
-                Screen.Bind -> BindScreen(onBound = { screen = Screen.Consent })
-                Screen.Consent -> PrivacyConsentScreen(
-                    onConsented = {
-                        mainInitialPage = 0
-                        screen = Screen.Main
-                    }
-                )
-                Screen.ConsentReview -> PrivacyConsentScreen(
-                    reviewMode = true,
-                    onConsented = {},
-                    onBack = {
-                        mainInitialPage = 3
-                        screen = Screen.Main
-                    },
-                )
+                Screen.Bind -> BindScreen(onBound = {
+                    mainInitialPage = 0
+                    screen = Screen.Main
+                })
                 Screen.History -> HistoryScreen(onBack = {
                     mainInitialPage = 3
                     screen = Screen.Main
@@ -139,7 +127,6 @@ fun LinxiApp() {
                     initialPage = mainInitialPage,
                     onOpenHistory = { screen = Screen.History },
                     onOpenBind = { screen = Screen.Bind },
-                    onOpenConsent = { screen = Screen.ConsentReview },
                     onOpenAppearance = { screen = Screen.Appearance },
                     onLogout = { screen = Screen.Login }
                 )
@@ -154,13 +141,17 @@ private fun MainTabs(
     initialPage: Int,
     onOpenHistory: () -> Unit,
     onOpenBind: () -> Unit,
-    onOpenConsent: () -> Unit,
     onOpenAppearance: () -> Unit,
     onLogout: () -> Unit
 ) {
     val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { tabs.size })
     val mainState = rememberMainPagerState(pagerState)
     val mainFabState = remember { MainFabState() }
+    // 知情同意页内 Dialog：绑定后强制弹出（可关闭），我的页点击弹只读态。
+    var forcedConsent by remember {
+        mutableStateOf(UserPrefs.pairId > 0 && !UserPrefs.demoMode && !UserPrefs.privacyConsented)
+    }
+    var reviewConsent by remember { mutableStateOf(false) }
     val surfaceColor = MiuixTheme.colorScheme.surface
     val backdrop = rememberLayerBackdrop {
         drawRect(surfaceColor)
@@ -185,7 +176,7 @@ private fun MainTabs(
                     1 -> TodoScreen()
                     2 -> DiaryScreen()
                     3 -> SettingsScreen(
-                        onOpenConsent = onOpenConsent,
+                        onOpenConsent = { reviewConsent = true },
                         onOpenBind = onOpenBind,
                         onOpenHistory = onOpenHistory,
                         onOpenAppearance = onOpenAppearance,
@@ -242,6 +233,13 @@ private fun MainTabs(
     ) { innerPadding ->
         pagerContent(innerPadding.calculateBottomPadding())
     }
+
+    PrivacyConsentDialog(
+        show = forcedConsent || reviewConsent,
+        reviewMode = !forcedConsent && reviewConsent,
+        onConsented = { forcedConsent = false; reviewConsent = false },
+        onDismiss = { forcedConsent = false; reviewConsent = false },
+    )
 }
 
-private enum class Screen { Login, Register, Bind, Consent, ConsentReview, Main, History, Appearance, Wallpaper }
+private enum class Screen { Login, Register, Bind, Main, History, Appearance, Wallpaper }
