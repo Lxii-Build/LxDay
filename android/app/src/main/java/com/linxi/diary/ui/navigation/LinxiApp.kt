@@ -18,9 +18,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Article
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.runtime.Composable
@@ -44,7 +44,8 @@ import com.linxi.diary.ui.liquid.miuix.FloatingBottomBar
 import com.linxi.diary.ui.liquid.miuix.FloatingBottomBarItem
 import com.linxi.diary.ui.screens.BindScreen
 import com.linxi.diary.ui.screens.AppearanceScreen
-import com.linxi.diary.ui.screens.DiaryScreen
+import com.linxi.diary.ui.screens.DiscoverPlaceholderScreen
+import com.linxi.diary.ui.screens.DiscoverScreen
 import com.linxi.diary.ui.screens.HistoryScreen
 import com.linxi.diary.ui.screens.LoginScreen
 import com.linxi.diary.ui.screens.NowScreen
@@ -68,7 +69,7 @@ private data class TabItem(val label: String, val icon: ImageVector)
 private val tabs = listOf(
     TabItem("主页", Icons.Rounded.Favorite),
     TabItem("待办", Icons.Rounded.CheckCircle),
-    TabItem("日记", Icons.AutoMirrored.Rounded.Article),
+    TabItem("发现", Icons.Rounded.Explore),
     TabItem("我的", Icons.Rounded.Person)
 )
 
@@ -128,11 +129,17 @@ fun LinxiApp() {
                     onOpenWallpaper = { screen = Screen.Wallpaper },
                 )
                 Screen.Wallpaper -> WallpaperScreen(onBack = { screen = Screen.Appearance })
+                Screen.DiscoverAlbum -> DiscoverPlaceholderScreen("相册", onBack = { mainInitialPage = 2; screen = Screen.Main })
+                Screen.DiscoverListen -> DiscoverPlaceholderScreen("一起听", onBack = { mainInitialPage = 2; screen = Screen.Main })
+                Screen.DiscoverWatch -> DiscoverPlaceholderScreen("一起看", onBack = { mainInitialPage = 2; screen = Screen.Main })
                 Screen.Main -> MainTabs(
                     initialPage = mainInitialPage,
                     onOpenHistory = { screen = Screen.History },
                     onOpenBind = { screen = Screen.Bind },
                     onOpenAppearance = { screen = Screen.Appearance },
+                    onOpenAlbum = { screen = Screen.DiscoverAlbum },
+                    onOpenListen = { screen = Screen.DiscoverListen },
+                    onOpenWatch = { screen = Screen.DiscoverWatch },
                     onLogout = { screen = Screen.Login }
                 )
             }
@@ -147,6 +154,9 @@ private fun MainTabs(
     onOpenHistory: () -> Unit,
     onOpenBind: () -> Unit,
     onOpenAppearance: () -> Unit,
+    onOpenAlbum: () -> Unit,
+    onOpenListen: () -> Unit,
+    onOpenWatch: () -> Unit,
     onLogout: () -> Unit
 ) {
     val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { tabs.size })
@@ -179,7 +189,11 @@ private fun MainTabs(
                 when (page) {
                     0 -> NowScreen(onOpenBind = onOpenBind)
                     1 -> TodoScreen()
-                    2 -> DiaryScreen()
+                    2 -> DiscoverScreen(
+                        onOpenAlbum = onOpenAlbum,
+                        onOpenListen = onOpenListen,
+                        onOpenWatch = onOpenWatch,
+                    )
                     3 -> SettingsScreen(
                         onOpenConsent = { reviewConsent = true },
                         onOpenBind = onOpenBind,
@@ -251,4 +265,4 @@ private fun MainTabs(
     )
 }
 
-private enum class Screen { Login, Register, Bind, Main, History, Appearance, Wallpaper }
+private enum class Screen { Login, Register, Bind, Main, History, Appearance, Wallpaper, DiscoverAlbum, DiscoverListen, DiscoverWatch }
