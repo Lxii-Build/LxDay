@@ -1,168 +1,185 @@
--- ============================================================
--- 林曦日记 数据库初始化脚本
--- MySQL 8.0 / utf8mb4
--- ============================================================
+-- 林曦日记 · SQLite 建表脚本（幂等，服务端启动自动执行；单容器无需外部数据库）
+PRAGMA journal_mode=WAL;
 
-CREATE DATABASE IF NOT EXISTS `linxi` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE `linxi`;
+CREATE TABLE IF NOT EXISTS "user" (
+  id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+  username             TEXT,
+  email                TEXT,
+  nickname             TEXT    NOT NULL,
+  avatar_url           TEXT,
+  avatar_thumbnail_url TEXT,
+  gender               INTEGER NOT NULL DEFAULT 0,
+  signature            TEXT,
+  birthday             DATE,
+  password_hash        TEXT    NOT NULL,
+  status               INTEGER NOT NULL DEFAULT 1,
+  created_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_user_nickname ON "user"(nickname);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_user_username ON "user"(username) WHERE username IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uk_user_email    ON "user"(email)    WHERE email IS NOT NULL;
 
-CREATE TABLE IF NOT EXISTS `schema_migrations` (
-  `version`    INT          NOT NULL,
-  `name`       VARCHAR(128) NOT NULL,
-  `applied_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`version`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='数据库迁移版本';
+CREATE TABLE IF NOT EXISTS pair (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_a_id        INTEGER NOT NULL DEFAULT 0,
+  user_b_id        INTEGER NOT NULL DEFAULT 0,
+  invite_code      TEXT    NOT NULL,
+  anniversary_date DATE,
+  status           INTEGER NOT NULL DEFAULT 1,
+  unbind_time      DATETIME,
+  created_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_invite_code ON pair(invite_code);
+CREATE INDEX IF NOT EXISTS idx_pair_user_a ON pair(user_a_id);
+CREATE INDEX IF NOT EXISTS idx_pair_user_b ON pair(user_b_id);
 
--- 用户表
-CREATE TABLE IF NOT EXISTS `user` (
-  `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `username`      VARCHAR(32)  DEFAULT NULL COMMENT '登录用户名(大小写英文)',
-  `email`         VARCHAR(128) DEFAULT NULL,
-  `nickname`      VARCHAR(32)  NOT NULL,
-  `avatar_url`    VARCHAR(255) DEFAULT NULL,
-  `avatar_thumbnail_url` VARCHAR(255) DEFAULT NULL,
-  `gender`        TINYINT      NOT NULL DEFAULT 0 COMMENT '0保密 1男 2女',
-  `signature`     VARCHAR(200) DEFAULT NULL,
-  `birthday`      DATE         DEFAULT NULL,
-  `password_hash` VARCHAR(255) NOT NULL,
-  `status`        TINYINT      NOT NULL DEFAULT 1 COMMENT '1正常 0禁用',
-  `created_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_nickname` (`nickname`),
-  UNIQUE KEY `uk_username` (`username`),
-  UNIQUE KEY `uk_email` (`email`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户';
+CREATE TABLE IF NOT EXISTS todo (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  pair_id        INTEGER NOT NULL,
+  creator_id     INTEGER NOT NULL,
+  assignee_id    INTEGER NOT NULL,
+  title          TEXT    NOT NULL,
+  note           TEXT,
+  remind_at      DATETIME,
+  remind_type    INTEGER NOT NULL DEFAULT 0,
+  repeat_type    INTEGER NOT NULL DEFAULT 0,
+  weekdays       INTEGER NOT NULL DEFAULT 0,
+  remind_enabled INTEGER NOT NULL DEFAULT 1,
+  status         INTEGER NOT NULL DEFAULT 0,
+  completed_at   DATETIME,
+  created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_todo_pair_status ON todo(pair_id, status);
+CREATE INDEX IF NOT EXISTS idx_todo_assignee_remind ON todo(assignee_id, remind_at);
+-- __NEXT_SCHEMA__
 
--- 双人绑定关系（核心数据隔离键：pair_id）
-CREATE TABLE IF NOT EXISTS `pair` (
-  `id`           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `user_a_id`    BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '空位为 0，等待对方加入',
-  `user_b_id`    BIGINT UNSIGNED NOT NULL DEFAULT 0,
-  `invite_code`  VARCHAR(8)   NOT NULL,
-  `anniversary_date` DATE     DEFAULT NULL,
-  `status`       TINYINT      NOT NULL DEFAULT 1 COMMENT '1已绑定 0已解绑',
-  `unbind_time`  DATETIME     DEFAULT NULL,
-  `created_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_invite_code` (`invite_code`),
-  KEY `idx_user_a` (`user_a_id`),
-  KEY `idx_user_b` (`user_b_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='双人绑定';
+CREATE TABLE IF NOT EXISTS status_history (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  pair_id         INTEGER NOT NULL,
+  user_id         INTEGER NOT NULL,
+  battery         INTEGER NOT NULL DEFAULT 0,
+  charging        INTEGER NOT NULL DEFAULT 0,
+  screen_on       INTEGER NOT NULL DEFAULT 0,
+  locked          INTEGER NOT NULL DEFAULT 1,
+  foreground_pkg  TEXT,
+  foreground_name TEXT,
+  ssid            TEXT,
+  network         TEXT    NOT NULL DEFAULT 'wifi',
+  ts              DATETIME NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_pair_user_ts ON status_history(pair_id, user_id, ts);
+CREATE INDEX IF NOT EXISTS idx_hist_pair_user_ts ON status_history(pair_id, user_id, ts);
 
--- 最新设备状态（每人一行，读写频繁，常驻内存/Redis，落库兜底）
-CREATE TABLE IF NOT EXISTS `device_status` (
-  `user_id`         BIGINT UNSIGNED NOT NULL,
-  `battery_level`   INT          NOT NULL DEFAULT 0,
-  `is_charging`     TINYINT      NOT NULL DEFAULT 0,
-  `screen_on`       TINYINT      NOT NULL DEFAULT 0,
-  `is_locked`       TINYINT      NOT NULL DEFAULT 0,
-  `foreground_pkg`  VARCHAR(128) DEFAULT NULL,
-  `foreground_name` VARCHAR(64)  DEFAULT NULL,
-  `music_title`     VARCHAR(128) DEFAULT NULL,
-  `music_artist`    VARCHAR(64)  DEFAULT NULL,
-  `is_playing`      TINYINT      NOT NULL DEFAULT 0,
-  `ssid`            VARCHAR(64)  DEFAULT NULL,
-  `network_type`    VARCHAR(16)  NOT NULL DEFAULT 'wifi',
-  `updated_at`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`user_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='设备状态(最新)';
+CREATE TABLE IF NOT EXISTS diary (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  pair_id    INTEGER NOT NULL,
+  author_id  INTEGER NOT NULL,
+  title      TEXT    NOT NULL,
+  content    TEXT    NOT NULL,
+  diary_date DATE    NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_diary_pair_date ON diary(pair_id, diary_date);
 
--- 当日应用使用时长
-CREATE TABLE IF NOT EXISTS `app_usage_daily` (
-  `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `user_id`       BIGINT UNSIGNED NOT NULL,
-  `app_pkg`       VARCHAR(128) NOT NULL,
-  `app_name`      VARCHAR(64)  NOT NULL,
-  `usage_minutes` INT          NOT NULL DEFAULT 0,
-  `stat_date`     DATE         NOT NULL,
-  `updated_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_user_date_app` (`user_id`,`stat_date`,`app_pkg`),
-  KEY `idx_user_date` (`user_id`,`stat_date`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='应用使用时长(按日)';
+CREATE TABLE IF NOT EXISTS diary_image (
+  id       INTEGER PRIMARY KEY AUTOINCREMENT,
+  diary_id INTEGER NOT NULL,
+  url      TEXT    NOT NULL,
+  sort_no  INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_diary_image ON diary_image(diary_id);
 
--- 双向待办
-CREATE TABLE IF NOT EXISTS `todo` (
-  `id`           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `pair_id`      BIGINT UNSIGNED NOT NULL,
-  `creator_id`   BIGINT UNSIGNED NOT NULL,
-  `assignee_id`  BIGINT UNSIGNED NOT NULL,
-  `title`        VARCHAR(128) NOT NULL,
-  `note`         VARCHAR(500) DEFAULT NULL,
-  `remind_at`    DATETIME     DEFAULT NULL,
-  `remind_type`  TINYINT      NOT NULL DEFAULT 0 COMMENT '0普通 1强提醒',
-  `repeat_type`  TINYINT      NOT NULL DEFAULT 0 COMMENT '0仅一次 1每天 2每周',
-  `weekdays`     TINYINT      NOT NULL DEFAULT 0 COMMENT '每周位掩码 bit0=周一..bit6=周日',
-  `remind_enabled` TINYINT(1) NOT NULL DEFAULT 1 COMMENT '提醒开关：0关闭 1开启',
-  `status`       TINYINT      NOT NULL DEFAULT 0 COMMENT '0待办 1已完成 2已删除',
-  `completed_at` DATETIME     DEFAULT NULL,
-  `created_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_pair_status` (`pair_id`,`status`),
-  KEY `idx_assignee_remind` (`assignee_id`,`remind_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='待办';
+CREATE TABLE IF NOT EXISTS push_token (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER NOT NULL,
+  platform   TEXT    NOT NULL,
+  channel    TEXT    NOT NULL,
+  token      TEXT    NOT NULL,
+  status     INTEGER NOT NULL DEFAULT 1,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_user_channel ON push_token(user_id, channel);
 
--- 状态历史（5 分钟聚合，永久保留）
-CREATE TABLE IF NOT EXISTS `status_history` (
-  `id`              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `pair_id`         BIGINT UNSIGNED NOT NULL,
-  `user_id`         BIGINT UNSIGNED NOT NULL,
-  `battery`         INT          NOT NULL DEFAULT 0,
-  `charging`        TINYINT      NOT NULL DEFAULT 0,
-  `screen_on`       TINYINT      NOT NULL DEFAULT 0,
-  `locked`          TINYINT      NOT NULL DEFAULT 1,
-  `foreground_pkg`  VARCHAR(128) DEFAULT NULL,
-  `foreground_name` VARCHAR(64)  DEFAULT NULL,
-  `ssid`            VARCHAR(64)  DEFAULT NULL,
-  `network`         VARCHAR(16)  NOT NULL DEFAULT 'wifi',
-  `ts`              DATETIME     NOT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_pair_user_ts` (`pair_id`,`user_id`,`ts`),
-  KEY `idx_pair_user_ts_desc` (`pair_id`,`user_id`,`ts`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='状态历史';
+CREATE TABLE IF NOT EXISTS app_setting (
+  k          TEXT PRIMARY KEY,
+  v          TEXT,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+-- __NEXT_SCHEMA2__
 
--- 双人共同日记
-CREATE TABLE IF NOT EXISTS `diary` (
-  `id`          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `pair_id`     BIGINT UNSIGNED NOT NULL,
-  `author_id`   BIGINT UNSIGNED NOT NULL,
-  `title`       VARCHAR(128) NOT NULL,
-  `content`     TEXT         NOT NULL,
-  `diary_date`  DATE         NOT NULL,
-  `created_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_pair_date` (`pair_id`,`diary_date`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='日记';
+CREATE TABLE IF NOT EXISTS admin_user (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  username      TEXT    NOT NULL,
+  password_hash TEXT    NOT NULL,
+  email         TEXT,
+  role          TEXT    NOT NULL DEFAULT 'admin',
+  must_change   INTEGER NOT NULL DEFAULT 0,
+  status        INTEGER NOT NULL DEFAULT 1,
+  last_login_at DATETIME,
+  created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_admin_username ON admin_user(username);
 
-CREATE TABLE IF NOT EXISTS `diary_image` (
-  `id`       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `diary_id` BIGINT UNSIGNED NOT NULL,
-  `url`      VARCHAR(500) NOT NULL,
-  `sort_no`  INT NOT NULL DEFAULT 0,
-  PRIMARY KEY (`id`),
-  KEY `idx_diary` (`diary_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='日记图片';
+CREATE TABLE IF NOT EXISTS app_version (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  platform     TEXT    NOT NULL DEFAULT 'android',
+  version_name TEXT    NOT NULL,
+  version_code INTEGER NOT NULL DEFAULT 0,
+  apk_url      TEXT,
+  notes        TEXT,
+  force_update INTEGER NOT NULL DEFAULT 0,
+  status       INTEGER NOT NULL DEFAULT 1,
+  created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_ver_platform_code ON app_version(platform, version_code);
 
--- 推送令牌
-CREATE TABLE IF NOT EXISTS `push_token` (
-  `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `user_id`    BIGINT UNSIGNED NOT NULL,
-  `platform`   VARCHAR(16) NOT NULL,
-  `channel`    VARCHAR(16) NOT NULL COMMENT 'getui/jpush',
-  `token`      VARCHAR(255) NOT NULL,
-  `status`     TINYINT      NOT NULL DEFAULT 1,
-  `updated_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_user_channel` (`user_id`,`channel`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='推送令牌';
+CREATE TABLE IF NOT EXISTS admin_audit_log (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  admin_id   INTEGER NOT NULL DEFAULT 0,
+  admin_name TEXT,
+  action     TEXT    NOT NULL,
+  detail     TEXT,
+  ip         TEXT,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_audit_admin_created ON admin_audit_log(admin_id, created_at);
 
--- 后台/系统设置（键值，站点信息/存储/推送/SMTP 等）
-CREATE TABLE IF NOT EXISTS `app_setting` (
-  `k`          VARCHAR(64) NOT NULL,
-  `v`          TEXT,
-  `updated_at` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`k`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统设置(键值)';
+CREATE TABLE IF NOT EXISTS notify_template (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  code       TEXT    NOT NULL,
+  title      TEXT    NOT NULL,
+  body       TEXT    NOT NULL,
+  enabled    INTEGER NOT NULL DEFAULT 1,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_tpl_code ON notify_template(code);
+
+CREATE TABLE IF NOT EXISTS notify_record (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  template_code TEXT,
+  title         TEXT    NOT NULL,
+  body          TEXT    NOT NULL,
+  target        TEXT    NOT NULL DEFAULT 'all',
+  sent_count    INTEGER NOT NULL DEFAULT 0,
+  created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS request_log (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  method     TEXT    NOT NULL,
+  path       TEXT    NOT NULL,
+  status     INTEGER NOT NULL DEFAULT 0,
+  latency_ms INTEGER NOT NULL DEFAULT 0,
+  ip         TEXT,
+  ua         TEXT,
+  request_id TEXT,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_reqlog_created ON request_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_reqlog_path ON request_log(path);
+CREATE INDEX IF NOT EXISTS idx_reqlog_status ON request_log(status);
+
+

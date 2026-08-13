@@ -152,7 +152,7 @@ func (s *Store) GetAdminByID(id int64) (*AdminUser, error) {
 }
 
 func (s *Store) TouchAdminLogin(id int64) {
-	s.DB.Exec("UPDATE admin_user SET last_login_at=NOW() WHERE id=?", id)
+	s.DB.Exec("UPDATE admin_user SET last_login_at=datetime('now') WHERE id=?", id)
 }
 
 func (s *Store) UpdateAdminCredentials(id int64, username, hash string, email *string) error {
@@ -181,11 +181,20 @@ func handleAdminLogin(c *gin.Context) {
 		afail(c, 400, 400, "参数错误")
 		return
 	}
-	a, hash, err := st.GetAdminForLogin(strings.TrimSpace(req.Username))
+	// 登录失败限流：同一账号 10 分钟内最多 5 次失败。
+	uname := strings.TrimSpace(req.Username)
+	failKey := "adminlogin:fail:" + uname
+	if st.mem.count(failKey) >= 5 {
+		afail(c, 429, 429, "登录尝试过于频繁，请 10 分钟后再试")
+		return
+	}
+	a, hash, err := st.GetAdminForLogin(uname)
 	if err != nil || !checkPassword(hash, req.Password) {
+		st.mem.incr(failKey, 10*time.Minute)
 		afail(c, 400, 400, "账号或密码错误")
 		return
 	}
+	st.mem.del(failKey)
 	if a.Status != 1 {
 		afail(c, 403, 403, "账号已被禁用")
 		return
@@ -291,7 +300,7 @@ func (s *Store) DashboardStats() gin.H {
 	daily := []gin.H{}
 	rows, err := s.DB.Query(
 		`SELECT DATE(created_at) d, COUNT(*) c FROM ` + "`user`" +
-			` WHERE created_at>=DATE_SUB(CURDATE(), INTERVAL 6 DAY) GROUP BY d ORDER BY d`)
+			` WHERE created_at>=date('now','-6 days') GROUP BY d ORDER BY d`)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
@@ -306,7 +315,7 @@ func (s *Store) DashboardStats() gin.H {
 		"pairs":        q("SELECT COUNT(*) FROM pair WHERE status=1 AND user_a_id>0 AND user_b_id>0"),
 		"todos":        q("SELECT COUNT(*) FROM todo WHERE status<2"),
 		"diaries":      q("SELECT COUNT(*) FROM diary"),
-		"new_users_7d": q("SELECT COUNT(*) FROM `user` WHERE created_at>=DATE_SUB(NOW(), INTERVAL 7 DAY)"),
+		"new_users_7d": q("SELECT COUNT(*) FROM `user` WHERE created_at>=datetime('now','-7 days')"),
 		"daily_new":    daily,
 	}
 }
@@ -428,7 +437,7 @@ func (s *Store) ListPairs(limit, offset int) ([]gin.H, int, error) {
 }
 
 func (s *Store) UnbindPair(id int64) error {
-	_, err := s.DB.Exec("UPDATE pair SET status=0, unbind_time=NOW() WHERE id=?", id)
+	_, err := s.DB.Exec("UPDATE pair SET status=0, unbind_time=datetime('now') WHERE id=?", id)
 	return err
 }
 
@@ -792,7 +801,7 @@ func (s *Store) ListNotifyTemplates() ([]gin.H, error) {
 func (s *Store) UpsertNotifyTemplate(code, title, body string, enabled int) error {
 	_, err := s.DB.Exec(
 		"INSERT INTO notify_template(code,title,body,enabled) VALUES(?,?,?,?) "+
-			"ON DUPLICATE KEY UPDATE title=VALUES(title),body=VALUES(body),enabled=VALUES(enabled)",
+			"ON CONFLICT(code) DO UPDATE SET title=excluded.title,body=excluded.body,enabled=excluded.enabled",
 		code, title, body, enabled)
 	return err
 }

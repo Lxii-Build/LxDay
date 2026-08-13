@@ -7,12 +7,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/redis/go-redis/v9"
 	"gopkg.in/yaml.v3"
 )
 
@@ -27,14 +27,9 @@ type Config struct {
 		RingCooldownLimit   int    `yaml:"ring_cooldown_limit"`
 		AppKey              string `yaml:"app_key"` // 通讯密钥；非空时校验 /api/v1/* 请求头 X-App-Key，可用环境变量 APP_KEY 覆盖
 	} `yaml:"app"`
-	MySQL struct {
-		DSN string `yaml:"dsn"`
-	} `yaml:"mysql"`
-	Redis struct {
-		Addr     string `yaml:"addr"`
-		Password string `yaml:"password"`
-		DB       int    `yaml:"db"`
-	} `yaml:"redis"`
+	DB struct {
+		Path string `yaml:"path"` // SQLite 数据库文件路径（单容器，无外部数据库）
+	} `yaml:"db"`
 	Push struct {
 		Provider string `yaml:"provider"`
 	} `yaml:"push"`
@@ -75,6 +70,12 @@ func loadConfig() *Config {
 	// JWT 密钥必须显式设置（不允许空/占位），否则令牌可被伪造。
 	if c.App.JWTSecret == "" || strings.Contains(strings.ToLower(c.App.JWTSecret), "change") {
 		log.Fatalf("jwt_secret 未设置：请通过环境变量 JWT_SECRET 或配置文件设置一个长随机串")
+	}
+	if c.DB.Path == "" {
+		c.DB.Path = "data/lxday.db"
+	}
+	if v := os.Getenv("DB_PATH"); v != "" {
+		c.DB.Path = v
 	}
 	return c
 }
@@ -184,7 +185,7 @@ func main() {
 			log.Fatalf("listen: %v", err)
 		}
 	}()
-	// 优雅关闭：收到 SIGINT/SIGTERM 后停止接收新请求并释放 DB/Redis 连接。
+	// 优雅关闭：收到 SIGINT/SIGTERM 后停止接收新请求并释放 DB 连接。
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 	<-quit
@@ -192,24 +193,23 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(ctx)
-	if st != nil {
-		if st.DB != nil {
-			st.DB.Close()
-		}
-		if st.Rdb != nil {
-			st.Rdb.Close()
-		}
+	if st != nil && st.DB != nil {
+		st.DB.Close()
 	}
 }
 
 func initStore(c *Config) (*Store, error) {
-	db, err := sqlOpen(c.MySQL.DSN)
+	// 确保 SQLite 文件所在目录存在
+	if dir := filepath.Dir(c.DB.Path); dir != "" && dir != "." {
+		os.MkdirAll(dir, 0o755)
+	}
+	dsn := "file:" + c.DB.Path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)"
+	db, err := sqlOpen(dsn)
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(50)
-	db.SetMaxIdleConns(10)
-	db.SetConnMaxLifetime(2 * time.Hour)
+	// SQLite 单写者：限制单连接避免 "database is locked"（低并发的情侣应用足够）。
+	db.SetMaxOpenConns(1)
 	if err := db.Ping(); err != nil {
 		db.Close()
 		return nil, err
@@ -218,16 +218,5 @@ func initStore(c *Config) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     c.Redis.Addr,
-		Password: c.Redis.Password,
-		DB:       c.Redis.DB,
-	})
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := rdb.Ping(ctx).Err(); err != nil {
-		return nil, err
-	}
-	return &Store{DB: db, Rdb: rdb}, nil
+	return &Store{DB: db, mem: newMemStore()}, nil
 }

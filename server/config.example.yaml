@@ -1,33 +1,19 @@
 # 林曦日记 服务端配置示例，复制为 config.yaml 使用
 app:
-  port: 8080
-  jwt_secret: "please-change-me-to-a-long-random-string"
+  port: 7740
+  jwt_secret: ""                # 必填：长随机串（如 openssl rand -hex 32）；也可用环境变量 JWT_SECRET 注入，留空/占位将拒绝启动
   token_ttl_hours: 720          # JWT 有效期（30天）
   ring_cooldown_seconds: 600    # 响铃冷却：同一对情侣 10 分钟内最多 N 次
   ring_cooldown_limit: 3
   app_key: ""                   # 通讯密钥：非空时校验客户端请求头 X-App-Key（仅 /api/v1/*）；留空禁用。可用环境变量 APP_KEY 覆盖
 
-mysql:
-  dsn: "linxi:password@tcp(127.0.0.1:3306)/linxi?charset=utf8mb4&parseTime=true&loc=Local"
-
-redis:
-  addr: "127.0.0.1:6379"
-  password: ""
-  db: 0
+db:
+  path: "data/lxday.db"          # 内嵌 SQLite 文件路径（相对工作目录或绝对路径）；也可用环境变量 DB_PATH 覆盖
 
 push:
-  provider: "getui"             # getui / jpush / none
-  app_id: ""
-  app_key: ""
-  master_secret: ""
-  # 厂商通道 appkey（由推送平台主控台申请后填入）
-  xiaomi_appid: ""
-  xiaomi_appkey: ""
-  huawei_appid: ""
-  oppo_appkey: ""
-  vivo_appkey: ""
+  provider: "none"              # getui / jpush / none（当前为占位，不接商业推送）
 
-# 日记图片本地存储（Nginx 静态映射 /uploads/）
+# 日记图片本地存储（Go 自托管 /uploads/）
 storage:
   upload_dir: "uploads"          # 相对工作目录，或绝对路径
   upload_max_mb: 10

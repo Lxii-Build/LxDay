@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -151,18 +150,13 @@ func handleSendEmailCode(c *gin.Context) {
 		fail(c, 400, 1002, "邮箱格式不正确")
 		return
 	}
-	ctx := context.Background()
 	// 60s 限频
-	set, err := st.Rdb.SetNX(ctx, emailCodeCDKey(email), 1, 60*time.Second).Result()
-	if err == nil && !set {
+	if !st.mem.kvSetNX(emailCodeCDKey(email), 60*time.Second) {
 		fail(c, 429, 1012, "验证码发送过于频繁，请稍后再试")
 		return
 	}
 	code := randomCode(6)
-	if err := st.Rdb.Set(ctx, emailCodeKey(email), code, emailCodeTTL).Err(); err != nil {
-		fail(c, 500, 1010, "验证码生成失败")
-		return
-	}
+	st.mem.kvSet(emailCodeKey(email), code, emailCodeTTL)
 	sc, err := loadSMTP()
 	if err != nil {
 		fail(c, 500, 1013, "邮件服务未配置，请联系管理员")
@@ -207,8 +201,8 @@ func handleRegister(c *gin.Context) {
 		return
 	}
 	// 校验验证码
-	saved, err := st.Rdb.Get(context.Background(), emailCodeKey(email)).Result()
-	if err != nil || saved == "" || saved != strings.TrimSpace(req.Code) {
+	saved, found := st.mem.kvGet(emailCodeKey(email))
+	if !found || saved != strings.TrimSpace(req.Code) {
 		fail(c, 400, 1015, "验证码错误或已过期")
 		return
 	}
@@ -226,7 +220,7 @@ func handleRegister(c *gin.Context) {
 		fail(c, 400, 1006, "用户名或邮箱已被占用")
 		return
 	}
-	st.Rdb.Del(context.Background(), emailCodeKey(email))
+	st.mem.kvDel(emailCodeKey(email))
 	token, _ := signToken(id)
 	ok(c, gin.H{"user_id": id, "token": token})
 }
@@ -256,21 +250,18 @@ func handleLogin(c *gin.Context) {
 		return
 	}
 	// 登录失败限流：同一账号 10 分钟内最多 5 次失败，防暴力破解。
-	ctx := context.Background()
 	failKey := "login:fail:" + strings.ToLower(account)
-	if n, _ := st.Rdb.Get(ctx, failKey).Int(); n >= 5 {
+	if st.mem.count(failKey) >= 5 {
 		fail(c, 429, 1012, "登录尝试过于频繁，请 10 分钟后再试")
 		return
 	}
 	u, err := st.GetUserByLogin(account)
 	if err != nil || !checkPassword(u.PasswordHash, req.Password) {
-		if cnt, e := st.Rdb.Incr(ctx, failKey).Result(); e == nil && cnt == 1 {
-			st.Rdb.Expire(ctx, failKey, 10*time.Minute)
-		}
+		st.mem.incr(failKey, 10*time.Minute)
 		fail(c, 400, 1007, "账号或密码错误")
 		return
 	}
-	st.Rdb.Del(ctx, failKey)
+	st.mem.del(failKey)
 	token, _ := signToken(u.ID)
 	ok(c, gin.H{"user_id": u.ID, "token": token})
 }

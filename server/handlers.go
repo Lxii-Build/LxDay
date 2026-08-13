@@ -18,6 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
+	_ "modernc.org/sqlite"
 )
 
 // uploadDir 为本地上传根目录（Go 自托管 /uploads/ 静态映射）
@@ -32,7 +33,7 @@ func initUploadDir() {
 // ================= 工具 =================
 
 func sqlOpen(dsn string) (*sql.DB, error) {
-	return sql.Open("mysql", dsn)
+	return sql.Open("sqlite", dsn)
 }
 
 func ok(c *gin.Context, data interface{}) {
@@ -749,7 +750,7 @@ func handleRegisterPushToken(c *gin.Context) {
 	}
 	_, err := st.DB.Exec(
 		`INSERT INTO push_token(user_id,platform,channel,token) VALUES(?,?,?,?)
-		 ON DUPLICATE KEY UPDATE token=VALUES(token), updated_at=NOW()`,
+		 ON CONFLICT(user_id,channel) DO UPDATE SET token=excluded.token, updated_at=datetime('now')`,
 		uid, req.Platform, req.Channel, req.Token)
 	if err != nil {
 		log.Printf("push token register error: %v", err)

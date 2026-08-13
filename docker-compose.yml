@@ -1,55 +1,25 @@
-# 林曦日记 · Docker Compose 一键部署（一体化：Go 自托管后台前端 + API + WS + /uploads）
-# server 内嵌 admin dist 并自托管静态资源，去除独立 Nginx。
-# 生产务必修改 deploy/config.docker.yaml 的 jwt_secret / app_key，以及下方数据库密码。
-# TLS 由外部反向代理终止（部署文档另述）。
+# 林曦日记 · Docker Compose 一键部署
+# 单容器：Go 自托管后台前端 + API + WS + /uploads，内嵌 SQLite（无 MySQL / 无 Redis）。
+# 密钥经同目录 .env 注入（见 .env.example）；TLS 由外部反向代理终止（部署文档另述）。
 services:
-  mysql:
-    image: mysql:8.0
-    restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: root_pass_change_me
-      MYSQL_DATABASE: linxi
-      MYSQL_USER: linxi
-      MYSQL_PASSWORD: linxi_pass
-    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
-    volumes:
-      - mysql_data:/var/lib/mysql
-      - ./server/sql/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-plinxi_pass", "-ulinxi"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    volumes:
-      - redis_data:/data
-
   server:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: LxDay
     restart: unless-stopped
-    depends_on:
-      mysql:
-        condition: service_healthy
-      redis:
-        condition: service_started
     environment:
-      # 密钥由同目录 .env 注入（勿提交 .env）；见 .env.example
+      # 密钥由同目录 .env 注入（勿提交 .env）
       JWT_SECRET: ${JWT_SECRET}
       APP_KEY: ${APP_KEY}
     volumes:
       - ./deploy/config.docker.yaml:/app/config.yaml:ro
-      - uploads:/app/uploads
+      - db_data:/app/data      # SQLite 数据库文件持久化
+      - uploads:/app/uploads   # 头像 / 日记图片 / APK
     ports:
       # 内外端口一致：宝塔容器列表显示 7740 -> 7740
       - "7740:7740"
 
 volumes:
-  mysql_data:
-  redis_data:
+  db_data:
   uploads:

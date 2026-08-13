@@ -1,23 +1,18 @@
 package main
 
 import (
-	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
-
-	_ "github.com/go-sql-driver/mysql"
-	"github.com/redis/go-redis/v9"
 )
 
 // ================= 存储层 =================
 
 type Store struct {
 	DB  *sql.DB
-	Rdb *redis.Client
+	mem *memStore
 }
 
 // ---------- Redis Key 常量 ----------
@@ -88,7 +83,7 @@ func (s *Store) GetSetting(key string) (string, error) {
 
 func (s *Store) SetSetting(key, val string) error {
 	_, err := s.DB.Exec(
-		"INSERT INTO app_setting(k,v) VALUES(?,?) ON DUPLICATE KEY UPDATE v=VALUES(v)",
+		"INSERT INTO app_setting(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
 		key, val)
 	return err
 }
@@ -168,12 +163,6 @@ func (s *Store) BindPair(code, uid int64) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	// 刷新缓存中的绑定关系
-	userA, userB = 0, 0
-	s.DB.QueryRow(`SELECT user_a_id,user_b_id FROM pair WHERE id=?`, pairID).Scan(&userA, &userB)
-	s.Rdb.Set(context.Background(), keyPair(pairID),
-		fmt.Sprintf(`{"id":%d,"user_a_id":%d,"user_b_id":%d}`, pairID, userA, userB),
-		0)
 	return pairID, nil
 }
 
@@ -406,23 +395,14 @@ func (s *Store) DiaryPairID(id int64) (int64, error) {
 
 // ---------- 状态（Redis 为主，落库兜底） ----------
 
-// SaveStatus 先以嵌套协议直接整体存 JSON（伴侣需要全量字段），
-// 同时写扁平字段供未来索引。
+// SaveStatus 缓存伴侣最新状态（内存态，单实例）。
 func (s *Store) SaveStatus(u *DeviceStatus) error {
-	b, _ := json.Marshal(u)
-	return s.Rdb.Set(context.Background(), keyStatus(u.UserID), b, 24*time.Hour).Err()
+	s.mem.saveStatus(u.UserID, u)
+	return nil
 }
 
 func (s *Store) GetStatus(uid int64) (*DeviceStatus, error) {
-	b, err := s.Rdb.Get(context.Background(), keyStatus(uid)).Bytes()
-	if err != nil {
-		return nil, err
-	}
-	u := &DeviceStatus{UserID: uid}
-	if err := json.Unmarshal(b, u); err != nil {
-		return nil, err
-	}
-	return u, nil
+	return s.mem.getStatus(uid), nil
 }
 
 // ---------- 状态历史（5 分钟聚合，永久保留） ----------
@@ -430,7 +410,7 @@ func (s *Store) GetStatus(uid int64) (*DeviceStatus, error) {
 // InsertStatusHistory 写入一条历史记录（幂等：同 pair+user+ts 去重，供 5min 上报与 cron 兜底共用）
 func (s *Store) InsertStatusHistory(p *Pair, uid int64, st *DeviceStatus, ts time.Time) error {
 	_, err := s.DB.Exec(
-		`INSERT IGNORE INTO status_history
+		`INSERT OR IGNORE INTO status_history
 		 (pair_id,user_id,battery,charging,screen_on,locked,foreground_pkg,foreground_name,ssid,network,ts)
 		 VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
 		p.ID, uid, st.BatteryLevel, st.IsCharging, st.ScreenOn, st.IsLocked,
@@ -501,26 +481,20 @@ func (s *Store) BatteryCurve(pairID, uid int64, date string) ([]StatusHistory, e
 // ---------- 离线补偿 ----------
 
 func (s *Store) PushEventQ(uid int64, msg string) error {
-	return s.Rdb.LPush(context.Background(), keyEventQ(uid), msg).Err()
+	s.mem.pushEvent(uid, msg)
+	return nil
 }
 
 func (s *Store) PopEventQ(uid int64) []string {
-	res, _ := s.Rdb.LRange(context.Background(), keyEventQ(uid), 0, -1).Result()
-	s.Rdb.Del(context.Background(), keyEventQ(uid))
-	return res
+	return s.mem.popEvents(uid)
 }
 
 func (s *Store) SetOnline(uid int64, online bool) {
-	if online {
-		s.Rdb.Set(context.Background(), keyOnline(uid), 1, 60*time.Second)
-	} else {
-		s.Rdb.Del(context.Background(), keyOnline(uid))
-	}
+	s.mem.setOnline(uid, online, 60*time.Second)
 }
 
 func (s *Store) IsOnline(uid int64) bool {
-	n, err := s.Rdb.Exists(context.Background(), keyOnline(uid)).Result()
-	return err == nil && n > 0
+	return s.mem.isOnline(uid)
 }
 
 // ---------- 响铃冷却 ----------
@@ -537,9 +511,6 @@ func (s *Store) RingCooldown(pairID int64) bool {
 			limit = cfg.App.RingCooldownLimit
 		}
 	}
-	cnt, _ := s.Rdb.Incr(context.Background(), keyRingCool(pairID)).Result()
-	if cnt == 1 {
-		s.Rdb.Expire(context.Background(), keyRingCool(pairID), time.Duration(window)*time.Second)
-	}
+	cnt := s.mem.incr(keyRingCool(pairID), time.Duration(window)*time.Second)
 	return cnt <= int64(limit)
 }

@@ -2,7 +2,7 @@
 
 本文覆盖三种部署方式：**Docker Compose（推荐）**、**Docker 单容器**、**前后端分离手动部署**。
 
-**架构要点（去 Nginx）**：Go 服务端已内嵌运营后台前端并自托管 后台静态(`/`) / API(`/api`) / WebSocket(`/ws`) / 上传文件(`/uploads`)。因此容器编排只有 **应用 + MySQL + Redis**，无独立 Nginx。**容器内外端口统一为 `7740`**（宝塔容器列表显示 7740 → 7740）；**HTTPS/WSS 的 TLS 由外部反向代理（宝塔面板 / Nginx / Caddy）终止**。默认对外域名 `https://love.lxii.cc`。
+**架构要点（去 Nginx / 单容器）**：Go 服务端已内嵌运营后台前端并自托管 后台静态(`/`) / API(`/api`) / WebSocket(`/ws`) / 上传文件(`/uploads`)；数据库用**内嵌 SQLite**、缓存与在线态/离线队列改**进程内存**。因此容器编排**只有一个 `app` 容器**（无 MySQL、无 Redis、无 Nginx）。**容器内外端口统一为 `7740`**（宝塔容器列表显示 7740 → 7740）；**HTTPS/WSS 的 TLS 由外部反向代理（宝塔面板 / Nginx / Caddy）终止**。默认对外域名 `https://love.lxii.cc`。
 
 镜像：`ghcr.io/lxii-build/lxday`（由 `build-server.yml` 工作流构建推送，可见性随仓库）。
 
@@ -14,7 +14,7 @@
 
 1. 修改配置（务必）：
    - **密钥走 `.env`**：复制仓库根 `.env.example` 为 `.env`（与 `docker-compose.yml` 同目录，勿提交），填 `JWT_SECRET`（长随机串，如 `openssl rand -hex 32`）与 `APP_KEY`（通讯密钥，需与安卓构建注入的一致）。服务端启动会读取这两个环境变量；`JWT_SECRET` 缺省或为占位值将拒绝启动。
-   - `docker-compose.yml`：修改 `MYSQL_ROOT_PASSWORD`、`MYSQL_PASSWORD`（改后同步 `deploy/config.docker.yaml` 的 DSN）。
+   - 无需配置外部数据库/缓存：数据库为**内嵌 SQLite**（文件在 `db_data` 卷），无 MySQL/Redis 密码可改。
 2. 启动：
    ```bash
    # 方式 A：本地用仓库根 Dockerfile 构建（含前端）
@@ -24,7 +24,7 @@
    # 方式 C：国内拉取不便时，下载工作流产物 lxday-server-image（.tar.gz）后离线导入
    #   gunzip -c lxday-image.tar.gz | docker load
    ```
-   **数据库免手动导入**：服务端启动时自动建表（内嵌 `schema.sql`），任何环境（Compose / 宝塔自带 MySQL / 复用旧卷）都无需手工 source SQL。并创建超级管理员 `admin / 123456`（**首次登录强制改账号密码，改密前无法进行其它后台操作**）。
+   **数据库零手动导入**：内嵌 SQLite 首次启动自动建表（文件在 `db_data` 卷）。超级管理员**初始随机口令仅在服务端启动日志打印一次**（`docker compose logs server` 查看），**首次登录强制改账号密码，改密前无法进行其它后台操作**。
 3. 访问（容器直连，验证用）：
    - 后台管理：`http://<服务器IP>:7740/`
    - 客户端 API：`http://<服务器IP>:7740/api/v1/...`，WebSocket：`ws://<服务器IP>:7740/ws`
@@ -37,7 +37,7 @@
    docker compose down               # 停止（保留数据卷）
    ```
 
-数据卷：`mysql_data`、`redis_data`、`uploads`（头像/图片/APK）。清空数据需显式 `docker compose down -v`（谨慎）。
+数据卷：`db_data`（SQLite 数据库文件）、`uploads`（头像/图片/APK）。清空数据需显式 `docker compose down -v`（谨慎）。
 
 <!-- APPEND-DEPLOY-MORE -->
 
@@ -62,9 +62,9 @@
 
 ---
 
-## 二、Docker 单容器（外接 MySQL/Redis）
+## 二、Docker 单容器
 
-适合已自备 MySQL/Redis 的场景。一体化镜像已内嵌后台前端。
+一体化镜像已内嵌后台前端与 SQLite，`docker run` 一条即可（无需外部数据库/缓存）。
 
 ```bash
 # 拉取已发布镜像（或本地 docker build -t lxday -f Dockerfile . 自行构建）
@@ -73,10 +73,11 @@ docker run -d --name LxDay \
   -e JWT_SECRET="替换为长随机串" \
   -e APP_KEY="通讯密钥(与APK一致,可留空)" \
   -v $(pwd)/config.yaml:/app/config.yaml:ro \
+  -v lxday-data:/app/data \
   -v lxday-uploads:/app/uploads \
   ghcr.io/lxii-build/lxday:latest
 ```
-`config.yaml` 参照 `server/config.example.yaml`，把 `mysql.dsn`、`redis.addr` 指向你的实例（Redis 为强依赖，必须可用）；`JWT_SECRET`/`APP_KEY` 用 `-e` 注入。同样在前面放一层反代做 TLS。
+`config.yaml` 参照 `server/config.example.yaml`；SQLite 文件默认 `/app/data/lxday.db`（挂 `lxday-data` 卷持久化），`JWT_SECRET`/`APP_KEY` 用 `-e` 注入。同样在前面放一层反代做 TLS。
 
 ---
 
@@ -87,10 +88,10 @@ docker run -d --name LxDay \
 ### 1. 后端（Go，仅 API + WS，可不内嵌前端）
 ```bash
 cd server
-cp config.example.yaml config.yaml    # 改 dsn/redis；jwt_secret/app_key 建议用环境变量 JWT_SECRET/APP_KEY 注入
+cp config.example.yaml config.yaml    # 设 db.path；jwt_secret/app_key 建议用环境变量 JWT_SECRET/APP_KEY 注入
 JWT_SECRET="长随机串" APP_KEY="可选" go build -o linxi-server . && ./linxi-server config.yaml   # 或注册 systemd
 ```
-无需手工导入 SQL：服务端启动会自动建表（内嵌 `schema.sql`）。注意：仓库根 `Dockerfile` 会内嵌前端；若走分离模式，可用 `server/Dockerfile`（仅后端）构建后端镜像。
+无需手工导入 SQL：服务端启动会自动建表（内嵌 SQLite）。注意：仓库根 `Dockerfile` 会内嵌前端；若走分离模式，可用 `server/Dockerfile`（仅后端）构建后端镜像。
 
 ### 2. 前端（Vue）
 ```bash

@@ -4,17 +4,17 @@
 
 ## 架构与部署形态
 
-**一体化镜像**：Go 服务端通过 `go:embed` 内嵌运营后台前端产物，自托管 后台静态 / API / WebSocket / `/uploads` 上传文件，**不再依赖 Nginx**。容器编排为 应用 + 数据库（MySQL + Redis）。HTTPS/WSS 的 TLS 由外部反向代理（宝塔面板 / Nginx / Caddy）终止；**容器内外端口统一 `7740`**（宝塔容器列表显示 7740 → 7740）。**数据库免手动导入**：服务端启动内嵌 `schema.sql` 自动建表，任何环境零手工 source。密钥（`JWT_SECRET` / `APP_KEY`）经 `.env` 环境变量注入，不写入提交的配置文件。
+**一体化镜像（单容器）**：Go 服务端通过 `go:embed` 内嵌运营后台前端产物，自托管 后台静态 / API / WebSocket / `/uploads` 上传文件，**不再依赖 Nginx**；数据库用**内嵌 SQLite**、缓存/在线态/离线队列改**进程内存**，因此**容器编排只有一个 `app` 容器**（无 MySQL、无 Redis）。HTTPS/WSS 的 TLS 由外部反向代理（宝塔面板 / Nginx / Caddy）终止；**容器内外端口统一 `7740`**。**数据库零手动导入**：服务端启动内嵌 `schema.sql` 自动建表；SQLite 文件与上传目录挂载到数据卷持久化。密钥（`JWT_SECRET` / `APP_KEY`）经 `.env` 注入，不写入提交的配置文件。
 
 ```
 lx/
 ├── Dockerfile                # 一体化多阶段镜像：node 构建 admin dist → go 内嵌编译 → 精简运行时
-├── docker-compose.yml        # 一键部署：server(7740) + mysql + redis（无 nginx）
-├── deploy/config.docker.yaml # 容器内服务端配置（端口 7740 / dsn / redis…；密钥走 .env 的 JWT_SECRET/APP_KEY）
+├── docker-compose.yml        # 一键部署：单容器 server(7740)，内嵌 SQLite（无 mysql/redis）
+├── deploy/config.docker.yaml # 容器内服务端配置（端口 7740 / db.path SQLite；密钥走 .env 的 JWT_SECRET/APP_KEY）
 ├── .env.example              # 密钥模板：复制为 .env 填 JWT_SECRET / APP_KEY（勿提交）
 ├── docs/                     # DEPLOYMENT.md 部署 · APP_INTRO.md 应用介绍 · android-ui.md 等
 ├── CHANGELOG.md              # 版本更新日志
-├── server/                   # Go 服务端（Gin + WebSocket + MySQL + Redis）
+├── server/                   # Go 服务端（Gin + WebSocket + 内嵌 SQLite + 进程内存态）
 │   ├── main.go               # 入口 + 路由 + 配置；AppKeyGuard 通讯密钥中间件
 │   ├── static.go             # 去 Nginx：内嵌 SPA 后台 + /uploads 静态 + /healthz
 │   ├── admin.go              # 后台 /api/admin/*（JWT+RBAC，{code,msg,data} 信封）
@@ -43,7 +43,8 @@ lx/
 ## 核心设计决策（摘要）
 
 - **数据隔离**：`pair_id` 作为所有业务数据（待办/日记/状态历史）的隔离键，仅双人可见。
-- **实时通道**：WebSocket 在线直转；离线高优事件入 Redis 补偿队列，重连补拉。
+- **实时通道**：WebSocket 在线直转；离线高优事件入**进程内存**补偿队列，重连补拉（单容器单实例）。
+- **数据与存储**：内嵌 **SQLite**（单文件，启动自动建表、零手动导入）；在线态/伴侣状态缓存/离线队列/限频均为**进程内存**；图片走服务器本地磁盘、Go 自托管 `/uploads/`。
 - **通讯密钥（可选）**：构建期把 `APP_KEY` 注入 APK，请求带 `X-App-Key` 头；服务端 `app_key`（或环境变量 `APP_KEY`）非空时校验 `/api/v1/*`，用于挡非官方客户端。留空即禁用。
 - **不接商业推送**：纯 WS + 本地 AlarmManager 兜底。
 - **图片存储**：服务器本地磁盘，Go 自托管 `/uploads/`（去 Nginx）；预留对象存储抽象。

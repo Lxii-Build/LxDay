@@ -14,12 +14,13 @@ RUN rm -rf node_modules dist && npm install && npm run build
 FROM golang:1.22-alpine AS build
 WORKDIR /src
 ENV GOPROXY=https://goproxy.cn,direct
-COPY server/go.mod server/go.sum ./
-RUN go mod download
 COPY server/ ./
 # 用真实 admin dist 覆盖占位 webdist/（//go:embed all:webdist）
 RUN rm -rf webdist
 COPY --from=web /admin/dist/ ./webdist/
+# 解析依赖（含 modernc.org/sqlite 及其间接依赖），补全 go.sum 并剔除已弃用的 mysql/redis
+RUN go mod tidy
+# modernc.org/sqlite 为纯 Go 实现，可在 CGO_ENABLED=0 下静态编译
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w" -o /out/linxi-server .
 
 # ---- 阶段③：运行时（非 root） ----

@@ -12,6 +12,7 @@ require (
 	github.com/redis/go-redis/v9 v9.6.1
 	golang.org/x/crypto v0.23.0
 	gopkg.in/yaml.v3 v3.0.1
+	modernc.org/sqlite v1.34.1
 )
 
 require (

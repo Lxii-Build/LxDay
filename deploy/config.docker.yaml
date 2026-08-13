@@ -9,13 +9,8 @@ app:
   ring_cooldown_limit: 3
   app_key: ""                   # 通讯密钥（X-App-Key，仅 /api/v1/*）；由环境变量 APP_KEY 注入（.env），留空禁用
 
-mysql:
-  dsn: "linxi:linxi_pass@tcp(mysql:3306)/linxi?charset=utf8mb4&parseTime=true&loc=Local"
-
-redis:
-  addr: "redis:6379"
-  password: ""
-  db: 0
+db:
+  path: "/app/data/lxday.db"       # SQLite 数据库文件（挂载到数据卷持久化）；也可用环境变量 DB_PATH 覆盖
 
 push:
   provider: "none"
