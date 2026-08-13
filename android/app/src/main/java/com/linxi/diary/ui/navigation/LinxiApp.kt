@@ -44,7 +44,9 @@ import androidx.compose.ui.unit.sp
 import com.linxi.diary.data.ProfileRefreshAction
 import com.linxi.diary.data.ProfileRuntime
 import com.linxi.diary.data.ApiClient
+import com.linxi.diary.data.AuthEvents
 import com.linxi.diary.service.StatusForegroundService
+import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.ui.liquid.miuix.FloatingBottomBar
 import com.linxi.diary.ui.liquid.miuix.FloatingBottomBarItem
 import com.linxi.diary.ui.screens.BindScreen
@@ -107,10 +109,26 @@ fun LinxiApp() {
             }
         }
     }
-    // 启动检查更新：登录态下静默拉取，有新版则弹提示。
+    // 登录失效（任何 API 收到 401：token 失效 / 服务端重建后用户不存在）→ 清空本地会话并回登录页，
+    // 修复"用旧 token 不登录直接进去、随后处处报错(500/403)"。
+    LaunchedEffect(Unit) {
+        AuthEvents.unauthorized.collect {
+            UserPrefs.token = null
+            UserPrefs.pairId = 0
+            UserPrefs.partnerName = ""
+            UserPrefs.privacyConsented = false
+            UserPrefs.sharingEnabled = false
+            StatusSyncManager.disconnect()
+            StatusForegroundService.stop(context)
+            ProfileRuntime.clearSession()
+            screen = Screen.Login
+        }
+    }
+    // 启动检查更新 + 会话校验：登录态下先探一次受鉴权接口，旧 token 失效会 401 触发上面的自动登出。
     var pendingUpdate by remember { mutableStateOf<UpdateInfo?>(null) }
     LaunchedEffect(Unit) {
         if (UserPrefs.token != null) {
+            runCatching { ApiClient.pairStatus() }
             runCatching { UpdateInfo.fromJson(ApiClient.checkUpdate(com.linxi.diary.BuildConfig.VERSION_CODE)) }
                 .onSuccess { if (it.hasUpdate) pendingUpdate = it }
         }

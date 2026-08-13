@@ -70,6 +70,12 @@ object ApiClient {
         return if (!m.isNullOrBlank()) m else fallback
     }
 
+    // HTTP 非 2xx 统一处理：401（登录失效/用户不存在）触发全局登出信号；其余抛友好中文错误。
+    private fun failUnsuccessful(code: Int, text: String): Nothing {
+        if (code == 401) AuthEvents.signalUnauthorized()
+        throw ApiException(code, bodyMessageOr(text, friendlyHttp(code)))
+    }
+
     // 统一网络异常处理：连接失败/超时等 IO 异常转成友好中文，业务异常原样上抛。
     private inline fun <T> netCall(block: () -> T): T = try {
         block()
@@ -85,7 +91,7 @@ object ApiClient {
         netCall {
             val resp = client.newCall(request("GET", path, null).build()).execute()
             val text = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) throw ApiException(resp.code, bodyMessageOr(text, friendlyHttp(resp.code)))
+            if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
             check(text).optJSONObject("data") ?: JSONObject()
         }
     }
@@ -95,7 +101,7 @@ object ApiClient {
         netCall {
             val resp = client.newCall(request("GET", path, null).build()).execute()
             val text = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) throw ApiException(resp.code, bodyMessageOr(text, friendlyHttp(resp.code)))
+            if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
             check(text).optJSONArray("data") ?: org.json.JSONArray()
         }
     }
@@ -105,7 +111,7 @@ object ApiClient {
             val reqBody = body.toString().toRequestBody(json)
             val resp = client.newCall(request("POST", path, reqBody).build()).execute()
             val text = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) throw ApiException(resp.code, bodyMessageOr(text, friendlyHttp(resp.code)))
+            if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
             check(text).optJSONObject("data") ?: JSONObject()
         }
     }
@@ -115,7 +121,7 @@ object ApiClient {
             val reqBody = body.toString().toRequestBody(json)
             val resp = client.newCall(request("PUT", path, reqBody).build()).execute()
             val text = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) throw ApiException(resp.code, bodyMessageOr(text, friendlyHttp(resp.code)))
+            if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
             check(text).optJSONObject("data") ?: JSONObject()
         }
     }
@@ -124,7 +130,7 @@ object ApiClient {
         netCall {
             val resp = client.newCall(request("DELETE", path, null).build()).execute()
             val text = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) throw ApiException(resp.code, bodyMessageOr(text, friendlyHttp(resp.code)))
+            if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
             check(text).optJSONObject("data") ?: JSONObject()
         }
     }

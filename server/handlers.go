@@ -113,7 +113,14 @@ func JWTAuth() gin.HandlerFunc {
 		token := strings.TrimPrefix(h, "Bearer ")
 		uid, err := ParseToken(token)
 		if err != nil {
-			fail(c, http.StatusUnauthorized, 1003, "未授权")
+			fail(c, http.StatusUnauthorized, 1003, "登录已失效，请重新登录")
+			c.Abort()
+			return
+		}
+		// token 有效但用户不存在（如数据库重建 / 账号被删）→ 视为登录失效，
+		// 让客户端据 401 自动清会话并回登录页，而非报 500/403。
+		if _, err := st.GetUserByID(uid); err != nil {
+			fail(c, http.StatusUnauthorized, 1003, "登录已失效，请重新登录")
 			c.Abort()
 			return
 		}

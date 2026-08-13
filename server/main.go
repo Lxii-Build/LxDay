@@ -162,7 +162,11 @@ func main() {
 		token := c.Query("token")
 		uid, err := ParseToken(token)
 		if err != nil {
-			c.JSON(401, gin.H{"code": 1003, "message": "未授权"})
+			c.JSON(401, gin.H{"code": 1003, "message": "登录已失效"})
+			return
+		}
+		if _, err := st.GetUserByID(uid); err != nil {
+			c.JSON(401, gin.H{"code": 1003, "message": "登录已失效"})
 			return
 		}
 		hub.ServeWS(c.Writer, c.Request, uid)
