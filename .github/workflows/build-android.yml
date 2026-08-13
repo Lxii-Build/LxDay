@@ -44,7 +44,8 @@ jobs:
     env:
       IN_BASE_URL: ${{ inputs.server_url }}
       IN_WS_URL: ${{ inputs.ws_url }}
-      IN_APP_KEY: ${{ inputs.app_key }}
+      # 手动输入优先；留空则回退到仓库 Secret APP_KEY（管理员已配置），编译进 APK 校验官方客户端
+      IN_APP_KEY: ${{ inputs.app_key || secrets.APP_KEY }}
       IN_VERSION_NAME: ${{ inputs.version_name }}
       IN_VERSION_CODE: ${{ inputs.version_code }}
     steps:

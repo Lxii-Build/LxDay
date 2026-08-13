@@ -77,3 +77,21 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+
+      # 仓库私有、国内直接拉取不便：额外导出镜像 tar 作为工作流产物，可下载后 `docker load` 直接导入。
+      - name: 导出镜像 tar（离线 docker load 用）
+        run: |
+          IMAGE="ghcr.io/lxii-build/lxday:${GITHUB_SHA::7}"
+          docker pull "$IMAGE"
+          docker tag "$IMAGE" lxday:latest
+          docker save lxday:latest | gzip > lxday-image.tar.gz
+          ls -lh lxday-image.tar.gz
+
+      - name: 上传镜像 tar 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: lxday-server-image
+          path: lxday-image.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+

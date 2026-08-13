@@ -2,7 +2,7 @@
 
 本文覆盖三种部署方式：**Docker Compose（推荐）**、**Docker 单容器**、**前后端分离手动部署**。
 
-**架构要点（去 Nginx）**：Go 服务端已内嵌运营后台前端并自托管 后台静态(`/`) / API(`/api`) / WebSocket(`/ws`) / 上传文件(`/uploads`)。因此容器编排只有 **应用 + MySQL + Redis**，无独立 Nginx。容器内服务监听明文 `8080`，Compose 对外发布 `7740`；**HTTPS/WSS 的 TLS 由外部反向代理（宝塔面板 / Nginx / Caddy）终止**。默认对外域名 `https://love.lxii.cc`。
+**架构要点（去 Nginx）**：Go 服务端已内嵌运营后台前端并自托管 后台静态(`/`) / API(`/api`) / WebSocket(`/ws`) / 上传文件(`/uploads`)。因此容器编排只有 **应用 + MySQL + Redis**，无独立 Nginx。**容器内外端口统一为 `7740`**（宝塔容器列表显示 7740 → 7740）；**HTTPS/WSS 的 TLS 由外部反向代理（宝塔面板 / Nginx / Caddy）终止**。默认对外域名 `https://love.lxii.cc`。
 
 镜像：`ghcr.io/lxii-build/lxday`（由 `build-server.yml` 工作流构建推送，可见性随仓库）。
 
@@ -13,16 +13,18 @@
 前置：安装 Docker 与 Docker Compose 插件。
 
 1. 修改配置（务必）：
-   - `deploy/config.docker.yaml`：把 `app.jwt_secret` 改成长随机串；如需通讯密钥，设 `app.app_key`（或用环境变量 `APP_KEY`，需与安卓构建注入的一致）。
-   - `docker-compose.yml`：修改 `MYSQL_ROOT_PASSWORD`、`MYSQL_PASSWORD`（改后同步 `config.docker.yaml` 的 DSN）。
+   - **密钥走 `.env`**：复制仓库根 `.env.example` 为 `.env`（与 `docker-compose.yml` 同目录，勿提交），填 `JWT_SECRET`（长随机串，如 `openssl rand -hex 32`）与 `APP_KEY`（通讯密钥，需与安卓构建注入的一致）。服务端启动会读取这两个环境变量；`JWT_SECRET` 缺省或为占位值将拒绝启动。
+   - `docker-compose.yml`：修改 `MYSQL_ROOT_PASSWORD`、`MYSQL_PASSWORD`（改后同步 `deploy/config.docker.yaml` 的 DSN）。
 2. 启动：
    ```bash
    # 方式 A：本地用仓库根 Dockerfile 构建（含前端）
    docker compose up -d --build
    # 方式 B：改用已发布镜像（把 docker-compose.yml 的 server.build 换成 image: ghcr.io/lxii-build/lxday:latest 后）
    docker compose pull && docker compose up -d
+   # 方式 C：国内拉取不便时，下载工作流产物 lxday-server-image（.tar.gz）后离线导入
+   #   gunzip -c lxday-image.tar.gz | docker load
    ```
-   首次启动自动执行 `server/sql/schema.sql` 建表，Go 启动时再跑增量迁移，并创建超级管理员 `admin / 123456`（首次登录强制改账号密码并绑定邮箱）。
+   **数据库免手动导入**：服务端启动时自动建表（内嵌 `schema.sql`），任何环境（Compose / 宝塔自带 MySQL / 复用旧卷）都无需手工 source SQL。并创建超级管理员 `admin / 123456`（**首次登录强制改账号密码，改密前无法进行其它后台操作**）。
 3. 访问（容器直连，验证用）：
    - 后台管理：`http://<服务器IP>:7740/`
    - 客户端 API：`http://<服务器IP>:7740/api/v1/...`，WebSocket：`ws://<服务器IP>:7740/ws`
@@ -66,13 +68,15 @@
 
 ```bash
 # 拉取已发布镜像（或本地 docker build -t lxday -f Dockerfile . 自行构建）
-docker run -d --name lxday \
-  -p 7740:8080 \
+docker run -d --name LxDay \
+  -p 7740:7740 \
+  -e JWT_SECRET="替换为长随机串" \
+  -e APP_KEY="通讯密钥(与APK一致,可留空)" \
   -v $(pwd)/config.yaml:/app/config.yaml:ro \
   -v lxday-uploads:/app/uploads \
   ghcr.io/lxii-build/lxday:latest
 ```
-`config.yaml` 参照 `server/config.example.yaml`，把 `mysql.dsn`、`redis.addr` 指向你的实例（Redis 为强依赖，必须可用）。同样在前面放一层反代做 TLS。
+`config.yaml` 参照 `server/config.example.yaml`，把 `mysql.dsn`、`redis.addr` 指向你的实例（Redis 为强依赖，必须可用）；`JWT_SECRET`/`APP_KEY` 用 `-e` 注入。同样在前面放一层反代做 TLS。
 
 ---
 
@@ -83,18 +87,17 @@ docker run -d --name lxday \
 ### 1. 后端（Go，仅 API + WS，可不内嵌前端）
 ```bash
 cd server
-cp config.example.yaml config.yaml    # 改 dsn/redis/jwt_secret/app_key
-go build -o linxi-server .
-./linxi-server config.yaml             # 或注册 systemd
+cp config.example.yaml config.yaml    # 改 dsn/redis；jwt_secret/app_key 建议用环境变量 JWT_SECRET/APP_KEY 注入
+JWT_SECRET="长随机串" APP_KEY="可选" go build -o linxi-server . && ./linxi-server config.yaml   # 或注册 systemd
 ```
-初始化库：`mysql < server/sql/schema.sql`（或启动时自动迁移）。注意：仓库根 `Dockerfile` 会内嵌前端；若走分离模式，可用 `server/Dockerfile`（仅后端）构建后端镜像。
+无需手工导入 SQL：服务端启动会自动建表（内嵌 `schema.sql`）。注意：仓库根 `Dockerfile` 会内嵌前端；若走分离模式，可用 `server/Dockerfile`（仅后端）构建后端镜像。
 
 ### 2. 前端（Vue）
 ```bash
 cd admin
 npm install && npm run build           # 产物在 admin/dist
 ```
-把 `admin/dist` 交给任意静态服务器（或 `admin/Dockerfile` 的 Nginx 镜像）托管，并把 `/api`、`/ws`、`/uploads` 反代到后端 `127.0.0.1:8080`。
+把 `admin/dist` 交给任意静态服务器（或 `admin/Dockerfile` 的 Nginx 镜像）托管，并把 `/api`、`/ws`、`/uploads` 反代到后端 `127.0.0.1:7740`。
 
 ---
 
@@ -109,5 +112,6 @@ npm install && npm run build           # 产物在 admin/dist
 - 生产更新：不自动部署，服务器 `docker compose pull && docker compose up -d` 手动升级。
 
 ## 六、初始账号与安全清单
-- 超级管理员：`admin / 123456`，**首次登录强制改账号+密码+绑定邮箱**。
-- 上线前务必：改 `jwt_secret`、数据库密码；配置反代 HTTPS；如需通讯密钥则两侧设好 `app_key`/`APP_KEY`；后台填好 SMTP；确认 `/app/uploads` 卷可写。
+- 超级管理员：`admin / 123456`，**首次登录强制改账号+密码+绑定邮箱**（改密前后端会拦截其它管理操作）。
+- 上线前务必：在 `.env` 设好强随机 `JWT_SECRET`（缺省/占位会拒绝启动）、改数据库密码；配置反代 HTTPS；如需通讯密钥则两侧设好 `APP_KEY`（服务端环境变量 + 安卓构建注入一致）；后台填好 SMTP；确认 `/app/uploads` 卷可写。
+- 后台「网络日志」记录 API 请求（方法/路径/状态码/耗时/IP/UA），默认保留 7 天，仅管理员可见。

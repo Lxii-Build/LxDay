@@ -37,7 +37,7 @@ jobs:
     env:
       IN_BASE_URL: ${{ inputs.server_url }}
       IN_WS_URL: ${{ inputs.ws_url }}
-      IN_APP_KEY: ${{ inputs.app_key }}
+      IN_APP_KEY: ${{ inputs.app_key || secrets.APP_KEY }}
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -96,6 +96,14 @@ jobs:
           push: true
           tags: ghcr.io/lxii-build/lxday:${{ inputs.version }}
 
+      # 私有仓库国内拉取不便：导出镜像 tar，随 Release 附件下发，可 `docker load` 直接导入
+      - name: 导出镜像 tar（离线 docker load 用）
+        run: |
+          IMAGE="ghcr.io/lxii-build/lxday:${{ inputs.version }}"
+          docker pull "$IMAGE"
+          docker save "$IMAGE" | gzip > lxday-server-${{ inputs.version }}.tar.gz
+          ls -lh lxday-server-${{ inputs.version }}.tar.gz
+
       # ---------- 创建 GitHub Release ----------
       # 说明：应用介绍与本次更新日志由维护者(AI)在正文中补充；更新历史统一维护于仓库根 CHANGELOG.md。
       - name: 创建 GitHub Release
@@ -105,7 +113,9 @@ jobs:
           name: ${{ inputs.version }}
           draft: false
           prerelease: false
-          files: android/app/build/outputs/apk/**/*.apk
+          files: |
+            android/app/build/outputs/apk/**/*.apk
+            lxday-server-${{ inputs.version }}.tar.gz
           body: |
             ## 林曦日记 ${{ inputs.version }}
 
@@ -115,7 +125,10 @@ jobs:
             对应 GHCR 镜像 tag：`ghcr.io/lxii-build/lxday:${{ inputs.version }}`
 
             ```bash
+            # 方式一：从 GHCR 拉取（需登录私有仓库）
             docker pull ghcr.io/lxii-build/lxday:${{ inputs.version }}
+            # 方式二：国内直接导入本 Release 附件里的镜像 tar（免拉取）
+            gunzip -c lxday-server-${{ inputs.version }}.tar.gz | docker load
             ```
 
             ### 更新日志
