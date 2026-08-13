@@ -1,10 +1,18 @@
 package main
 
 import (
+	"context"
 	"database/sql"
+	_ "embed"
 	"fmt"
 	"strings"
 )
+
+// baseSchemaSQL 内嵌基础建表脚本，作为唯一真源（与手动导入 sql/schema.sql 同一份），
+// 服务端启动时自动执行 → 任何环境（compose / 宝塔自带 MySQL / 裸机 / 复用旧卷）零手动导入。
+//
+//go:embed sql/schema.sql
+var baseSchemaSQL string
 
 type migration struct {
 	version    int
@@ -134,10 +142,87 @@ var migrations = []migration{
 			{table: "todo", column: "remind_enabled", alter: "ALTER TABLE todo ADD COLUMN remind_enabled TINYINT(1) NOT NULL DEFAULT 1 AFTER weekdays"},
 		},
 	},
+	{
+		version: 6,
+		name:    "request_log",
+		statements: []string{
+			`CREATE TABLE IF NOT EXISTS request_log (
+				id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+				method VARCHAR(8) NOT NULL,
+				path VARCHAR(255) NOT NULL,
+				status INT NOT NULL DEFAULT 0,
+				latency_ms BIGINT NOT NULL DEFAULT 0,
+				ip VARCHAR(64) DEFAULT NULL,
+				ua VARCHAR(255) DEFAULT NULL,
+				request_id VARCHAR(32) DEFAULT NULL,
+				created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				PRIMARY KEY (id),
+				KEY idx_created (created_at),
+				KEY idx_path (path),
+				KEY idx_status (status)
+			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		},
+	},
 }
 
 func runMigrations(db *sql.DB) error {
+	// 单连接建议锁：多副本同时启动时串行化迁移，避免并发建表打架（单实例亦无害）。
+	ctx := context.Background()
+	if conn, err := db.Conn(ctx); err == nil {
+		defer conn.Close()
+		var locked sql.NullInt64
+		if err := conn.QueryRowContext(ctx, "SELECT GET_LOCK('lxday_migrate', 30)").Scan(&locked); err == nil && locked.Valid && locked.Int64 == 1 {
+			defer conn.ExecContext(ctx, "SELECT RELEASE_LOCK('lxday_migrate')")
+		}
+	}
+	// ① 基础表：内嵌 schema.sql 自动建表（幂等，CREATE TABLE IF NOT EXISTS）
+	if err := applyBaseSchema(db); err != nil {
+		return err
+	}
+	// ② 增量迁移：在基础表之上补列/建新表
 	return applyMigrations(db, migrations)
+}
+
+// applyBaseSchema 执行内嵌的 sql/schema.sql 建立所有基础表。
+// 跳过 CREATE DATABASE / USE（库由 DSN 指定，且业务账号通常无建库权限）。
+func applyBaseSchema(db *sql.DB) error {
+	for _, stmt := range splitSQLStatements(baseSchemaSQL) {
+		up := strings.ToUpper(strings.TrimSpace(stmt))
+		if up == "" || strings.HasPrefix(up, "CREATE DATABASE") || strings.HasPrefix(up, "USE ") {
+			continue
+		}
+		if _, err := db.Exec(stmt); err != nil {
+			// 容忍已存在类错误，保证幂等
+			if strings.Contains(err.Error(), "exists") || strings.Contains(err.Error(), "Duplicate") {
+				continue
+			}
+			return fmt.Errorf("apply base schema: %w", err)
+		}
+	}
+	return nil
+}
+
+// splitSQLStatements 按分号切分 SQL 脚本，逐行剔除 `--` 注释与空行；
+// 这些 DDL 内部不含分号，故简单切分即可（不引入 multiStatements）。
+func splitSQLStatements(sqlText string) []string {
+	var out []string
+	var b strings.Builder
+	for _, line := range strings.Split(sqlText, "\n") {
+		t := strings.TrimSpace(line)
+		if t == "" || strings.HasPrefix(t, "--") {
+			continue
+		}
+		b.WriteString(line)
+		b.WriteByte('\n')
+		if strings.HasSuffix(t, ";") {
+			out = append(out, b.String())
+			b.Reset()
+		}
+	}
+	if strings.TrimSpace(b.String()) != "" {
+		out = append(out, b.String())
+	}
+	return out
 }
 
 func applyMigrations(db *sql.DB, list []migration) error {

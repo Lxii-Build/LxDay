@@ -238,11 +238,22 @@ func handleLogin(c *gin.Context) {
 		fail(c, 400, 1002, "请输入账号")
 		return
 	}
+	// 登录失败限流：同一账号 10 分钟内最多 5 次失败，防暴力破解。
+	ctx := context.Background()
+	failKey := "login:fail:" + strings.ToLower(account)
+	if n, _ := st.Rdb.Get(ctx, failKey).Int(); n >= 5 {
+		fail(c, 429, 1012, "登录尝试过于频繁，请 10 分钟后再试")
+		return
+	}
 	u, err := st.GetUserByLogin(account)
 	if err != nil || !checkPassword(u.PasswordHash, req.Password) {
+		if cnt, e := st.Rdb.Incr(ctx, failKey).Result(); e == nil && cnt == 1 {
+			st.Rdb.Expire(ctx, failKey, 10*time.Minute)
+		}
 		fail(c, 400, 1007, "账号或密码错误")
 		return
 	}
+	st.Rdb.Del(ctx, failKey)
 	token, _ := signToken(u.ID)
 	ok(c, gin.H{"user_id": u.ID, "token": token})
 }

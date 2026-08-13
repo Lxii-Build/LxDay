@@ -214,6 +214,14 @@ func handleBind(c *gin.Context) {
 	pair, _ := st.GetPairByUserID(uid)
 	partner := st.PartnerID(pair, uid)
 	pu, _ := st.GetUserByID(partner)
+	// 通知邀请方（另一方）：绑定成功，据此从"等待绑定"进入主界面。
+	// 邀请方在线→WS 即时；离线→入补偿队列，其重连或轮询 /pair/status 时兜底。
+	binder, _ := st.GetUserByID(uid)
+	pairedData := gin.H{"pair_id": pair.ID, "bound": true}
+	if binder != nil {
+		pairedData["partner"] = binder
+	}
+	hub.route(partner, WsMessage{Type: MsgPaired, Data: pairedData})
 	ok(c, gin.H{"pair_id": pair.ID, "partner": pu})
 }
 
@@ -519,12 +527,25 @@ func handleListTodos(c *gin.Context) {
 	ok(c, todos)
 }
 
+// getOwnedTodo 取出待办并校验其归属当前 pair（防越权：任意已绑定用户遍历 id 改删他人待办）。
+func getOwnedTodo(pair *Pair, id int64) (*Todo, bool) {
+	t, err := st.GetTodo(id)
+	if err != nil || t == nil || t.PairID != pair.ID {
+		return nil, false
+	}
+	return t, true
+}
+
 func handleUpdateTodo(c *gin.Context) {
 	pair, okP := mustPair(c)
 	if !okP {
 		return
 	}
 	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	if _, owned := getOwnedTodo(pair, id); !owned {
+		fail(c, 403, 1017, "无权操作该待办")
+		return
+	}
 	var req struct {
 		Title         *string    `json:"title"`
 		Note          *string    `json:"note"`
@@ -559,6 +580,10 @@ func handleCompleteTodo(c *gin.Context) {
 	}
 	uid := currentUID(c)
 	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	if _, owned := getOwnedTodo(pair, id); !owned {
+		fail(c, 403, 1017, "无权操作该待办")
+		return
+	}
 	todo, err := st.CompleteTodo(id, uid)
 	if err != nil {
 		fail(c, 500, 1010, "操作失败")
@@ -569,11 +594,15 @@ func handleCompleteTodo(c *gin.Context) {
 }
 
 func handleDeleteTodo(c *gin.Context) {
-	_, okP := mustPair(c)
+	pair, okP := mustPair(c)
 	if !okP {
 		return
 	}
 	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	if _, owned := getOwnedTodo(pair, id); !owned {
+		fail(c, 403, 1017, "无权操作该待办")
+		return
+	}
 	st.DeleteTodo(id)
 	ok(c, gin.H{"deleted": id})
 }
@@ -626,11 +655,15 @@ func handleListDiaries(c *gin.Context) {
 }
 
 func handleUpdateDiary(c *gin.Context) {
-	_, okP := mustPair(c)
+	pair, okP := mustPair(c)
 	if !okP {
 		return
 	}
 	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	if pid, err := st.DiaryPairID(id); err != nil || pid != pair.ID {
+		fail(c, 403, 1017, "无权操作该日记")
+		return
+	}
 	var req struct {
 		Title   *string `json:"title"`
 		Content *string `json:"content"`
@@ -647,11 +680,15 @@ func handleUpdateDiary(c *gin.Context) {
 }
 
 func handleDeleteDiary(c *gin.Context) {
-	_, okP := mustPair(c)
+	pair, okP := mustPair(c)
 	if !okP {
 		return
 	}
 	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	if pid, err := st.DiaryPairID(id); err != nil || pid != pair.ID {
+		fail(c, 403, 1017, "无权操作该日记")
+		return
+	}
 	st.DeleteDiary(id)
 	ok(c, gin.H{"deleted": id})
 }
@@ -834,33 +871,46 @@ func scanDueTodos() {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 	for range ticker.C {
-		now := time.Now()
-		todos, err := st.DueTodos(now)
-		if err != nil {
-			log.Printf("scanDueTodos error: %v", err)
-			continue
+		// 单次扫描包 recover：单条待办或一次 WS 写异常不应杀死整个提醒扫描 goroutine。
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("scanDueTodos panic recovered: %v", r)
+				}
+			}()
+			scanDueOnce(time.Now())
+		}()
+	}
+}
+
+func scanDueOnce(now time.Time) {
+	todos, err := st.DueTodos(now)
+	if err != nil {
+		log.Printf("scanDueTodos error: %v", err)
+		return
+	}
+	for _, t := range todos {
+		payload := map[string]interface{}{
+			"todo_id": t.ID, "title": t.Title, "remind_type": t.RemindType,
+			"ts": now.UnixMilli(),
 		}
-		for _, t := range todos {
-			payload := map[string]interface{}{
-				"todo_id": t.ID, "title": t.Title, "remind_type": t.RemindType,
-				"ts": now.UnixMilli(),
+		msg := WsMessage{Type: MsgTodoRemind, Data: payload}
+		// 提醒被提醒者(assignee)；创建者若与其不同也提示一次。去重避免自指派待办被重复推送两次。
+		sent := map[int64]bool{}
+		for _, uid := range []int64{t.AssigneeID, t.CreatorID} {
+			if uid == 0 || sent[uid] {
+				continue
 			}
-			msg := WsMessage{Type: MsgTodoRemind, Data: payload}
-			// assignee 的伴侣（pair 内另一方）
-			creator := t.CreatorID
-			if creator == 0 {
-				creator = t.AssigneeID
-			}
-			hub.route(t.AssigneeID, msg)
-			hub.route(creator, msg) // 创建者也提示
-			// 推进提醒时间：循环提醒滚动到下次；仅一次则置空，避免每分钟重复触发
-			var next *time.Time
-			if t.RemindAt != nil {
-				next = nextRemind(*t.RemindAt, t.RepeatType, t.Weekdays, now)
-			}
-			if err := st.AdvanceTodoRemind(t.ID, next); err != nil {
-				log.Printf("advance todo %d remind error: %v", t.ID, err)
-			}
+			sent[uid] = true
+			hub.route(uid, msg)
+		}
+		// 推进提醒时间：循环提醒滚动到下次；仅一次则置空，避免每分钟重复触发
+		var next *time.Time
+		if t.RemindAt != nil {
+			next = nextRemind(*t.RemindAt, t.RepeatType, t.Weekdays, now)
+		}
+		if err := st.AdvanceTodoRemind(t.ID, next); err != nil {
+			log.Printf("advance todo %d remind error: %v", t.ID, err)
 		}
 	}
 }

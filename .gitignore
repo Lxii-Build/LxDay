@@ -24,6 +24,10 @@ dist/
 *.key
 config.yaml
 !config.example.yaml
+.env
+!.env.example
+*.jks
+*.keystore
 
 # 系统
 .DS_Store

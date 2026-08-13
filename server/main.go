@@ -3,7 +3,12 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
+	"net/http"
 	"os"
+	"os/signal"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -54,9 +59,22 @@ func loadConfig() *Config {
 	if c.App.TokenTTLHours == 0 {
 		c.App.TokenTTLHours = 720
 	}
-	// 环境变量 APP_KEY 覆盖 yaml 中的 app_key（便于容器注入）
+	if c.App.Port == "" {
+		c.App.Port = "7740"
+	}
+	// 环境变量覆盖（便于容器/宝塔用 .env 注入，避免把密钥写进提交的配置文件）
 	if v := os.Getenv("APP_KEY"); v != "" {
 		c.App.AppKey = v
+	}
+	if v := os.Getenv("JWT_SECRET"); v != "" {
+		c.App.JWTSecret = v
+	}
+	if v := os.Getenv("PORT"); v != "" {
+		c.App.Port = v
+	}
+	// JWT 密钥必须显式设置（不允许空/占位），否则令牌可被伪造。
+	if c.App.JWTSecret == "" || strings.Contains(strings.ToLower(c.App.JWTSecret), "change") {
+		log.Fatalf("jwt_secret 未设置：请通过环境变量 JWT_SECRET 或配置文件设置一个长随机串")
 	}
 	return c
 }
@@ -71,6 +89,7 @@ var (
 )
 
 func main() {
+	initLogger()
 	cfg = loadConfig()
 	initUploadDir()
 
@@ -85,9 +104,10 @@ func main() {
 	}
 	push = NewPushGateway(cfg.Push.Provider, st)
 	hub = NewHub(st, push)
+	startRequestLogWorker()
 
 	r := gin.New()
-	r.Use(gin.Logger(), gin.Recovery())
+	r.Use(RequestLogger(), gin.Recovery())
 
 	// ---- 公开路由 ----
 	// 通讯密钥中间件仅拦截 /api/v1/*（app_key 为空则禁用）；不影响 /ws、/uploads、SPA、/healthz、/api/admin
@@ -158,8 +178,27 @@ func main() {
 	registerStatic(r)
 
 	log.Printf("林曦日记服务端启动 :%s", cfg.App.Port)
-	if err := r.Run(":" + cfg.App.Port); err != nil {
-		log.Fatal(err)
+	srv := &http.Server{Addr: ":" + cfg.App.Port, Handler: r}
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("listen: %v", err)
+		}
+	}()
+	// 优雅关闭：收到 SIGINT/SIGTERM 后停止接收新请求并释放 DB/Redis 连接。
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	<-quit
+	slog.Info("server shutting down")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(ctx)
+	if st != nil {
+		if st.DB != nil {
+			st.DB.Close()
+		}
+		if st.Rdb != nil {
+			st.Rdb.Close()
+		}
 	}
 }
 

@@ -29,5 +29,5 @@ WORKDIR /app
 COPY --from=build /out/linxi-server /app/linxi-server
 # config.yaml 与 uploads 通过挂载卷提供；静态后台前端已内嵌进二进制
 USER app
-EXPOSE 8080
+EXPOSE 7740
 ENTRYPOINT ["/app/linxi-server", "/app/config.yaml"]

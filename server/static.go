@@ -23,6 +23,20 @@ var webDistFS embed.FS
 func registerStatic(r *gin.Engine) {
 	r.GET("/healthz", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
 
+	// /uploads 安全响应头：禁用 MIME 嗅探；非图片强制下载，缓解上传 html/svg 的存储型 XSS。
+	r.Use(func(c *gin.Context) {
+		p := strings.ToLower(c.Request.URL.Path)
+		if strings.HasPrefix(p, "/uploads/") {
+			c.Header("X-Content-Type-Options", "nosniff")
+			isImg := strings.HasSuffix(p, ".jpg") || strings.HasSuffix(p, ".jpeg") ||
+				strings.HasSuffix(p, ".png") || strings.HasSuffix(p, ".webp") || strings.HasSuffix(p, ".gif")
+			if !isImg {
+				c.Header("Content-Disposition", "attachment")
+			}
+		}
+		c.Next()
+	})
+
 	// 本地上传静态资源（头像 / 日记图片 / APK 等），禁用目录列举
 	r.StaticFS("/uploads", gin.Dir(uploadDir, false))
 

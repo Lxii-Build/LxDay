@@ -28,17 +28,18 @@ func afail(c *gin.Context, httpCode, bizCode int, msg string) {
 
 // ---------- 管理员 JWT ----------
 
-func signAdminToken(aid int64, role string) (string, error) {
+func signAdminToken(aid int64, role string, mustChange bool) (string, error) {
 	claims := jwt.MapClaims{
 		"aid":   aid,
 		"role":  role,
 		"scope": "admin",
+		"mc":    mustChange,
 		"exp":   time.Now().Add(time.Duration(cfg.App.TokenTTLHours) * time.Hour).Unix(),
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.App.JWTSecret))
 }
 
-func parseAdminToken(token string) (int64, string, error) {
+func parseAdminToken(token string) (int64, string, bool, error) {
 	t, err := jwt.Parse(token, func(t *jwt.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, errors.New("unexpected signing method")
@@ -46,27 +47,56 @@ func parseAdminToken(token string) (int64, string, error) {
 		return []byte(cfg.App.JWTSecret), nil
 	})
 	if err != nil || !t.Valid {
-		return 0, "", errors.New("invalid token")
+		return 0, "", false, errors.New("invalid token")
 	}
 	claims, ok := t.Claims.(jwt.MapClaims)
 	if !ok || claims["scope"] != "admin" {
-		return 0, "", errors.New("bad claims")
+		return 0, "", false, errors.New("bad claims")
+	}
+	aidF, ok := claims["aid"].(float64)
+	if !ok {
+		return 0, "", false, errors.New("bad claims")
 	}
 	role, _ := claims["role"].(string)
-	return int64(claims["aid"].(float64)), role, nil
+	mc, _ := claims["mc"].(bool)
+	return int64(aidF), role, mc, nil
 }
 
 func AdminAuth() gin.HandlerFunc {
+	// 首登强制改凭据前允许访问的白名单（否则一律拦截，防止用初始 admin/123456 直接操作）。
+	allowWhileMustChange := map[string]bool{
+		"/api/admin/info":               true,
+		"/api/admin/change-credentials": true,
+		"/api/admin/logout":             true,
+	}
 	return func(c *gin.Context) {
 		token := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
-		aid, role, err := parseAdminToken(token)
+		aid, role, mc, err := parseAdminToken(token)
 		if err != nil {
 			afail(c, http.StatusUnauthorized, 401, "未授权")
 			c.Abort()
 			return
 		}
+		if mc && !allowWhileMustChange[c.FullPath()] {
+			afail(c, http.StatusForbidden, 4281, "请先修改初始账号与密码")
+			c.Abort()
+			return
+		}
 		c.Set("aid", aid)
 		c.Set("role", role)
+		c.Set("mc", mc)
+		c.Next()
+	}
+}
+
+// requireSuper 仅超级管理员可访问（管理员管理、系统设置等敏感操作）。
+func requireSuper() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.GetString("role") != "super" {
+			afail(c, http.StatusForbidden, 403, "需要超级管理员权限")
+			c.Abort()
+			return
+		}
 		c.Next()
 	}
 }
@@ -155,7 +185,7 @@ func handleAdminLogin(c *gin.Context) {
 	}
 	st.TouchAdminLogin(a.ID)
 	st.AddAudit(a.ID, a.Username, "login", "", c.ClientIP())
-	token, _ := signAdminToken(a.ID, a.Role)
+	token, _ := signAdminToken(a.ID, a.Role, a.MustChange)
 	aok(c, gin.H{"token": token, "refreshToken": token, "must_change": a.MustChange})
 }
 
@@ -219,7 +249,9 @@ func handleAdminChangeCredentials(c *gin.Context) {
 		return
 	}
 	st.AddAudit(aid, username, "change_credentials", "", c.ClientIP())
-	aok(c, gin.H{"ok": true})
+	// 首登改凭据后 must_change 已清零：签发新 token（mc=false）供前端替换，解除访问限制。
+	newToken, _ := signAdminToken(aid, a.Role, false)
+	aok(c, gin.H{"ok": true, "token": newToken, "refreshToken": newToken})
 }
 
 // APPEND-ADMIN-3
@@ -852,11 +884,14 @@ func handleAdminSendNotify(c *gin.Context) {
 		return
 	}
 	ids, _ := st.AllUserIDs()
-	sent := 0
-	for _, id := range ids {
-		hub.route(id, WsMessage{Type: MsgAdminNotice, Data: gin.H{"title": req.Title, "body": req.Body, "ts": time.Now().UnixMilli()}})
-		sent++
-	}
+	notice := WsMessage{Type: MsgAdminNotice, Data: gin.H{"title": req.Title, "body": req.Body, "ts": time.Now().UnixMilli()}}
+	// 异步扇出，避免在请求线程内串行遍历全量用户阻塞响应。
+	go func() {
+		for _, id := range ids {
+			hub.route(id, notice)
+		}
+	}()
+	sent := len(ids)
 	target := req.Target
 	if target == "" {
 		target = "all"
@@ -881,6 +916,13 @@ func handleAdminUpload(c *gin.Context) {
 		return
 	}
 	ext := strings.ToLower(filepath.Ext(file.Filename))
+	// 白名单：仅允许 APK 与常见图片；拒绝 html/svg/可执行等可致同源 XSS 或滥用的类型。
+	switch ext {
+	case ".apk", ".jpg", ".jpeg", ".png", ".webp", ".gif", ".ico":
+	default:
+		afail(c, 400, 400, "不支持的文件类型")
+		return
+	}
 	rel := "upload/" + randomCode(20) + ext
 	dst := filepath.Join(uploadDir, filepath.FromSlash(rel))
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
@@ -923,11 +965,12 @@ func registerAdminRoutes(r *gin.Engine) {
 	auth.DELETE("/app-versions/:id", handleAdminDeleteVersion)
 
 	auth.GET("/audit-logs", handleAdminListAudit)
+	auth.GET("/network-logs", handleAdminListNetworkLogs)
 	auth.GET("/admins", handleAdminListAdmins)
-	auth.POST("/admins", handleAdminCreateAdmin)
+	auth.POST("/admins", requireSuper(), handleAdminCreateAdmin)
 
 	auth.GET("/settings", handleAdminGetSettings)
-	auth.PUT("/settings", handleAdminUpdateSettings)
+	auth.PUT("/settings", requireSuper(), handleAdminUpdateSettings)
 
 	auth.GET("/notify-templates", handleAdminListTemplates)
 	auth.PUT("/notify-templates", handleAdminUpsertTemplate)

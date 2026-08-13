@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,21 +16,53 @@ import (
 // 多节点部署时：改为把消息写入 Redis Pub/Sub，各节点订阅后本地投递，
 // 或使用 keyStatus 所在节点的 WS 路由，此处给出单机实现 + 扩展点。
 
+// wsClient 为单个连接封装写互斥：gorilla/websocket 禁止并发写同一连接，
+// scanDueTodos 定时器、对方状态转发、后台群发可能并发写同一接收者，故所有写必须串行化。
+type wsClient struct {
+	conn *websocket.Conn
+	mu   sync.Mutex
+}
+
+func (c *wsClient) write(b []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.conn.WriteMessage(websocket.TextMessage, b)
+}
+
 type Hub struct {
 	mu    sync.RWMutex
-	conns map[int64]*websocket.Conn
+	conns map[int64]*wsClient
 	store *Store
 	push  *PushGateway
+}
+
+// checkWSOrigin 收紧 WebSocket 跨域（防 CSWSH）：
+// 原生 App（OkHttp）不带 Origin → 放行；带 Origin 时仅允许与请求 Host 同源（后台同域）。
+func checkWSOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true // 原生客户端无 Origin
+	}
+	i := strings.Index(origin, "://")
+	if i < 0 {
+		return false
+	}
+	host := origin[i+3:]
+	// 去掉可能的路径
+	if s := strings.IndexByte(host, '/'); s >= 0 {
+		host = host[:s]
+	}
+	return strings.EqualFold(host, r.Host)
 }
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
 	WriteBufferSize: 4096,
-	CheckOrigin:     func(r *http.Request) bool { return true }, // 生产可收紧
+	CheckOrigin:     checkWSOrigin,
 }
 
 func NewHub(s *Store, p *PushGateway) *Hub {
-	return &Hub{conns: map[int64]*websocket.Conn{}, store: s, push: p}
+	return &Hub{conns: map[int64]*wsClient{}, store: s, push: p}
 }
 
 func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request, uid int64) {
@@ -40,26 +73,35 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request, uid int64) {
 	}
 	defer conn.Close()
 
+	client := &wsClient{conn: conn}
 	h.mu.Lock()
 	old := h.conns[uid]
-	h.conns[uid] = conn
+	h.conns[uid] = client
 	h.mu.Unlock()
 	if old != nil {
-		old.Close()
+		old.conn.Close()
 	}
 	h.store.SetOnline(uid, true)
 
-	// 上线补偿：先推对方最新状态，再补离线事件
+	// 上线补偿：先推对方最新状态，再补离线事件（含未绑定时错过的 paired 事件）
 	h.pushLatestPartner(uid)
 	for _, msg := range h.store.PopEventQ(uid) {
-		conn.WriteMessage(websocket.TextMessage, []byte(msg))
+		client.write([]byte(msg))
 	}
 
-	// 写心跳由客户端 ping 触发（客户端已设 pingInterval=30s），
-	// 服务端做 Pong 超时清理。
-	conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+	// 空闲保活：客户端每 30s 发 PING，服务端在收到 PING 时刷新读超时并回 PONG，
+	// 90s 内无任何帧才判定掉线（原实现仅在收到 PONG 时刷新，而客户端从不主动发 PONG，会误断）。
+	const idleTimeout = 90 * time.Second
+	conn.SetReadDeadline(time.Now().Add(idleTimeout))
+	conn.SetPingHandler(func(appData string) error {
+		conn.SetReadDeadline(time.Now().Add(idleTimeout))
+		client.mu.Lock()
+		_ = conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(10*time.Second))
+		client.mu.Unlock()
+		return nil
+	})
 	conn.SetPongHandler(func(string) error {
-		return conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+		return conn.SetReadDeadline(time.Now().Add(idleTimeout))
 	})
 
 	// 单读循环：客户端消息
@@ -68,11 +110,14 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request, uid int64) {
 		if err != nil {
 			break
 		}
+		conn.SetReadDeadline(time.Now().Add(idleTimeout))
 		h.handleIncoming(uid, msg)
 	}
 
 	h.mu.Lock()
-	delete(h.conns, uid)
+	if h.conns[uid] == client {
+		delete(h.conns, uid)
+	}
 	h.mu.Unlock()
 	h.store.SetOnline(uid, false)
 }
@@ -157,11 +202,13 @@ func (h *Hub) route(to int64, m WsMessage) {
 	b, _ := json.Marshal(m)
 
 	h.mu.RLock()
-	conn, ok := h.conns[to]
+	client, ok := h.conns[to]
 	h.mu.RUnlock()
 	if ok {
-		conn.WriteMessage(websocket.TextMessage, b)
-		return
+		if err := client.write(b); err == nil {
+			return
+		}
+		// 写失败（连接已坏）：降级为离线补偿
 	}
 	// 离线：先入补偿队列
 	h.store.PushEventQ(to, string(b))
@@ -184,11 +231,10 @@ func (h *Hub) pushLatestPartner(uid int64) {
 	}
 	b, _ := json.Marshal(st)
 	h.mu.RLock()
-	conn, ok := h.conns[uid]
+	client, ok := h.conns[uid]
 	h.mu.RUnlock()
 	if ok {
-		conn.WriteMessage(websocket.TextMessage,
-			[]byte(`{"type":"partner_status","data":`+string(b)+`}`))
+		client.write([]byte(`{"type":"partner_status","data":` + string(b) + `}`))
 	}
 }
 

@@ -397,6 +397,13 @@ func (s *Store) DeleteDiary(id int64) error {
 	return err
 }
 
+// DiaryPairID 返回日记所属 pair_id，用于越权校验。
+func (s *Store) DiaryPairID(id int64) (int64, error) {
+	var pid int64
+	err := s.DB.QueryRow(`SELECT pair_id FROM diary WHERE id=?`, id).Scan(&pid)
+	return pid, err
+}
+
 // ---------- 状态（Redis 为主，落库兜底） ----------
 
 // SaveStatus 先以嵌套协议直接整体存 JSON（伴侣需要全量字段），
@@ -519,10 +526,20 @@ func (s *Store) IsOnline(uid int64) bool {
 // ---------- 响铃冷却 ----------
 
 func (s *Store) RingCooldown(pairID int64) bool {
-	// 简单限频：10 分钟内最多 3 次
+	// 限频窗口与次数读配置（ring_cooldown_seconds / ring_cooldown_limit），留空回退 600s / 3 次。
+	window := 600
+	limit := 3
+	if cfg != nil {
+		if cfg.App.RingCooldownSeconds > 0 {
+			window = cfg.App.RingCooldownSeconds
+		}
+		if cfg.App.RingCooldownLimit > 0 {
+			limit = cfg.App.RingCooldownLimit
+		}
+	}
 	cnt, _ := s.Rdb.Incr(context.Background(), keyRingCool(pairID)).Result()
 	if cnt == 1 {
-		s.Rdb.Expire(context.Background(), keyRingCool(pairID), 600*time.Second)
+		s.Rdb.Expire(context.Background(), keyRingCool(pairID), time.Duration(window)*time.Second)
 	}
-	return cnt <= 3
+	return cnt <= int64(limit)
 }

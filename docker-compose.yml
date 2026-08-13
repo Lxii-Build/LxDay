@@ -31,17 +31,23 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: LxDay
     restart: unless-stopped
     depends_on:
       mysql:
         condition: service_healthy
       redis:
         condition: service_started
+    environment:
+      # 密钥由同目录 .env 注入（勿提交 .env）；见 .env.example
+      JWT_SECRET: ${JWT_SECRET}
+      APP_KEY: ${APP_KEY}
     volumes:
       - ./deploy/config.docker.yaml:/app/config.yaml:ro
       - uploads:/app/uploads
     ports:
-      - "7740:8080"
+      # 内外端口一致：宝塔容器列表显示 7740 -> 7740
+      - "7740:7740"
 
 volumes:
   mysql_data:
