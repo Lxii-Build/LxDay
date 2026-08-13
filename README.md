@@ -4,13 +4,14 @@
 
 ## 架构与部署形态
 
-**一体化镜像**：Go 服务端通过 `go:embed` 内嵌运营后台前端产物，自托管 后台静态 / API / WebSocket / `/uploads` 上传文件，**不再依赖 Nginx**。容器编排精简为 应用 + 数据库（MySQL + Redis）。HTTPS/WSS 的 TLS 由外部反向代理（宝塔面板 / Nginx / Caddy）终止，容器内仅跑明文 8080，对外发布 `7740`。
+**一体化镜像**：Go 服务端通过 `go:embed` 内嵌运营后台前端产物，自托管 后台静态 / API / WebSocket / `/uploads` 上传文件，**不再依赖 Nginx**。容器编排为 应用 + 数据库（MySQL + Redis）。HTTPS/WSS 的 TLS 由外部反向代理（宝塔面板 / Nginx / Caddy）终止；**容器内外端口统一 `7740`**（宝塔容器列表显示 7740 → 7740）。**数据库免手动导入**：服务端启动内嵌 `schema.sql` 自动建表，任何环境零手工 source。密钥（`JWT_SECRET` / `APP_KEY`）经 `.env` 环境变量注入，不写入提交的配置文件。
 
 ```
 lx/
 ├── Dockerfile                # 一体化多阶段镜像：node 构建 admin dist → go 内嵌编译 → 精简运行时
 ├── docker-compose.yml        # 一键部署：server(7740) + mysql + redis（无 nginx）
-├── deploy/config.docker.yaml # 容器内服务端配置（jwt_secret / app_key / dsn / redis…）
+├── deploy/config.docker.yaml # 容器内服务端配置（端口 7740 / dsn / redis…；密钥走 .env 的 JWT_SECRET/APP_KEY）
+├── .env.example              # 密钥模板：复制为 .env 填 JWT_SECRET / APP_KEY（勿提交）
 ├── docs/                     # DEPLOYMENT.md 部署 · APP_INTRO.md 应用介绍 · android-ui.md 等
 ├── CHANGELOG.md              # 版本更新日志
 ├── server/                   # Go 服务端（Gin + WebSocket + MySQL + Redis）
@@ -48,10 +49,11 @@ lx/
 - **图片存储**：服务器本地磁盘，Go 自托管 `/uploads/`（去 Nginx）；预留对象存储抽象。
 - **待办提醒**：仅一次 / 每天 / 每周指定几天（全选=每天）+ 强提醒 + 提醒开关（`remind_enabled`，关闭保留待办但不提醒）；被提醒者可为情侣任一方。
 - **隐私**：绑定后页内知情同意 Dialog + 状态共享总开关（关闭即停采+本地清空）；TLS 全链路。
-- **绑定**：6 位数字邀请码、1 小时有效；账号体系登录后用邀请码绑定伴侣。
+- **绑定**：6 位数字邀请码、1 小时有效；账号体系登录后用邀请码绑定伴侣；邀请方生成码后轮询绑定状态，对方一绑定自动进入主界面（服务端并推 `paired` 事件）。
+- **后台安全**：超级管理员初始口令随机生成（仅启动日志打印一次）+ 首登强制改密；登录失败限流；敏感操作按角色校验；「网络日志」记录 API 请求（方法/路径/状态/耗时/IP/UA，留 7 天）。
 
 ## 构建 / 发布（GitHub Actions）
 
-- **build-server.yml**：`push` 到 main（`server/**`、`admin/**`、`Dockerfile`）或手动触发 → 先 `go vet`/`go test` → Buildx 构建一体化镜像并推送 `ghcr.io/lxii-build/lxday`（`latest` + 短 SHA）。
+- **build-server.yml**：`push` 到 main（`server/**`、`admin/**`、`Dockerfile`）或手动触发 → 先 `go vet`/`go test` → Buildx 构建一体化镜像并推送 `ghcr.io/lxii-build/lxday`（`latest` + 短 SHA）；仓库私有，**额外导出镜像 `.tar.gz` 作为工作流产物**，国内可下载后 `docker load` 离线导入。
 - **build-android.yml**：手动触发，输入 **服务端地址 / 通讯密钥 / 构建类型(Debug/Release) / 版本号** → 跑单测 → 产出对应 APK 工件。
 - **release.yml**：手动触发的**发行版**（通常由 AI 收到命令后触发）→ 构建 Release APK + 推带版本 tag 的镜像 + 创建 GitHub Release（附 APK、正文关联镜像 tag 与 `CHANGELOG.md`）。首发同时提供《应用介绍》，此后每版补充更新日志。
