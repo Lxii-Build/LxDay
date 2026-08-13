@@ -83,12 +83,13 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
 
       # 仓库私有、国内直接拉取不便：额外导出镜像 tar 作为工作流产物，可下载后 `docker load` 直接导入。
+      # 保存为 :latest 标签，与 docker-compose 默认 image 对齐，导入后可直接 `docker compose up -d`（无需再 pull）。
       - name: 导出镜像 tar（离线 docker load 用）
         run: |
           IMAGE="ghcr.io/lxii-build/lxday:${GITHUB_SHA::7}"
           docker pull "$IMAGE"
-          docker tag "$IMAGE" lxday:latest
-          docker save lxday:latest | gzip > lxday-image.tar.gz
+          docker tag "$IMAGE" ghcr.io/lxii-build/lxday:latest
+          docker save ghcr.io/lxii-build/lxday:latest | gzip > lxday-image.tar.gz
           ls -lh lxday-image.tar.gz
 
       - name: 上传镜像 tar 产物

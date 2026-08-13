@@ -43,12 +43,11 @@ func loadConfig() *Config {
 	if len(os.Args) > 1 {
 		path = os.Args[1]
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		log.Fatalf("读取配置失败 %s: %v", path, err)
-	}
 	c := &Config{}
-	if err := yaml.Unmarshal(data, c); err != nil {
+	if data, err := os.ReadFile(path); err != nil {
+		// 配置文件可选：镜像内不打包 config.yaml，全部走默认值 + 环境变量（学 hl6：env 驱动）。
+		slog.Warn("未找到配置文件，改用默认值 + 环境变量", "path", path)
+	} else if err := yaml.Unmarshal(data, c); err != nil {
 		log.Fatalf("解析配置失败: %v", err)
 	}
 	if c.App.TokenTTLHours == 0 {

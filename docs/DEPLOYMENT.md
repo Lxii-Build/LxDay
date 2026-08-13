@@ -15,23 +15,23 @@
 1. 修改配置（务必）：
    - **密钥走 `.env`**：复制仓库根 `.env.example` 为 `.env`（与 `docker-compose.yml` 同目录，勿提交），填 `JWT_SECRET`（长随机串，如 `openssl rand -hex 32`）与 `APP_KEY`（通讯密钥，需与安卓构建注入的一致）。服务端启动会读取这两个环境变量；`JWT_SECRET` 缺省或为占位值将拒绝启动。
    - 无需配置外部数据库/缓存：数据库为**内嵌 SQLite**（文件在 `db_data` 卷），无 MySQL/Redis 密码可改。
-2. 启动：
+2. 启动（默认从 GHCR 拉取镜像，无需本地构建）：
    ```bash
-   # 方式 A：本地用仓库根 Dockerfile 构建（含前端）
-   docker compose up -d --build
-   # 方式 B：改用已发布镜像（把 docker-compose.yml 的 server.build 换成 image: ghcr.io/lxii-build/lxday:latest 后）
+   # 方式 A：从 GHCR 拉取（私有仓库需先 docker login ghcr.io）
    docker compose pull && docker compose up -d
-   # 方式 C：国内拉取不便时，下载工作流产物 lxday-server-image（.tar.gz）后离线导入
-   #   gunzip -c lxday-image.tar.gz | docker load
+   # 方式 B（国内推荐）：下载工作流产物 lxday-server-image（.tar.gz）离线导入后直接起
+   gunzip -c lxday-image.tar.gz | docker load && docker compose up -d
+   # 方式 C（本地自构建）：docker build -t lxday:local . 后在 .env 设 LXDAY_IMAGE=lxday:local 再 up
    ```
-   **数据库零手动导入**：内嵌 SQLite 首次启动自动建表（文件在 `db_data` 卷）。超级管理员**初始随机口令仅在服务端启动日志打印一次**（`docker compose logs server` 查看），**首次登录强制改账号密码，改密前无法进行其它后台操作**。
+   镜像地址/端口由 `.env` 的 `LXDAY_IMAGE`/`APP_PORT` 控制（默认 `ghcr.io/lxii-build/lxday:latest`、`7740`）。
+   **数据库零手动导入**：内嵌 SQLite 首次启动自动建表（文件在 `db_data` 卷，容器以 root 运行、卷可直接写入）。超级管理员**初始随机口令仅在服务端启动日志打印一次**（`docker compose logs app` 查看），**首次登录强制改账号密码，改密前无法进行其它后台操作**。
 3. 访问（容器直连，验证用）：
    - 后台管理：`http://<服务器IP>:7740/`
    - 客户端 API：`http://<服务器IP>:7740/api/v1/...`，WebSocket：`ws://<服务器IP>:7740/ws`
-   - 健康检查：`http://<服务器IP>:7740/healthz`
+   - 健康检查：`http://<服务器IP>:7740/healthz`（compose 已配 healthcheck）
 4. 常用运维：
    ```bash
-   docker compose logs -f server     # 服务端日志
+   docker compose logs -f app        # 服务端日志（含超管初始口令）
    docker compose ps                 # 状态
    docker compose pull && docker compose up -d   # 拉取新镜像并更新（生产升级）
    docker compose down               # 停止（保留数据卷）

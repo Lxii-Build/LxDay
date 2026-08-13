@@ -9,7 +9,7 @@
 ```
 lx/
 ├── Dockerfile                # 一体化多阶段镜像：node 构建 admin dist → go 内嵌编译 → 精简运行时
-├── docker-compose.yml        # 一键部署：单容器 server(7740)，内嵌 SQLite（无 mysql/redis）
+├── docker-compose.yml        # 一键部署：单容器(默认从 GHCR 拉取镜像)，内嵌 SQLite（无 mysql/redis）
 ├── deploy/config.docker.yaml # 容器内服务端配置（端口 7740 / db.path SQLite；密钥走 .env 的 JWT_SECRET/APP_KEY）
 ├── .env.example              # 密钥模板：复制为 .env 填 JWT_SECRET / APP_KEY（勿提交）
 ├── docs/                     # DEPLOYMENT.md 部署 · APP_INTRO.md 应用介绍 · android-ui.md 等

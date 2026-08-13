@@ -1,24 +1,28 @@
-# 林曦日记 · Docker Compose 一键部署
+# 林曦日记 · Docker Compose 一键部署（单容器）
 # 单容器：Go 自托管后台前端 + API + WS + /uploads，内嵌 SQLite（无 MySQL / 无 Redis）。
-# 密钥经同目录 .env 注入（见 .env.example）；TLS 由外部反向代理终止（部署文档另述）。
+# 默认从 GHCR 拉取镜像（docker compose pull && up -d）；离线场景可先 docker load 镜像 tar 再 up。
+# 密钥经同目录 .env 注入（见 .env.example）；TLS 由外部反向代理（宝塔/Nginx/Caddy）终止。
 services:
-  server:
-    build:
-      context: .
-      dockerfile: Dockerfile
+  app:
+    image: "${LXDAY_IMAGE:-ghcr.io/lxii-build/lxday:latest}"
     container_name: LxDay
     restart: unless-stopped
-    environment:
-      # 密钥由同目录 .env 注入（勿提交 .env）
-      JWT_SECRET: ${JWT_SECRET}
-      APP_KEY: ${APP_KEY}
-    volumes:
-      - ./deploy/config.docker.yaml:/app/config.yaml:ro
-      - db_data:/app/data      # SQLite 数据库文件持久化
-      - uploads:/app/uploads   # 头像 / 日记图片 / APK
     ports:
       # 内外端口一致：宝塔容器列表显示 7740 -> 7740
-      - "7740:7740"
+      - "${APP_PORT:-7740}:7740"
+    environment:
+      # 密钥由同目录 .env 注入（勿提交 .env）；JWT_SECRET 必填
+      JWT_SECRET: "${JWT_SECRET:-}"
+      APP_KEY: "${APP_KEY:-}"
+    volumes:
+      - db_data:/app/data      # SQLite 数据库文件持久化
+      - uploads:/app/uploads   # 头像 / 日记图片 / APK
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:7740/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
   db_data:
