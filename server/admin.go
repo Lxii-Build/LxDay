@@ -74,7 +74,14 @@ func AdminAuth() gin.HandlerFunc {
 		token := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
 		aid, role, mc, err := parseAdminToken(token)
 		if err != nil {
-			afail(c, http.StatusUnauthorized, 401, "未授权")
+			afail(c, http.StatusUnauthorized, 401, "登录已失效，请重新登录")
+			c.Abort()
+			return
+		}
+		// token 有效但管理员不存在（数据库重建 / 账号被删）→ 返回 401，
+		// 让后台前端据 401 自动登出并回登录页，而非停在页面报 404/500/禁止访问。
+		if _, err := st.GetAdminByID(aid); err != nil {
+			afail(c, http.StatusUnauthorized, 401, "登录已失效，请重新登录")
 			c.Abort()
 			return
 		}
