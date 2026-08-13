@@ -64,11 +64,11 @@ func parseAdminToken(token string) (int64, string, bool, error) {
 }
 
 func AdminAuth() gin.HandlerFunc {
-	// 首登强制改凭据前允许访问的白名单（否则一律拦截，防止用初始 admin/123456 直接操作）。
+	// 首登强制改凭据前允许访问的白名单（否则一律拦截，防止用初始 admin 直接操作）。
+	// 注意：键必须是 gin 的完整路由路径（含 /api/admin 组前缀），否则会误拦合法首登。
 	allowWhileMustChange := map[string]bool{
-		"/api/admin/info":               true,
+		"/api/admin/user/info":          true,
 		"/api/admin/change-credentials": true,
-		"/api/admin/logout":             true,
 	}
 	return func(c *gin.Context) {
 		token := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")

@@ -26,7 +26,7 @@ export function fetchGetUserInfo() {
  * POST /api/admin/change-credentials
  */
 export function fetchChangeCredentials(params: Api.Auth.ChangeCredentialsParams) {
-  return request.post<{ ok: boolean }>({
+  return request.post<{ ok: boolean; token?: string; refreshToken?: string }>({
     url: '/api/admin/change-credentials',
     params
   })

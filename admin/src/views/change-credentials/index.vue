@@ -103,8 +103,10 @@
       if (formData.password) payload.password = formData.password
       if (formData.email) payload.email = formData.email
 
-      await fetchChangeCredentials(payload)
+      const res = await fetchChangeCredentials(payload)
       ElMessage.success('修改成功')
+      // 改密后服务端签发新 token（must_change 已清零）；必须换用新 token，否则后续请求仍带旧 token 被 403 拦。
+      if (res?.token) userStore.setToken(res.token, res.refreshToken || res.token)
       if (userStore.info) userStore.info.must_change = false
       router.push('/')
     } finally {
