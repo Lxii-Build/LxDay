@@ -69,7 +69,7 @@ func buildMessage(from, to, subject, body string) []byte {
 		"To":           to,
 		"Subject":      enc,
 		"MIME-Version": "1.0",
-		"Content-Type": "text/plain; charset=utf-8",
+		"Content-Type": "text/html; charset=utf-8",
 	}
 	var b strings.Builder
 	for k, v := range headers {
@@ -78,6 +78,23 @@ func buildMessage(from, to, subject, body string) []byte {
 	b.WriteString("\r\n")
 	b.WriteString(body)
 	return []byte(b.String())
+}
+
+// verifyCodeEmailHTML 生成品牌化的验证码邮件（内联样式，兼容主流邮箱客户端；单一强调色=品牌蓝）。
+func verifyCodeEmailHTML(code string, minutes int) string {
+	return fmt.Sprintf(`<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f6f8;">
+<div style="max-width:480px;margin:0 auto;padding:32px 20px;font-family:-apple-system,'Segoe UI',Roboto,'PingFang SC','Microsoft YaHei',sans-serif;color:#1f2329;">
+  <div style="background:#ffffff;border-radius:16px;padding:32px 28px;border:1px solid #eceef1;">
+    <div style="font-size:20px;font-weight:600;color:#277AF7;">林曦日记</div>
+    <div style="margin-top:20px;font-size:15px;line-height:1.6;color:#4e5969;">你正在注册 / 验证林曦日记账号，验证码如下：</div>
+    <div style="margin:24px 0;text-align:center;">
+      <span style="display:inline-block;font-size:32px;letter-spacing:8px;font-weight:700;color:#277AF7;background:#f0f6ff;border-radius:12px;padding:14px 24px;">%s</span>
+    </div>
+    <div style="font-size:13px;line-height:1.6;color:#86909c;">验证码 %d 分钟内有效，请勿泄露给他人。若非本人操作，请忽略本邮件。</div>
+  </div>
+  <div style="text-align:center;margin-top:16px;font-size:12px;color:#a9aeb8;">此邮件由系统自动发送，请勿回复</div>
+</div>
+</body></html>`, code, minutes)
 }
 
 func sendMail(sc smtpConfig, to, subject, body string) error {
@@ -151,7 +168,7 @@ func handleSendEmailCode(c *gin.Context) {
 		fail(c, 500, 1013, "邮件服务未配置，请联系管理员")
 		return
 	}
-	body := fmt.Sprintf("你的林曦日记验证码是 %s，%d 分钟内有效。若非本人操作请忽略。", code, int(emailCodeTTL.Minutes()))
+	body := verifyCodeEmailHTML(code, int(emailCodeTTL.Minutes()))
 	if err := sendMail(sc, email, "林曦日记 · 邮箱验证码", body); err != nil {
 		fail(c, 500, 1014, "验证码发送失败，请稍后再试")
 		return

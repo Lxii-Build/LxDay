@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -120,9 +121,15 @@ func (s *Store) EnsureSuperAdmin() error {
 	if n > 0 {
 		return nil
 	}
+	// 安全：不使用公开可知的默认口令（admin/123456 会被抢注接管），改为随机初始口令并仅在日志打印一次。
+	pw := randomPassword(12)
 	_, err := s.DB.Exec(
 		"INSERT INTO admin_user(username,password_hash,role,must_change) VALUES(?,?,?,1)",
-		"admin", hashPassword("123456"), "super")
+		"admin", hashPassword(pw), "super")
+	if err == nil {
+		slog.Warn("首次初始化超级管理员，请立即登录后台修改（首登强制改密），以下初始口令仅打印一次",
+			"username", "admin", "password", pw)
+	}
 	return err
 }
 

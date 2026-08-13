@@ -67,6 +67,17 @@ func randomCode(n int) string {
 	return string(out)
 }
 
+// randomPassword 生成随机强口令（去除易混字符），用于超级管理员初始密码，避免公开的默认口令被抢注接管。
+func randomPassword(n int) string {
+	const cs = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
+	out := make([]byte, n)
+	for i := range out {
+		v, _ := rand.Int(rand.Reader, big.NewInt(int64(len(cs))))
+		out[i] = cs[v.Int64()]
+	}
+	return string(out)
+}
+
 // ================= JWT =================
 
 func signToken(uid int64) (string, error) {
