@@ -88,7 +88,7 @@ data class UpdateInfo(
 
 /** 关于页（仿 KernelSU）：图标 + 名称 + 版本 + 仓库/官网链接 + 检查更新 + 退出登录。 */
 @Composable
-fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit) {
+fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit) {
     BackHandler { onBack() }
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
@@ -96,6 +96,8 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit) {
     var checking by remember { mutableStateOf(false) }
     var update by remember { mutableStateOf<UpdateInfo?>(null) }
     var upToDate by remember { mutableStateOf(false) }
+    var showUnbind by remember { mutableStateOf(false) }
+    var unbinding by remember { mutableStateOf(false) }
 
     KernelScreen(title = "关于", navigationIcon = { BackAction(onBack) }) {
         item {
@@ -159,6 +161,18 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit) {
         }
         item {
             Card(Modifier.padding(top = 12.dp).fillMaxWidth()) {
+                if (UserPrefs.pairId > 0) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 56.dp)
+                            .clickable(enabled = !unbinding) { showUnbind = true }
+                            .padding(horizontal = 16.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(if (unbinding) "解除中…" else "解除绑定", color = colorScheme.onBackground, fontWeight = FontWeight.Medium)
+                    }
+                }
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -187,6 +201,52 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit) {
 
     update?.let { info ->
         UpdateDialog(info = info, onDismiss = { update = null })
+    }
+
+    if (showUnbind) {
+        OverlayDialog(
+            show = true,
+            title = "解除绑定",
+            onDismissRequest = { if (!unbinding) showUnbind = false },
+            renderInRootScaffold = true,
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "解除后你和对方都会回到绑定页，可重新绑定。确定解除当前绑定？",
+                    color = colorScheme.onSurfaceVariantSummary,
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    LxButton(
+                        "取消",
+                        onClick = { showUnbind = false },
+                        variant = LxButtonVariant.Neutral,
+                        enabled = !unbinding,
+                        modifier = Modifier.weight(1f),
+                    )
+                    LxButton(
+                        text = if (unbinding) "解除中…" else "确定解除",
+                        onClick = {
+                            scope.launch {
+                                unbinding = true
+                                runCatching { ApiClient.postJson("/pair/unbind", JSONObject()) }
+                                UserPrefs.pairId = 0
+                                UserPrefs.partnerName = ""
+                                UserPrefs.sharingEnabled = false
+                                StatusSyncManager.disconnect()
+                                StatusForegroundService.stop(context)
+                                ProfileRuntime.clearSession()
+                                unbinding = false
+                                showUnbind = false
+                                onUnbound()
+                            }
+                        },
+                        variant = LxButtonVariant.Negative,
+                        enabled = !unbinding,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
     }
 }
 

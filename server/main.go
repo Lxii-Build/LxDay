@@ -122,6 +122,8 @@ func main() {
 	auth.GET("/pair/status", handlePairStatus)
 	auth.POST("/pair/create-invite", handleCreateInvite)
 	auth.POST("/pair/bind", handleBind)
+	auth.POST("/pair/unbind", handleUnbind)
+	auth.POST("/pair/cancel-invite", handleCancelInvite)
 	auth.PUT("/pair/anniversary", handleUpdateAnniversary)
 
 	auth.GET("/profile", handleGetProfile)

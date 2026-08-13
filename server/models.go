@@ -148,6 +148,7 @@ const (
 	MsgProfileUpdated = "profile_updated" // 资料变化后通知对方重新拉取
 	MsgAdminNotice    = "admin_notice"    // 后台广播通知
 	MsgPaired         = "paired"          // 绑定成功后通知邀请方（另一方绑定 → 邀请方据此进入主界面）
+	MsgUnbound        = "unbound"         // 解除绑定后通知对方（对方据此回到绑定页）
 )
 
 // 高优事件：离线时必须入队（不接商业推送，靠重连补拉）

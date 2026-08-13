@@ -120,7 +120,8 @@ func (s *Store) GetPairByUserID(uid int64) (*Pair, error) {
 	p := &Pair{}
 	err := s.DB.QueryRow(
 		`SELECT id,user_a_id,user_b_id,invite_code,anniversary_date FROM pair
-		 WHERE status=1 AND (user_a_id=? OR user_b_id=?) LIMIT 1`, uid, uid).Scan(
+		 WHERE status=1 AND (user_a_id=? OR user_b_id=?)
+		 ORDER BY (user_a_id>0 AND user_b_id>0) DESC, id DESC LIMIT 1`, uid, uid).Scan(
 		&p.ID, &p.UserAID, &p.UserBID, &p.InviteCode, &p.AnniversaryDate)
 	return p, err
 }
@@ -163,6 +164,11 @@ func (s *Store) BindPair(code, uid int64) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	// 作废绑定方此前自己创建的挂起邀请：双方都生成过码时，一旦一方用了对方的码绑定，
+	// 自己那张挂起的码即失效（另一张码仍可被再次使用/或已被消费）。
+	s.DB.Exec(
+		`UPDATE pair SET status=0 WHERE id!=? AND status=1 AND ((user_a_id=? AND user_b_id=0) OR (user_b_id=? AND user_a_id=0))`,
+		pairID, uid, uid)
 	return pairID, nil
 }
 

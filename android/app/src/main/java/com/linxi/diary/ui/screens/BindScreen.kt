@@ -13,6 +13,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -38,9 +40,11 @@ fun BindScreen(onBound: () -> Unit, onBack: () -> Unit) {
     // 绑定页拦截系统返回键回到登录页，避免直接退出到桌面。
     BackHandler { onBack() }
     val scope = rememberCoroutineScope()
+    val clipboard = LocalClipboardManager.current
     var mode by remember { mutableStateOf(0) }
     var inviteCode by remember { mutableStateOf("") }
     var myCode by remember { mutableStateOf("") }
+    var copied by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
 
@@ -138,16 +142,32 @@ fun BindScreen(onBound: () -> Unit, onBack: () -> Unit) {
                             modifier = Modifier.fillMaxWidth()
                         ) { Text(if (busy) "生成中…" else "生成邀请码") }
                     } else {
-                        Text("你的邀请码",
+                        Text("你的邀请码（点击复制）",
                             color = colorScheme.onSurface.copy(alpha = 0.78f), fontSize = 14.sp)
                         Text(
                             myCode,
                             color = colorScheme.primary,
                             fontSize = 32.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.clickable {
+                                clipboard.setText(AnnotatedString(myCode))
+                                copied = true
+                            },
                         )
-                        Text("让伴侣在对方手机上输入此码",
+                        Text(
+                            if (copied) "已复制到剪贴板，发给对方绑定" else "让伴侣在对方手机上输入此码",
                             color = colorScheme.onSurface.copy(alpha = 0.78f), fontSize = 14.sp)
+                        Text(
+                            "取消邀请码",
+                            color = colorScheme.error,
+                            fontSize = 13.sp,
+                            modifier = Modifier.clickable {
+                                scope.launch {
+                                    runCatching { ApiClient.postJson("/pair/cancel-invite", JSONObject()) }
+                                    myCode = ""; copied = false
+                                }
+                            },
+                        )
                     }
                     1 -> {
                         TextField(

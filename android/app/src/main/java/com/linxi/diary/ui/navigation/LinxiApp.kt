@@ -149,7 +149,11 @@ fun LinxiApp() {
             ) { target ->
                 when (target) {
                     Screen.Login -> LoginScreen(
-                    onLoggedIn = { screen = Screen.Bind },
+                    onLoggedIn = {
+                        // 已绑定则直接进主页（退出登录不解绑），未绑定才进绑定页。
+                        mainInitialPage = 0
+                        screen = if (UserPrefs.pairId > 0) Screen.Main else Screen.Bind
+                    },
                     onNavigateRegister = { screen = Screen.Register },
                 )
                 Screen.Register -> RegisterScreen(
@@ -181,6 +185,7 @@ fun LinxiApp() {
                 Screen.About -> AboutScreen(
                     onBack = { mainInitialPage = 3; screen = Screen.Main },
                     onLogout = { screen = Screen.Login },
+                    onUnbound = { screen = Screen.Bind },
                 )
                 Screen.Main -> MainTabs(
                     initialPage = mainInitialPage,

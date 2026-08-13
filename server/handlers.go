@@ -244,6 +244,33 @@ func handleBind(c *gin.Context) {
 	ok(c, gin.H{"pair_id": pair.ID, "partner": pu})
 }
 
+// handleUnbind 用户主动解除绑定：双方同时解绑（pair 置 status=0），并通知对方回到绑定页。
+// 退出登录 ≠ 解绑；解绑后双方均可重新生成/输入邀请码正常绑定。
+func handleUnbind(c *gin.Context) {
+	uid := currentUID(c)
+	pair, err := st.GetPairByUserID(uid)
+	if err != nil {
+		ok(c, gin.H{"unbound": true}) // 本就未绑定
+		return
+	}
+	partner := st.PartnerID(pair, uid)
+	if _, e := st.DB.Exec(`UPDATE pair SET status=0, unbind_time=datetime('now') WHERE id=?`, pair.ID); e != nil {
+		fail(c, 500, 1010, "解绑失败")
+		return
+	}
+	if partner > 0 {
+		hub.route(partner, WsMessage{Type: MsgUnbound, Data: gin.H{"pair_id": pair.ID}})
+	}
+	ok(c, gin.H{"unbound": true})
+}
+
+// handleCancelInvite 邀请方主动取消自己尚未被使用的邀请码（挂起邀请作废）。
+func handleCancelInvite(c *gin.Context) {
+	uid := currentUID(c)
+	st.DB.Exec(`UPDATE pair SET status=0 WHERE user_a_id=? AND user_b_id=0 AND status=1`, uid)
+	ok(c, gin.H{"canceled": true})
+}
+
 func handlePairStatus(c *gin.Context) {
 	profile, err := pairProfile(currentUID(c))
 	if errors.Is(err, errPairUnbound) {
@@ -402,6 +429,10 @@ func pairProfileFrom(queryer profileQueryer, uid int64) (gin.H, error) {
 	partnerID := pair.UserAID
 	if pair.UserAID == uid {
 		partnerID = pair.UserBID
+	}
+	// 对方槽位为空 = 仅有挂起邀请、尚未真正双人绑定，视为未绑定（/pair/status 返回 bound:false）。
+	if partnerID == 0 {
+		return nil, errPairUnbound
 	}
 	partner, err := userFrom(queryer, partnerID)
 	if err != nil {

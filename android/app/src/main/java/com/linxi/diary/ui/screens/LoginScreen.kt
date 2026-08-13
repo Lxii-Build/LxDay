@@ -74,6 +74,16 @@ fun LoginScreen(
                 val data = ApiClient.login(account.trim(), password)
                 UserPrefs.token = data.getString("token")
                 UserPrefs.myUserId = data.optLong("user_id")
+                // 登录 ≠ 重新绑定：若后台已存在绑定关系，写回 pairId，登录后直接进主页并同步数据。
+                runCatching {
+                    val p = ApiClient.pairStatus()
+                    if (p.optBoolean("bound")) {
+                        UserPrefs.pairId = p.optLong("pair_id")
+                        UserPrefs.partnerName = p.optJSONObject("partner")?.optString("nickname") ?: ""
+                    } else {
+                        UserPrefs.pairId = 0
+                    }
+                }
             }.onSuccess {
                 Logs.i("Auth", "login success")
                 onLoggedIn()
