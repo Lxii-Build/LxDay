@@ -156,34 +156,6 @@
       "message": "欢迎回来"
     }
   },
-  "forgetPassword": {
-    "title": "忘记密码？",
-    "subTitle": "输入您的电子邮件来重置您的密码",
-    "placeholder": "请输入您的电子邮件",
-    "submitBtnText": "提交",
-    "backBtnText": "返回"
-  },
-  "register": {
-    "title": "创建账号",
-    "subTitle": "欢迎加入我们，请填写以下信息完成注册",
-    "placeholder": {
-      "username": "请输入账号",
-      "password": "请输入密码",
-      "confirmPassword": "请再次输入密码"
-    },
-    "rule": {
-      "confirmPasswordRequired": "请再次输入密码",
-      "passwordMismatch": "两次输入密码不一致!",
-      "usernameLength": "长度在 3 到 20 个字符",
-      "passwordLength": "密码长度不能小于6位",
-      "agreementRequired": "请同意隐私协议"
-    },
-    "agreeText": "我同意",
-    "privacyPolicy": "《隐私政策》",
-    "submitBtnText": "注册",
-    "hasAccount": "已有账号？",
-    "toLogin": "去登录"
-  },
   "lockScreen": {
     "pwdError": "密码错误",
     "lock": {
@@ -212,15 +184,6 @@
     "login": {
       "title": "登录"
     },
-    "register": {
-      "title": "注册"
-    },
-    "forgetPassword": {
-      "title": "忘记密码"
-    },
-    "outside": {
-      "title": "内嵌页面"
-    },
     "dashboard": {
       "title": "数据看板"
     },
@@ -247,6 +210,9 @@
     },
     "auditLog": {
       "title": "系统日志"
+    },
+    "networkLog": {
+      "title": "网络日志"
     },
     "adminManage": {
       "title": "管理员管理"

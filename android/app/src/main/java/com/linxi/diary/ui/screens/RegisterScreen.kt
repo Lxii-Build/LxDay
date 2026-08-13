@@ -1,6 +1,7 @@
 package com.linxi.diary.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -11,11 +12,21 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Email
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Pin
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -24,11 +35,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.linxi.diary.R
 import com.linxi.diary.data.ApiClient
 import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
@@ -66,7 +80,9 @@ fun RegisterScreen(
 
     val usernameOk = USERNAME_REGEX.matches(username)
     val emailOk = email.contains("@") && email.contains(".")
-    val canSubmit = usernameOk && emailOk && code.isNotBlank() && password.length >= 6 && !busy
+    val passwordOk = password.length >= 6
+    val codeOk = code.isNotBlank()
+    val canSubmit = usernameOk && emailOk && codeOk && passwordOk && !busy
 
     fun sendCode() {
         if (!emailOk || countdown > 0 || sending) return
@@ -107,61 +123,118 @@ fun RegisterScreen(
     Column(
         Modifier
             .fillMaxSize()
+            .systemBarsPadding()
+            .imePadding()
             .verticalScroll(rememberScrollState())
-            .padding(24.dp),
+            .padding(horizontal = 24.dp, vertical = 24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("创建账号", color = colorScheme.onBackground, fontSize = 28.sp, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(6.dp))
-        Text("用户名为 3-20 位大小写英文字母", color = colorScheme.onSurface.copy(alpha = 0.78f), fontSize = 14.sp)
-        Spacer(Modifier.height(24.dp))
+        Image(
+            painter = painterResource(R.mipmap.ic_launcher),
+            contentDescription = "林曦日记",
+            modifier = Modifier.size(72.dp).clip(RoundedCornerShape(18.dp)),
+        )
+        Spacer(Modifier.height(16.dp))
+        Text("林曦日记", color = colorScheme.onBackground, fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "创建账号，绑定 TA 后一起记录状态与待办",
+            color = colorScheme.onSurfaceVariantSummary,
+            fontSize = 14.sp,
+        )
+        Spacer(Modifier.height(32.dp))
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                TextField(
-                    value = username, onValueChange = { username = it },
-                    label = "用户名（英文 3-20 位）",
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                TextField(
-                    value = email, onValueChange = { email = it },
-                    label = "邮箱",
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.weight(1f)) {
-                        TextField(
-                            value = code, onValueChange = { code = it },
-                            label = "验证码",
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.fillMaxWidth(),
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TextField(
+                        value = username, onValueChange = { username = it },
+                        label = "用户名（英文 3-20 位）",
+                        singleLine = true,
+                        leadingIcon = {
+                            Icon(
+                                Icons.Rounded.Person,
+                                contentDescription = null,
+                                tint = colorScheme.onSurfaceVariantSummary,
+                                modifier = Modifier.padding(start = 12.dp),
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (!usernameOk) FieldHint("用户名需 3-20 位英文字母（大小写均可）")
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TextField(
+                        value = email, onValueChange = { email = it },
+                        label = "邮箱",
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                        leadingIcon = {
+                            Icon(
+                                Icons.Rounded.Email,
+                                contentDescription = null,
+                                tint = colorScheme.onSurfaceVariantSummary,
+                                modifier = Modifier.padding(start = 12.dp),
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (!emailOk) FieldHint(if (email.isBlank()) "请输入邮箱以接收验证码" else "邮箱格式不正确")
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f)) {
+                            TextField(
+                                value = code, onValueChange = { code = it },
+                                label = "验证码",
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Rounded.Pin,
+                                        contentDescription = null,
+                                        tint = colorScheme.onSurfaceVariantSummary,
+                                        modifier = Modifier.padding(start = 12.dp),
+                                    )
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        LxButton(
+                            text = when {
+                                countdown > 0 -> "${countdown}s"
+                                sending -> "发送中…"
+                                else -> "发送验证码"
+                            },
+                            onClick = { sendCode() },
+                            enabled = emailOk && countdown == 0 && !sending,
+                            variant = LxButtonVariant.Neutral,
+                            modifier = Modifier.width(112.dp),
                         )
                     }
-                    Spacer(Modifier.width(12.dp))
-                    LxButton(
-                        text = when {
-                            countdown > 0 -> "${countdown}s"
-                            sending -> "发送中…"
-                            else -> "发送验证码"
-                        },
-                        onClick = { sendCode() },
-                        enabled = emailOk && countdown == 0 && !sending,
-                        variant = LxButtonVariant.Neutral,
-                    )
+                    if (!codeOk) FieldHint("请输入邮箱收到的验证码")
                 }
-                TextField(
-                    value = password, onValueChange = { password = it },
-                    label = "密码（至少 6 位）",
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TextField(
+                        value = password, onValueChange = { password = it },
+                        label = "密码（至少 6 位）",
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        leadingIcon = {
+                            Icon(
+                                Icons.Rounded.Lock,
+                                contentDescription = null,
+                                tint = colorScheme.onSurfaceVariantSummary,
+                                modifier = Modifier.padding(start = 12.dp),
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (!passwordOk) FieldHint("密码至少 6 位")
+                }
                 error?.let { Text(it, color = colorScheme.error, fontSize = 13.sp) }
                 LxButton(
                     text = if (busy) "注册中…" else "注册",
@@ -173,7 +246,7 @@ fun RegisterScreen(
             }
         }
 
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(24.dp))
         Text(
             "已有账号？返回登录",
             color = colorScheme.primary,
@@ -186,4 +259,14 @@ fun RegisterScreen(
                 .padding(8.dp),
         )
     }
+}
+
+@Composable
+private fun FieldHint(text: String) {
+    Text(
+        text,
+        color = colorScheme.onSurfaceVariantSummary,
+        fontSize = 12.sp,
+        modifier = Modifier.padding(start = 4.dp),
+    )
 }

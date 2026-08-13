@@ -8,6 +8,7 @@ import { appVersionRoutes } from './app-version'
 import { notifyRoutes } from './notify'
 import { settingsRoutes } from './settings'
 import { auditRoutes } from './audit'
+import { networkLogRoutes } from './network-log'
 import { adminsRoutes } from './admins'
 
 /**
@@ -23,5 +24,6 @@ export const routeModules: AppRouteRecord[] = [
   notifyRoutes,
   settingsRoutes,
   auditRoutes,
+  networkLogRoutes,
   adminsRoutes
 ]

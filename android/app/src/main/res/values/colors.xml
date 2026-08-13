@@ -6,8 +6,8 @@
     <color name="card_text_secondary">#8A8290</color>
     <color name="card_border">#8CFFFFFF</color>
 
-    <!-- Launcher 图标背景（MilkGlass 粉调） -->
-    <color name="ic_launcher_background">#B9A9DC</color>
+    <!-- Launcher 图标背景（品牌蓝，统一主色 #277AF7） -->
+    <color name="ic_launcher_background">#277AF7</color>
 
     <!-- 状态语义色（深浅两套通用） -->
     <color name="status_charging">#4CAF50</color>

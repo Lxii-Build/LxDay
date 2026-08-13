@@ -18,9 +18,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.linxi.diary.data.ApiClient
 import com.linxi.diary.data.ProfileRuntime
-import com.linxi.diary.service.StatusForegroundService
-import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.util.UserPrefs
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import top.yukonga.miuix.kmp.basic.Button
@@ -38,7 +37,6 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 fun BindScreen(onBound: () -> Unit, onBack: () -> Unit) {
     // 绑定页拦截系统返回键回到登录页，避免直接退出到桌面。
     BackHandler { onBack() }
-    val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     var mode by remember { mutableStateOf(0) }
     var inviteCode by remember { mutableStateOf("") }
@@ -73,6 +71,31 @@ fun BindScreen(onBound: () -> Unit, onBack: () -> Unit) {
                 ProfileRuntime.connectAndRefreshIfEligible()
             }.onFailure { e -> error = e.message }
             busy = false
+        }
+    }
+
+    // 邀请方（我创建）等待对方绑定：生成邀请码后每 3s 轮询 /pair/status，
+    // 一旦对方绑定即写入 pairId 并进入主界面（与服务端 paired 推送互为双保险，弱网/推送丢失也能进）。
+    LaunchedEffect(myCode) {
+        if (myCode.isEmpty()) return@LaunchedEffect
+        while (true) {
+            delay(3000)
+            val bound = runCatching {
+                val resp = ApiClient.get("/pair/status")
+                if (resp.optBoolean("bound")) {
+                    UserPrefs.demoMode = false
+                    UserPrefs.pairId = resp.optLong("pair_id")
+                    UserPrefs.partnerName = resp.optJSONObject("partner")?.optString("nickname") ?: ""
+                    UserPrefs.privacyConsented = false
+                    UserPrefs.sharingEnabled = false
+                    true
+                } else false
+            }.getOrDefault(false)
+            if (bound) {
+                onBound()
+                ProfileRuntime.connectAndRefreshIfEligible()
+                break
+            }
         }
     }
 
@@ -144,31 +167,6 @@ fun BindScreen(onBound: () -> Unit, onBack: () -> Unit) {
                 }
             }
         }
-
-        Spacer(Modifier.height(16.dp))
-
-        Text(
-            "跳过（开发调试）",
-            color = colorScheme.primary,
-            fontSize = 14.sp,
-            modifier = Modifier
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) {
-                    // 调试模式只显示本地示例，不上传、不提醒、不参与真实绑定。
-                    UserPrefs.demoMode = true
-                    UserPrefs.pairId = 1
-                    UserPrefs.partnerName = "调试伴侣"
-                    UserPrefs.privacyConsented = false
-                    UserPrefs.sharingEnabled = false
-                    StatusSyncManager.disconnect()
-                    ProfileRuntime.clearProfileCache()
-                    StatusForegroundService.stop(context)
-                    onBound()
-                }
-                .padding(12.dp)
-        )
     }
 }
 

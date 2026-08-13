@@ -65,6 +65,7 @@ import com.linxi.diary.ui.screens.UpdateInfo
 import com.linxi.diary.ui.screens.WallpaperScreen
 import com.linxi.diary.util.Logs
 import com.linxi.diary.util.UserPrefs
+import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.FloatingActionButton
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Scaffold
@@ -132,7 +133,6 @@ fun LinxiApp() {
                     Screen.Login -> LoginScreen(
                     onLoggedIn = { screen = Screen.Bind },
                     onNavigateRegister = { screen = Screen.Register },
-                    onSkipDebug = { screen = Screen.Bind },
                 )
                 Screen.Register -> RegisterScreen(
                     onRegistered = { screen = Screen.Bind },
@@ -211,6 +211,15 @@ private fun MainTabs(
 
     LaunchedEffect(pagerState.currentPage) {
         mainState.syncPage()
+    }
+
+    // C2 定期同步：前台每 30s 拉一次 /pair/status（内部按"已绑定且非 demo"门控），
+    // 与 WS 推送互补，保证信息（伴侣资料/绑定态/纪念日）及时同步。
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(30_000)
+            ProfileRuntime.refreshAsync()
+        }
     }
 
     val pagerContent: @Composable (androidx.compose.ui.unit.Dp) -> Unit = { bottomInnerPadding ->

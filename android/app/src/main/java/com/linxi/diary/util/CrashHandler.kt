@@ -12,8 +12,8 @@ import java.util.Locale
 
 /**
  * 全局崩溃捕获。
- * 崩溃日志写入内部 files/crash（Android app 私有目录）。
- * 另写「启动标记」确认 App.onCreate 是否执行到；需要读取时通过设置页导出诊断包。
+ * 崩溃日志写入内部 files/crash（Android app 私有目录），正文经 LogSanitizer 脱敏。
+ * 需要读取时通过设置页导出诊断包。
  */
 object CrashHandler {
 
@@ -29,8 +29,6 @@ object CrashHandler {
         if (!dir.exists()) dir.mkdirs()
         logDir = dir
         registerHandler()
-        // 标记：进程已启动到 attachBaseContext（证明 CrashHandler 已注册）
-        runCatching { write("attach_pid_${android.os.Process.myPid()}-${System.currentTimeMillis()}.txt", "attachBaseContext OK") }
         Log.i(TAG, "initEarly done, dir=$logDir")
     }
 
@@ -38,8 +36,6 @@ object CrashHandler {
         logDir = File(app.filesDir, "crash")
         if (!logDir!!.exists()) logDir!!.mkdirs()
         registerHandler()
-        // 标记：App.onCreate 执行到
-        write("onCreate_pid_${android.os.Process.myPid()}-${System.currentTimeMillis()}.txt", "App.onCreate OK")
         Log.i(TAG, "init done")
     }
 
@@ -47,7 +43,7 @@ object CrashHandler {
         defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             Log.e(TAG, "Uncaught exception on ${thread.name}", throwable)
-            writeCrash(throwable)
+            writeCrash(throwable, thread.name)
             defaultHandler?.uncaughtException(thread, throwable)
         }
     }
@@ -57,23 +53,23 @@ object CrashHandler {
             logDir?.let { d -> if (!d.exists()) d.mkdirs() }
             logDir?.let { dir -> runCatching { File(dir, fileName).writeText(content) } }
             trimCrashFiles()
-            Log.i(TAG, "marker written: $fileName")
+            Log.i(TAG, "crash file written: $fileName")
         } catch (_: Throwable) { }
     }
 
-    fun writeCrash(t: Throwable) {
+    fun writeCrash(t: Throwable, threadName: String = Thread.currentThread().name) {
         try {
             val name = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date()) + ".txt"
             val sb = StringBuilder()
             sb.appendLine("==== Linxi Diary crash ${Date()} ====")
-            sb.appendLine("PID: ${android.os.Process.myPid()} Thread: not captured")
+            sb.appendLine("PID: ${android.os.Process.myPid()} Thread: $threadName")
             sb.appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}")
             sb.appendLine("Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
             sb.appendLine()
             val sw = java.io.StringWriter()
             t.printStackTrace(PrintWriter(sw))
             sb.append(sw.toString())
-            write(name, sb.toString())
+            write(name, LogSanitizer.sanitize(sb.toString()))
         } catch (_: Throwable) { }
     }
 

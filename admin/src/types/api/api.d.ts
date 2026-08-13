@@ -204,6 +204,23 @@ declare namespace Api {
     }
     type AuditLogList = Api.Common.PaginatedResponse<AuditLog>
 
+    /** 网络请求日志 */
+    interface NetworkLog {
+      id: number
+      method: string
+      path: string
+      status: number
+      latency_ms: number
+      ip: string
+      ua: string
+      request_id: string
+      created_at: string
+    }
+    type NetworkLogList = Api.Common.PaginatedResponse<NetworkLog>
+    type NetworkLogSearchParams = Partial<
+      Api.Common.CommonSearchParams & { method: string; path: string; status: number }
+    >
+
     /** 管理员 */
     interface AdminItem {
       id: number

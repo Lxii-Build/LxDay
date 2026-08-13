@@ -52,42 +52,81 @@ object ApiClient {
         return o
     }
 
+    // C6：把 HTTP 状态码翻译成用户能看懂的中文，不再直接抛 "HTTP 400/403"。
+    private fun friendlyHttp(code: Int): String = when (code) {
+        400 -> "请求有误，请检查后重试"
+        401 -> "登录已失效，请重新登录"
+        403 -> "没有权限进行该操作"
+        404 -> "请求的内容不存在"
+        408 -> "网络超时，请稍后重试"
+        429 -> "操作过于频繁，请稍后再试"
+        in 500..599 -> "服务器开小差了，请稍后重试"
+        else -> "请求失败（$code）"
+    }
+
+    // 优先用服务端返回体里的中文 message；解析不到再退回状态码文案。
+    private fun bodyMessageOr(text: String, fallback: String): String {
+        val m = runCatching { JSONObject(text).optString("message") }.getOrNull()
+        return if (!m.isNullOrBlank()) m else fallback
+    }
+
+    // 统一网络异常处理：连接失败/超时等 IO 异常转成友好中文，业务异常原样上抛。
+    private inline fun <T> netCall(block: () -> T): T = try {
+        block()
+    } catch (e: ApiException) {
+        throw e
+    } catch (e: java.net.SocketTimeoutException) {
+        throw ApiException(-1, "网络超时，请稍后重试")
+    } catch (e: java.io.IOException) {
+        throw ApiException(-1, "网络连接失败，请检查网络后重试")
+    }
+
     suspend fun get(path: String): JSONObject = withContext(Dispatchers.IO) {
-        val resp = client.newCall(request("GET", path, null).build()).execute()
-        val text = resp.body?.string().orEmpty()
-        if (!resp.isSuccessful) throw ApiException(-1, "HTTP ${resp.code}")
-        check(text).optJSONObject("data") ?: JSONObject()
+        netCall {
+            val resp = client.newCall(request("GET", path, null).build()).execute()
+            val text = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) throw ApiException(resp.code, bodyMessageOr(text, friendlyHttp(resp.code)))
+            check(text).optJSONObject("data") ?: JSONObject()
+        }
     }
 
     /** GET 且 data 为数组 */
     suspend fun getArray(path: String): org.json.JSONArray = withContext(Dispatchers.IO) {
-        val resp = client.newCall(request("GET", path, null).build()).execute()
-        val text = resp.body?.string().orEmpty()
-        if (!resp.isSuccessful) throw ApiException(-1, "HTTP ${resp.code}")
-        check(text).optJSONArray("data") ?: org.json.JSONArray()
+        netCall {
+            val resp = client.newCall(request("GET", path, null).build()).execute()
+            val text = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) throw ApiException(resp.code, bodyMessageOr(text, friendlyHttp(resp.code)))
+            check(text).optJSONArray("data") ?: org.json.JSONArray()
+        }
     }
 
     suspend fun postJson(path: String, body: JSONObject): JSONObject = withContext(Dispatchers.IO) {
-        val reqBody = body.toString().toRequestBody(json)
-        val resp = client.newCall(request("POST", path, reqBody).build()).execute()
-        val text = resp.body?.string().orEmpty()
-        if (!resp.isSuccessful) throw ApiException(-1, "HTTP ${resp.code}")
-        check(text).optJSONObject("data") ?: JSONObject()
+        netCall {
+            val reqBody = body.toString().toRequestBody(json)
+            val resp = client.newCall(request("POST", path, reqBody).build()).execute()
+            val text = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) throw ApiException(resp.code, bodyMessageOr(text, friendlyHttp(resp.code)))
+            check(text).optJSONObject("data") ?: JSONObject()
+        }
     }
 
     suspend fun putJson(path: String, body: JSONObject): JSONObject = withContext(Dispatchers.IO) {
-        val reqBody = body.toString().toRequestBody(json)
-        val resp = client.newCall(request("PUT", path, reqBody).build()).execute()
-        val text = resp.body?.string().orEmpty()
-        if (!resp.isSuccessful) throw ApiException(-1, "HTTP ${resp.code}")
-        check(text).optJSONObject("data") ?: JSONObject()
+        netCall {
+            val reqBody = body.toString().toRequestBody(json)
+            val resp = client.newCall(request("PUT", path, reqBody).build()).execute()
+            val text = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) throw ApiException(resp.code, bodyMessageOr(text, friendlyHttp(resp.code)))
+            check(text).optJSONObject("data") ?: JSONObject()
+        }
     }
 
     suspend fun delete(path: String): JSONObject = withContext(Dispatchers.IO) {
-        val resp = client.newCall(request("DELETE", path, null).build()).execute()
-        val text = resp.body?.string().orEmpty()
-        if (!resp.isSuccessful) throw ApiException(-1, "HTTP ${resp.code}")
-        check(text).optJSONObject("data") ?: JSONObject()
+        netCall {
+            val resp = client.newCall(request("DELETE", path, null).build()).execute()
+            val text = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) throw ApiException(resp.code, bodyMessageOr(text, friendlyHttp(resp.code)))
+            check(text).optJSONObject("data") ?: JSONObject()
+        }
     }
 
     /** 上传图片（multipart）→ 返回 {url} */

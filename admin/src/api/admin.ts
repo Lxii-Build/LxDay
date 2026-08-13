@@ -104,6 +104,11 @@ export function fetchAuditLogs(params: Api.Common.CommonSearchParams) {
   return request.get<Api.Admin.AuditLogList>({ url: '/api/admin/audit-logs', params })
 }
 
+// ---------- 网络日志 ----------
+export function fetchNetworkLogs(params: Api.Admin.NetworkLogSearchParams) {
+  return request.get<Api.Admin.NetworkLogList>({ url: '/api/admin/network-logs', params })
+}
+
 // ---------- 管理员管理 ----------
 export function fetchAdmins() {
   return request.get<Api.Admin.AdminItem[]>({ url: '/api/admin/admins' })

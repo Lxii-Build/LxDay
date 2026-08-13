@@ -18,33 +18,14 @@
       <ElCard class="mb-4" shadow="never">
         <template #header>存储配置</template>
         <ElFormItem label="存储驱动">
-          <ElSelect v-model="form['storage.driver']" style="width: 220px">
+          <ElSelect v-model="form['storage.driver']" style="width: 220px" disabled>
             <ElOption label="本地存储 (local)" value="local" />
-            <ElOption label="阿里云 OSS (oss)" value="oss" />
-            <ElOption label="腾讯云 COS (cos)" value="cos" />
-            <ElOption label="七牛 Kodo (kodo)" value="kodo" />
           </ElSelect>
+          <span class="storage-tip">当前仅支持本地存储</span>
         </ElFormItem>
-        <ElFormItem v-if="form['storage.driver'] === 'local'" label="本地目录">
+        <ElFormItem label="本地目录">
           <ElInput v-model="form['storage.local_dir']" placeholder="如 ./uploads" />
         </ElFormItem>
-        <template v-else>
-          <ElFormItem label="Endpoint">
-            <ElInput v-model="form['storage.oss_endpoint']" />
-          </ElFormItem>
-          <ElFormItem label="Bucket">
-            <ElInput v-model="form['storage.oss_bucket']" />
-          </ElFormItem>
-          <ElFormItem label="AccessKey">
-            <ElInput v-model="form['storage.oss_access_key']" />
-          </ElFormItem>
-          <ElFormItem label="SecretKey">
-            <ElInput v-model="form['storage.oss_secret']" type="password" show-password />
-          </ElFormItem>
-          <ElFormItem label="访问域名">
-            <ElInput v-model="form['storage.oss_base_url']" placeholder="资源访问基础 URL" />
-          </ElFormItem>
-        </template>
       </ElCard>
 
       <ElCard class="mb-4" shadow="never">
@@ -104,11 +85,6 @@
     'site.description',
     'storage.driver',
     'storage.local_dir',
-    'storage.oss_endpoint',
-    'storage.oss_bucket',
-    'storage.oss_access_key',
-    'storage.oss_secret',
-    'storage.oss_base_url',
     'smtp.host',
     'smtp.port',
     'smtp.username',
@@ -145,7 +121,8 @@
       // 后端对已设置的密码返回占位符，此处置空并记录状态
       passwordSet.value = form['smtp.password'] === PLACEHOLDER
       form['smtp.password'] = ''
-      if (!form['storage.driver']) form['storage.driver'] = 'local'
+      // 仅支持本地存储：强制归一化驱动，避免遗留的 oss/cos/kodo 值导致下拉为空
+      form['storage.driver'] = 'local'
     } finally {
       loading.value = false
     }
@@ -180,6 +157,12 @@
   .system-settings-page {
     .settings-actions {
       margin-left: 120px;
+    }
+
+    .storage-tip {
+      margin-left: 12px;
+      font-size: 12px;
+      color: var(--art-gray-500);
     }
   }
 </style>

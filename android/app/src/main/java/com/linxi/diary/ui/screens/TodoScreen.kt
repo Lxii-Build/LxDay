@@ -193,7 +193,8 @@ fun TodoScreen() {
                         scope.launch {
                             runCatching {
                                 ApiClient.updateTodo(t.id, JSONObject().put("remind_enabled", enabled))
-                                if (!enabled) {
+                                // 本地闹钟仅在"被提醒者=本人"时于本机调度；指派给对方时以服务端扫描推送为准，避免响错设备。
+                                if (!enabled || t.assigneeId != meId) {
                                     TodoAlarmScheduler.cancel(context, t.id)
                                 } else if (t.remindAtMs != null) {
                                     TodoAlarmScheduler.schedule(context, t.id, t.title, t.remindType, t.remindAtMs)
@@ -233,7 +234,8 @@ fun TodoScreen() {
             partnerName = partnerName,
             onDismiss = { showAdd = false },
             onAdded = { todo, ctx ->
-                if (todo.remindEnabled && todo.remindAtMs != null) {
+                // 本地闹钟兜底仅在"被提醒者=本人"时于本机调度；给对方的提醒由服务端扫描推送到对方设备。
+                if (todo.remindEnabled && todo.remindAtMs != null && todo.assigneeId == meId) {
                     TodoAlarmScheduler.schedule(ctx, todo.id, todo.title, todo.remindType, todo.remindAtMs)
                 }
                 showAdd = false

@@ -58,6 +58,9 @@ object Logs {
         ?: emptyList()
 
     private fun write(level: LogLevel, tag: String, message: String, throwable: Throwable?) {
+        // release 门控：DEBUG 仅在调试构建输出/落盘；INFO/WARN/ERROR 始终记录。
+        if (level == LogLevel.DEBUG && !com.linxi.diary.BuildConfig.DEBUG) return
+        val source = callerLocation()
         val suffix = throwable?.stackTraceToString()?.let { "\n$it" } ?: ""
         val sanitized = LogSanitizer.sanitize(message + suffix)
         val logTag = "$PREFIX/$tag"
@@ -67,16 +70,27 @@ object Logs {
             LogLevel.WARN -> Log.w(logTag, sanitized)
             LogLevel.ERROR -> Log.e(logTag, sanitized)
         }
-        queue.trySend(FileLog(level, tag, sanitized, OffsetDateTime.now(ZoneId.systemDefault()), Thread.currentThread().name))
+        queue.trySend(FileLog(level, tag, sanitized, OffsetDateTime.now(ZoneId.systemDefault()), Thread.currentThread().name, source))
+    }
+
+    /** 取第一个非 Logs 内部帧的业务调用位置，输出 类名.方法:行号（异步落盘，开销可接受）。 */
+    private fun callerLocation(): String {
+        val self = Logs::class.java.name
+        for (e in Throwable().stackTrace) {
+            val cls = e.className
+            if (cls == self || cls.startsWith("$self\$")) continue
+            return "${cls.substringAfterLast('.')}.${e.methodName}:${e.lineNumber}"
+        }
+        return "?"
     }
 
     private fun appendFile(entry: FileLog) {
         val dir = logDir ?: return
         runCatching {
             var file = File(dir, "runtime-${entry.timestamp.toLocalDate()}.log")
-            // 统一英文格式：TIMESTAMP LEVEL Tag [thread]: message
+            // 统一英文格式：TIMESTAMP LEVEL Tag [thread] (Class.method:line): message
             val line = "${formatter.format(entry.timestamp)} ${entry.level.name.padEnd(5)} $PREFIX/${entry.tag} " +
-                "[${entry.thread}]: ${entry.message.replace("\r", "\\r")}\n"
+                "[${entry.thread}] (${entry.source}): ${entry.message.replace("\r", "\\r")}\n"
             val bytes = line.toByteArray(Charsets.UTF_8)
             if (file.length() + bytes.size > MAX_FILE_SIZE) {
                 rotate(file)
@@ -108,6 +122,7 @@ object Logs {
         val message: String,
         val timestamp: OffsetDateTime,
         val thread: String,
+        val source: String,
     )
 
     internal enum class LogLevel { DEBUG, INFO, WARN, ERROR }
