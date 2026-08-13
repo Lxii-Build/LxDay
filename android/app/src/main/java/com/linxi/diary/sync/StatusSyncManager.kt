@@ -64,7 +64,7 @@ object StatusSyncManager {
         OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
-            .pingInterval(30, TimeUnit.SECONDS) // 心跳保活
+            .pingInterval(20, TimeUnit.SECONDS) // 心跳保活：更短间隔更快发现死连接并重连，降低同步延迟
             .build()
     }
 

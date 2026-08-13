@@ -22,7 +22,7 @@ class WsReconnectPolicyTest {
     fun `退避按重试次数指数增长并封顶`() {
         assertEquals(1_000L, WsReconnectPolicy.backoffMillis(retry = 0))
         assertEquals(2_000L, WsReconnectPolicy.backoffMillis(retry = 1))
-        assertEquals(64_000L, WsReconnectPolicy.backoffMillis(retry = 6))
-        assertEquals(64_000L, WsReconnectPolicy.backoffMillis(retry = 9))
+        assertEquals(16_000L, WsReconnectPolicy.backoffMillis(retry = 4))
+        assertEquals(16_000L, WsReconnectPolicy.backoffMillis(retry = 9))
     }
 }
