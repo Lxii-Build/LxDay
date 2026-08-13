@@ -23,6 +23,11 @@ func keyStatus(uid int64) string      { return fmt.Sprintf("status:user:%d", uid
 func keyEventQ(uid int64) string      { return fmt.Sprintf("event:queue:user:%d", uid) }
 func keyRingCool(pairID int64) string { return fmt.Sprintf("pair:ring:cooldown:%d", pairID) }
 
+// keyInteractionCool 按互动类型独立的冷却键（comfort/calm 各自计数，不与响铃或彼此共用）。
+func keyInteractionCool(pairID int64, kind string) string {
+	return fmt.Sprintf("pair:interact:cooldown:%s:%d", kind, pairID)
+}
+
 // ---------- 用户 ----------
 
 func (s *Store) CreateUser(username, email, nickname, hash string) (int64, error) {
@@ -519,4 +524,19 @@ func (s *Store) RingCooldown(pairID int64) bool {
 	}
 	cnt := s.mem.incr(keyRingCool(pairID), time.Duration(window)*time.Second)
 	return cnt <= int64(limit)
+}
+
+// interactionCooldownWindow/Limit 为安抚(comfort)/冷静(calm)等轻量互动的默认限频：
+// 7 秒内至多 1 次，与客户端「7 秒进行中态」呼应；相比响铃(默认 600s/3 次)更短，避免误伤正常连点，
+// 又能挡住刷屏骚扰。独立于响铃计数，且 comfort、calm 各自分桶。
+const (
+	interactionCooldownWindow = 7 // 秒
+	interactionCooldownLimit  = 1
+)
+
+// InteractionCooldown 按类型独立限频：窗口内计数 <= 上限返回 true(放行)，超频返回 false(丢弃)。
+// kind 用互动消息类型（如 comfort_request / calm_request），保证各类型独立分桶。
+func (s *Store) InteractionCooldown(pairID int64, kind string) bool {
+	cnt := s.mem.incr(keyInteractionCool(pairID, kind), interactionCooldownWindow*time.Second)
+	return cnt <= int64(interactionCooldownLimit)
 }

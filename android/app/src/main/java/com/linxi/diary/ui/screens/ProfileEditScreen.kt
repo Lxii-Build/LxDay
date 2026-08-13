@@ -24,8 +24,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.linxi.diary.data.AnniversaryDatePolicy
 import com.linxi.diary.data.ApiClient
 import com.linxi.diary.data.MyProfile
+import com.linxi.diary.data.ProfileRuntime
+import com.linxi.diary.util.UserPrefs
+import java.time.LocalDate
 import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.components.KernelScreen
 import com.linxi.diary.ui.components.LxButton
@@ -40,8 +44,8 @@ import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 
 /**
- * 个人资料编辑页：头像（点击上传）、名称、性别（圆形单选）、简介、生日/纪念日。
- * 对接 GET/PUT /profile/me。
+ * 个人资料编辑页：头像（点击上传）、名称、性别（圆形单选）、简介、生日（个人，/profile/me）、
+ * 纪念日（情侣共用，/pair/anniversary，仅已绑定时显示）。
  */
 @Composable
 fun ProfileEditScreen(onBack: () -> Unit) {
@@ -56,6 +60,14 @@ fun ProfileEditScreen(onBack: () -> Unit) {
     var year by remember { mutableStateOf(2000) }
     var month by remember { mutableStateOf(1) }
     var day by remember { mutableStateOf(1) }
+    // 纪念日（情侣共用，走 /pair/anniversary，与生日不同）；仅已绑定时展示。
+    val bound = UserPrefs.pairId > 0
+    val today = remember { LocalDate.now() }
+    var annYear by remember { mutableStateOf(today.year) }
+    var annMonth by remember { mutableStateOf(today.monthValue) }
+    var annDay by remember { mutableStateOf(today.dayOfMonth) }
+    // 进入页展示的纪念日（未设置时缺省今天）；保存时与之对比，仅“有改动”才写 /pair/anniversary。
+    var anniversaryBaseline by remember { mutableStateOf(today) }
     var avatarUploading by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -76,6 +88,19 @@ fun ProfileEditScreen(onBack: () -> Unit) {
         runCatching { MyProfile.fromJson(ApiClient.getMyProfile()) }
             .onSuccess { applyProfile(it) }
             .onFailure { error = it.message; Logs.w("Profile", "load my profile failed", it) }
+        // 加载情侣共用纪念日：优先用已缓存的情侣资料，其次拉取 /pair/status；缺省保持今天。
+        if (bound) {
+            val loaded = ProfileRuntime.repository.profile.value?.anniversaryDate
+                ?: runCatching {
+                    val s = ApiClient.pairStatus()
+                    if (s.isNull("anniversary_date")) null
+                    else s.optString("anniversary_date").takeIf { it.isNotBlank() }?.let(LocalDate::parse)
+                }.getOrNull()
+            if (loaded != null) {
+                anniversaryBaseline = loaded
+                annYear = loaded.year; annMonth = loaded.monthValue; annDay = loaded.dayOfMonth
+            }
+        }
     }
 
     val avatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -103,6 +128,9 @@ fun ProfileEditScreen(onBack: () -> Unit) {
         signature = signature, onSignature = { signature = it },
         year = year, month = month, day = day,
         onYear = { year = it }, onMonth = { month = it }, onDay = { day = it },
+        showAnniversary = bound,
+        annYear = annYear, annMonth = annMonth, annDay = annDay,
+        onAnnYear = { annYear = it }, onAnnMonth = { annMonth = it }, onAnnDay = { annDay = it },
         avatarUrl = profile?.avatarUrl, avatarVersion = avatarVersion,
         avatarUploading = avatarUploading,
         onPickAvatar = {
@@ -118,10 +146,25 @@ fun ProfileEditScreen(onBack: () -> Unit) {
             scope.launch {
                 val birthday = "%04d-%02d-%02d".format(year, month, day)
                 runCatching { ApiClient.updateMyProfile(nickname.trim(), gender, signature.trim(), birthday) }
-                    .onSuccess {
+                    .onSuccess { updated ->
                         Logs.i("Profile", "profile updated")
-                        applyProfile(MyProfile.fromJson(it))
-                        onBack()
+                        applyProfile(MyProfile.fromJson(updated))
+                        // 纪念日（情侣共用）：仅已绑定且相较基线有改动时，写入 /pair/anniversary。
+                        val annSaved = if (bound) {
+                            val ann = AnniversaryDatePolicy.clampDate(annYear, annMonth, annDay, LocalDate.now())
+                            if (ann != anniversaryBaseline) {
+                                runCatching { ApiClient.updateAnniversary(ann.toString()) }
+                                    .onSuccess {
+                                        Logs.i("Profile", "anniversary updated")
+                                        ProfileRuntime.applyAuthoritative(it)
+                                        anniversaryBaseline = ann
+                                        annYear = ann.year; annMonth = ann.monthValue; annDay = ann.dayOfMonth
+                                    }
+                                    .onFailure { error = it.message; Logs.w("Profile", "update anniversary failed", it) }
+                                    .isSuccess
+                            } else true
+                        } else true
+                        if (annSaved) onBack()
                     }
                     .onFailure { error = it.message; Logs.w("Profile", "update profile failed", it) }
                 saving = false
@@ -137,6 +180,9 @@ private fun ProfileEditContent(
     signature: String, onSignature: (String) -> Unit,
     year: Int, month: Int, day: Int,
     onYear: (Int) -> Unit, onMonth: (Int) -> Unit, onDay: (Int) -> Unit,
+    showAnniversary: Boolean,
+    annYear: Int, annMonth: Int, annDay: Int,
+    onAnnYear: (Int) -> Unit, onAnnMonth: (Int) -> Unit, onAnnDay: (Int) -> Unit,
     avatarUrl: String?, avatarVersion: Int, avatarUploading: Boolean,
     onPickAvatar: () -> Unit,
     error: String?, saving: Boolean,
@@ -188,12 +234,29 @@ private fun ProfileEditContent(
             }
         }
         item {
-            SmallTitle("生日 / 纪念日")
+            SmallTitle("生日")
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     StepperRow("年", year, 1900, 2100, onYear)
                     StepperRow("月", month, 1, 12, onMonth)
                     StepperRow("日", day, 1, 31, onDay)
+                }
+            }
+        }
+        if (showAnniversary) {
+            item {
+                SmallTitle("纪念日")
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "你们在一起的起点（双方共用）",
+                            fontSize = 13.sp,
+                            color = colorScheme.onSurfaceVariantSummary,
+                        )
+                        StepperRow("年", annYear, 1900, 2100, onAnnYear)
+                        StepperRow("月", annMonth, 1, 12, onAnnMonth)
+                        StepperRow("日", annDay, 1, 31, onAnnDay)
+                    }
                 }
             }
         }

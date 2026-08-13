@@ -268,12 +268,24 @@ func handleLogin(c *gin.Context) {
 
 // ---------- 扩展个人资料（本人） ----------
 
+// applyProfileAvatarDefault 未上传头像时回退全局 LOGO(site.logo)，用于「我的资料」展示。
+func applyProfileAvatarDefault(p *UserProfile) {
+	if p == nil {
+		return
+	}
+	logo, _ := st.GetSetting("site.logo")
+	logo = strings.TrimSpace(logo)
+	p.AvatarURL = avatarOrLogo(p.AvatarURL, logo)
+	p.AvatarThumbnailURL = avatarOrLogo(p.AvatarThumbnailURL, logo)
+}
+
 func handleGetMyProfile(c *gin.Context) {
 	p, err := st.GetUserProfile(currentUID(c))
 	if err != nil {
 		fail(c, 500, 1010, "读取资料失败")
 		return
 	}
+	applyProfileAvatarDefault(p)
 	ok(c, p)
 }
 
@@ -330,6 +342,7 @@ func handleUpdateMyProfile(c *gin.Context) {
 		fail(c, 500, 1010, "读取资料失败")
 		return
 	}
+	applyProfileAvatarDefault(p)
 	ok(c, p)
 }
 

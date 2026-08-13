@@ -11,6 +11,11 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -25,7 +30,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.components.KernelScreen
+import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
@@ -39,14 +46,24 @@ fun DiscoverScreen(
     onOpenListen: () -> Unit,
     onOpenWatch: () -> Unit,
 ) {
+    // 与待办/历史页保持一致：主界面进入时先展示同款 miuix 加载动画，短暂加载后再显示入口卡。
+    var loading by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        delay(500)
+        loading = false
+    }
     KernelScreen(title = "发现") {
-        item {
-            Column(Modifier.padding(top = 12.dp)) {
-                DiscoverCard("相册", "记录你们的共同瞬间", Icons.Rounded.PhotoLibrary, onOpenAlbum)
-                Spacer(Modifier.height(12.dp))
-                DiscoverCard("一起听", "分享此刻在听的歌", Icons.Rounded.MusicNote, onOpenListen)
-                Spacer(Modifier.height(12.dp))
-                DiscoverCard("一起看", "同步你们喜欢的影像", Icons.Rounded.Movie, onOpenWatch)
+        if (loading) {
+            item { CircularProgressIndicator(Modifier.padding(24.dp)) }
+        } else {
+            item {
+                Column(Modifier.padding(top = 12.dp)) {
+                    DiscoverCard("相册", "记录你们的共同瞬间", Icons.Rounded.PhotoLibrary, onOpenAlbum)
+                    Spacer(Modifier.height(12.dp))
+                    DiscoverCard("一起听", "分享此刻在听的歌", Icons.Rounded.MusicNote, onOpenListen)
+                    Spacer(Modifier.height(12.dp))
+                    DiscoverCard("一起看", "同步你们喜欢的影像", Icons.Rounded.Movie, onOpenWatch)
+                }
             }
         }
     }

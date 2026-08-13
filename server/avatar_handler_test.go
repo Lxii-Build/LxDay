@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -67,9 +68,11 @@ func TestMapAvatarErrorStatusCodes(t *testing.T) {
 	}
 }
 
-func TestPublicAvatarURLUsesPairScopedBasename(t *testing.T) {
-	got := publicAvatarURL(7, "/var/data/uploads/avatar/7/abc.webp")
-	if got != "/uploads/avatar/7/abc.webp" {
+func TestPublicAvatarURLUsesDatePartitionedUploadPath(t *testing.T) {
+	// uploadDir 默认 "uploads"；未配置站点地址(st==nil)时回退相对 /upload/年/月/日 路径。
+	full := filepath.Join(uploadDir, "upload", "2026", "08", "13", "abc.png")
+	got := publicAvatarURL(full)
+	if got != "/upload/2026/08/13/abc.png" {
 		t.Fatalf("url=%s", got)
 	}
 }

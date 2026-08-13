@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -18,15 +19,16 @@ var webDistFS embed.FS
 
 // registerStatic 去 Nginx 后由 Go 自托管静态资源：
 //   - GET /healthz 健康检查
-//   - /uploads/* 从本地 uploadDir 提供（PublicURL 前缀仍 /uploads），禁用目录列举
-//   - 其余非 /api、/ws、/uploads、/healthz 的 GET/HEAD 请求交给内嵌 SPA（命中静态文件直返，否则回退 index.html）
+//   - /upload/*  日期分区上传（头像/日记图片，disk: uploadDir/upload/年/月/日/...），禁用目录列举
+//   - /uploads/* 兼容旧路径（历史头像 / 后台 APK·LOGO，disk: uploadDir/*），禁用目录列举
+//   - 其余非 /api、/ws、/upload(s)、/healthz 的 GET/HEAD 请求交给内嵌 SPA（命中静态文件直返，否则回退 index.html）
 func registerStatic(r *gin.Engine) {
 	r.GET("/healthz", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
 
-	// /uploads 安全响应头：禁用 MIME 嗅探；非图片强制下载，缓解上传 html/svg 的存储型 XSS。
+	// 上传目录安全响应头：禁用 MIME 嗅探；非图片强制下载，缓解上传 html/svg 的存储型 XSS。
 	r.Use(func(c *gin.Context) {
 		p := strings.ToLower(c.Request.URL.Path)
-		if strings.HasPrefix(p, "/uploads/") {
+		if strings.HasPrefix(p, "/upload/") || strings.HasPrefix(p, "/uploads/") {
 			c.Header("X-Content-Type-Options", "nosniff")
 			isImg := strings.HasSuffix(p, ".jpg") || strings.HasSuffix(p, ".jpeg") ||
 				strings.HasSuffix(p, ".png") || strings.HasSuffix(p, ".webp") || strings.HasSuffix(p, ".gif")
@@ -37,7 +39,9 @@ func registerStatic(r *gin.Engine) {
 		c.Next()
 	})
 
-	// 本地上传静态资源（头像 / 日记图片 / APK 等），禁用目录列举
+	// 新：日期分区上传，URL /upload/年/月/日/xxx → disk uploadDir/upload/年/月/日/xxx
+	r.StaticFS("/upload", gin.Dir(filepath.Join(uploadDir, "upload"), false))
+	// 旧：兼容历史头像与后台上传（APK/LOGO），URL /uploads/xxx → disk uploadDir/xxx
 	r.StaticFS("/uploads", gin.Dir(uploadDir, false))
 
 	// 内嵌后台前端（去掉 webdist/ 前缀，根即 SPA 根）
@@ -58,7 +62,7 @@ func registerStatic(r *gin.Engine) {
 		p := req.URL.Path
 		// 已有显式路由的前缀（未命中即真 404），不回退到 SPA
 		if strings.HasPrefix(p, "/api") || strings.HasPrefix(p, "/ws") ||
-			strings.HasPrefix(p, "/uploads") || p == "/healthz" {
+			strings.HasPrefix(p, "/upload") || strings.HasPrefix(p, "/uploads") || p == "/healthz" {
 			c.Status(http.StatusNotFound)
 			return
 		}

@@ -64,6 +64,10 @@ fun HistoryScreen(onBack: () -> Unit = {}) {
                 }
             }
         }
+        // 加载动画紧贴日期切换组件下方显示（原先位于时间线/曲线切换卡之后，位置偏下需下拉才能看到）
+        if (loading) {
+            item { CircularProgressIndicator(Modifier.padding(24.dp)) }
+        }
         item {
             Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
                 Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -72,40 +76,40 @@ fun HistoryScreen(onBack: () -> Unit = {}) {
                 }
             }
         }
-        if (loading) {
-            item { CircularProgressIndicator(Modifier.padding(24.dp)) }
-        } else if (showCurve) {
-            item {
-                Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
-                    if (curve.size < 2) {
-                        Text(
-                            "当日电量数据不足",
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            modifier = Modifier.padding(20.dp),
-                        )
-                    } else {
-                        BatteryCurveChart(curve, Modifier.fillMaxWidth().height(220.dp).padding(16.dp))
+        if (!loading) {
+            if (showCurve) {
+                item {
+                    Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                        if (curve.size < 2) {
+                            Text(
+                                "当日电量数据不足",
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                modifier = Modifier.padding(20.dp),
+                            )
+                        } else {
+                            BatteryCurveChart(curve, Modifier.fillMaxWidth().height(220.dp).padding(16.dp))
+                        }
                     }
                 }
-            }
-        } else if (timeline.isEmpty()) {
-            item {
-                Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
-                    Text("当日暂无记录", color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        modifier = Modifier.padding(20.dp))
+            } else if (timeline.isEmpty()) {
+                item {
+                    Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                        Text("当日暂无记录", color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.padding(20.dp))
+                    }
                 }
-            }
-        } else {
-            itemsIndexed(timeline, key = { index, _ -> index }) { _, h ->
-                Card(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
-                    Column(Modifier.padding(16.dp)) {
-                        Text(h.timeLabel, style = MiuixTheme.textStyles.headline1)
-                        Text(
-                            "电量 ${h.battery}%${if (h.charging) " · 充电" else ""} · " +
-                                "${if (h.screenOn) "亮屏${if (h.locked) "·锁定" else "·解锁"}" else "灭屏"}" +
-                                " · ${h.foregroundApp.ifBlank { "无前台" }} · " + h.ssid.ifBlank { "移动网络" },
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        )
+            } else {
+                itemsIndexed(timeline, key = { index, _ -> index }) { _, h ->
+                    Card(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                        Column(Modifier.padding(16.dp)) {
+                            Text(h.timeLabel, style = MiuixTheme.textStyles.headline1)
+                            Text(
+                                "电量 ${h.battery}%${if (h.charging) " · 充电" else ""} · " +
+                                    "${if (h.screenOn) "亮屏${if (h.locked) "·锁定" else "·解锁"}" else "灭屏"}" +
+                                    " · ${h.foregroundApp.ifBlank { "无前台" }} · " + h.ssid.ifBlank { "移动网络" },
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                            )
+                        }
                     }
                 }
             }

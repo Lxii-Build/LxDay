@@ -741,7 +741,7 @@ func handleAdminDeleteVersion(c *gin.Context) {
 // ---------- 系统设置（站点/存储/推送/SMTP） ----------
 
 var settingKeys = []string{
-	"site.name", "site.logo", "site.description",
+	"site.name", "site.url", "site.logo", "site.description",
 	"storage.driver", "storage.local_dir",
 	"storage.oss_endpoint", "storage.oss_bucket", "storage.oss_access_key", "storage.oss_secret", "storage.oss_base_url",
 	"smtp.host", "smtp.port", "smtp.username", "smtp.password", "smtp.from", "smtp.ssl",

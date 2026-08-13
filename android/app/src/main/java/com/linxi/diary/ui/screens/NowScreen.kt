@@ -25,7 +25,9 @@ import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.ui.components.KernelScreen
 import com.linxi.diary.ui.components.WarningCard
 import com.linxi.diary.ui.components.WarningLevel
+import com.linxi.diary.ui.theme.BrandBlue
 import com.linxi.diary.util.UserPrefs
+import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Text
@@ -33,6 +35,9 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 import top.yukonga.miuix.kmp.theme.MiuixTheme.isDynamicColor
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
+
+/** 远程互动按钮客户端冷却时长：点击后进行中态持续、且期间禁用重复点击（毫秒）。 */
+private const val INTERACTION_COOLDOWN_MS = 7000L
 
 /**
  * 主页（照抄 KernelSU HomeMiuix）：
@@ -47,9 +52,19 @@ fun NowScreen(
     val partner = if (demo) null else DeviceStatusHolder.partner
     val partnerName = UserPrefs.partnerName.ifBlank { "对方" }
     val profile = if (demo) null else ProfileRuntime.repository.profile.collectAsState().value
-    val relationshipDays = profile?.anniversaryDate?.let {
+    val bound = !demo && UserPrefs.pairId > 0
+    val anniversary = profile?.anniversaryDate
+    val relationshipDays = anniversary?.let {
         RelationshipDays.dayNumber(it, java.time.LocalDate.now())
     }
+
+    // 远程互动三按钮各自独立的“进行中”态：点击后 7 秒内变蓝 + 禁用，到点自动恢复（客户端冷却）。
+    var comfortActive by remember { mutableStateOf(false) }
+    var calmActive by remember { mutableStateOf(false) }
+    var ringActive by remember { mutableStateOf(false) }
+    LaunchedEffect(comfortActive) { if (comfortActive) { delay(INTERACTION_COOLDOWN_MS); comfortActive = false } }
+    LaunchedEffect(calmActive) { if (calmActive) { delay(INTERACTION_COOLDOWN_MS); calmActive = false } }
+    LaunchedEffect(ringActive) { if (ringActive) { delay(INTERACTION_COOLDOWN_MS); ringActive = false } }
 
     KernelScreen(title = "主页") {
         item {
@@ -58,8 +73,11 @@ fun NowScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                if (relationshipDays != null) {
-                    RelationshipDaysCard(relationshipDays, partnerName)
+                if (relationshipDays != null && anniversary != null) {
+                    RelationshipDaysCard(relationshipDays, anniversary, partnerName)
+                } else if (bound && profile != null && anniversary == null) {
+                    // 已绑定、资料已加载但未设纪念日：克制地提示去「我的 · 编辑资料」设置。
+                    WarningCard("在「我的 · 编辑资料」里设置你们的纪念日", level = WarningLevel.Notice)
                 }
                 if (partner != null && partner.batteryLevel < 15) {
                     WarningCard("对方电量不足 15%", level = WarningLevel.Error)
@@ -80,14 +98,26 @@ fun NowScreen(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        ActionCard("求陪伴", Icons.Filled.Favorite, Modifier.weight(1f)) {
+                        ActionCard(
+                            "求陪伴", Icons.Filled.Favorite, Modifier.weight(1f),
+                            active = comfortActive, activeTitle = "已发送…"
+                        ) {
+                            comfortActive = true
                             StatusSyncManager.sendEvent("comfort_request")
                         }
-                        ActionCard("求冷静", Icons.Filled.CheckCircle, Modifier.weight(1f)) {
+                        ActionCard(
+                            "求冷静", Icons.Filled.CheckCircle, Modifier.weight(1f),
+                            active = calmActive, activeTitle = "已发送…"
+                        ) {
+                            calmActive = true
                             StatusSyncManager.sendEvent("calm_request")
                         }
                     }
-                    ActionCard("响铃提醒（紧急找人）", Icons.Filled.Notifications, Modifier.fillMaxWidth()) {
+                    ActionCard(
+                        "响铃提醒（紧急找人）", Icons.Filled.Notifications, Modifier.fillMaxWidth(),
+                        active = ringActive, activeTitle = "响铃中…"
+                    ) {
+                        ringActive = true
                         StatusSyncManager.sendEvent("ring_request")
                     }
                 }
@@ -102,7 +132,7 @@ fun NowScreen(
 
 /** 恋爱天数卡（纪念日当天为第 1 天）。 */
 @Composable
-private fun RelationshipDaysCard(days: Long, partnerName: String) {
+private fun RelationshipDaysCard(days: Long, anniversary: java.time.LocalDate, partnerName: String) {
     val cardColor = when {
         isDynamicColor -> colorScheme.primaryContainer
         LocalLinxiDarkTheme.current -> Color(0xFF3A2233)
@@ -142,6 +172,13 @@ private fun RelationshipDaysCard(days: Long, partnerName: String) {
                         fontSize = 26.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = colorScheme.onBackground
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "纪念日 ${anniversary.year}.${anniversary.monthValue}.${anniversary.dayOfMonth}",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = colorScheme.onBackground.copy(alpha = 0.7f)
                     )
                 }
             }
@@ -228,25 +265,36 @@ private fun SectionTitle(text: String) {
     )
 }
 
-/** 互动卡片按钮（KernelSU Card 风格，无涟漪） */
+/** 互动卡片按钮（KernelSU Card 风格，无涟漪）。active=进行中：变蓝 + 进行文本 + 禁用点击（7 秒客户端冷却）。 */
 @Composable
 private fun ActionCard(
     title: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     modifier: Modifier = Modifier,
+    active: Boolean = false,
+    activeTitle: String = "进行中…",
     onClick: () -> Unit
 ) {
-    Card(modifier = modifier, onClick = onClick) {
+    val fg = if (active) Color.White else colorScheme.onSurface
+    Card(
+        modifier = modifier,
+        onClick = { if (!active) onClick() },
+        colors = if (active) {
+            CardDefaults.defaultColors(color = BrandBlue, contentColor = Color.White)
+        } else {
+            CardDefaults.defaultColors()
+        }
+    ) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
             Icon(icon, contentDescription = null,
-                tint = colorScheme.onSurface,
+                tint = fg,
                 modifier = Modifier.size(22.dp))
             Spacer(Modifier.width(10.dp))
-            Text(title, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+            Text(if (active) activeTitle else title, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = fg)
         }
     }
 }

@@ -183,11 +183,18 @@ func (h *Hub) handleIncoming(from int64, data []byte) {
 			payload["from_name"] = u.Nickname
 		}
 		payload["ts"] = time.Now().UnixMilli()
-		// 响铃限频
-		if m.Type == MsgRingRequest && !h.store.RingCooldown(pair.ID) {
-			// 超频：直接丢弃，避免骚扰
-			log.Printf("ring too frequent pair=%d", pair.ID)
-			return
+		// 限频：响铃与安抚/冷静各自独立计数，超频直接丢弃不转发，避免骚扰。
+		switch m.Type {
+		case MsgRingRequest:
+			if !h.store.RingCooldown(pair.ID) {
+				log.Printf("ring too frequent pair=%d", pair.ID)
+				return
+			}
+		case MsgComfortRequest, MsgCalmRequest:
+			if !h.store.InteractionCooldown(pair.ID, m.Type) {
+				log.Printf("interaction %s too frequent pair=%d", m.Type, pair.ID)
+				return
+			}
 		}
 		h.route(partner, WsMessage{Type: m.Type, Data: payload})
 

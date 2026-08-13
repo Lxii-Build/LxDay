@@ -30,6 +30,72 @@ func initUploadDir() {
 	}
 }
 
+// ================= 上传路径 / 公开 URL（日期分区，本地磁盘） =================
+// 头像与日记图片统一存本地 uploadDir/upload/年/月/日/<随机名><扩展名>，对外走 /upload 静态路由。
+// 站点地址(site.url)已配置 → 绝对 URL(https://域名/upload/...)；未配置 → 相对 /upload/...（客户端用 BASE_URL 兜底）。
+
+// uploadDatePath 返回当日日期分区相对路径 upload/YYYY/MM/DD（正斜杠，URL 与磁盘子路径共用）。
+func uploadDatePath(t time.Time) string {
+	return fmt.Sprintf("upload/%04d/%02d/%02d", t.Year(), int(t.Month()), t.Day())
+}
+
+// relFromUploadDir 将 uploadDir 下的本地文件路径转为相对 uploadDir 的正斜杠路径（供 URL 生成/删除映射）。
+func relFromUploadDir(fullPath string) string {
+	rel, err := filepath.Rel(uploadDir, fullPath)
+	if err != nil {
+		return filepath.ToSlash(filepath.Base(fullPath))
+	}
+	return filepath.ToSlash(rel)
+}
+
+// siteBaseURL 读后台站点地址(site.url)，规整为无尾斜杠的 scheme://host 前缀；未配置返回空（回退相对路径）。
+func siteBaseURL() string {
+	if st == nil {
+		return ""
+	}
+	v, _ := st.GetSetting("site.url")
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return ""
+	}
+	v = strings.TrimRight(v, "/")
+	if !strings.HasPrefix(v, "http://") && !strings.HasPrefix(v, "https://") {
+		v = "https://" + v // 仅填域名时默认 https
+	}
+	return v
+}
+
+// publicUploadURL 由 uploadDir 相对路径(如 upload/2026/08/13/x.png)生成对外 URL。
+func publicUploadURL(rel string) string {
+	rel = strings.TrimPrefix(filepath.ToSlash(rel), "/")
+	path := "/" + rel // 相对 URL 与 /upload 静态挂载对齐（rel 以 upload/ 打头）
+	if base := siteBaseURL(); base != "" {
+		return base + path
+	}
+	return path
+}
+
+// settingFrom 用给定 queryer（可为事务）读单条设置，复用同一连接，避免单连接池(MaxOpenConns=1)在事务内二次取连接死锁。
+func settingFrom(q profileQueryer, key string) string {
+	var v sql.NullString
+	if err := q.QueryRow("SELECT v FROM app_setting WHERE k=?", key).Scan(&v); err != nil {
+		return ""
+	}
+	return v.String
+}
+
+// avatarOrLogo 头像为空时回退全局 LOGO(site.logo)；仅用于对客户端展示，不改库、不影响旧头像清理（清理读原始库值）。
+func avatarOrLogo(cur *string, logo string) *string {
+	if cur != nil && strings.TrimSpace(*cur) != "" {
+		return cur
+	}
+	if logo != "" {
+		l := logo
+		return &l
+	}
+	return cur // nil 或空 → 交客户端兜底
+}
+
 // ================= 工具 =================
 
 func sqlOpen(dsn string) (*sql.DB, error) {
@@ -438,6 +504,12 @@ func pairProfileFrom(queryer profileQueryer, uid int64) (gin.H, error) {
 	if err != nil {
 		return nil, err
 	}
+	// 头像默认全局 LOGO：未上传时对客户端返回 site.logo（用同一 queryer 读设置，避免事务内二次取连接死锁）。
+	logo := settingFrom(queryer, "site.logo")
+	me.AvatarURL = avatarOrLogo(me.AvatarURL, logo)
+	me.AvatarThumbnailURL = avatarOrLogo(me.AvatarThumbnailURL, logo)
+	partner.AvatarURL = avatarOrLogo(partner.AvatarURL, logo)
+	partner.AvatarThumbnailURL = avatarOrLogo(partner.AvatarThumbnailURL, logo)
 	var anniversary interface{}
 	if pair.AnniversaryDate != nil {
 		anniversary = pair.AnniversaryDate.Format("2006-01-02")
@@ -874,12 +946,11 @@ func handleBatteryCurve(c *gin.Context) {
 }
 
 // ================= 日记图片上传（本地磁盘） =================
-// 存储：uploads/diary/{pairId}/{uuid}.jpg
-// Go 自托管静态服务 /uploads/；URL 带不可猜测 uuid，纯自用场景免鉴权。
+// 存储：uploadDir/upload/年/月/日/<随机名><扩展名>；Go 自托管 /upload/ 静态服务。
+// URL 带不可猜测随机名，纯自用场景免鉴权；公开 URL 形态见 publicUploadURL。
 
 func handleUploadDiaryImage(c *gin.Context) {
-	pair, okP := mustPair(c)
-	if !okP {
+	if _, okP := mustPair(c); !okP {
 		return
 	}
 	file, err := c.FormFile("file")
@@ -899,18 +970,18 @@ func handleUploadDiaryImage(c *gin.Context) {
 		fail(c, 400, 1002, "仅支持 jpg/png/webp/gif")
 		return
 	}
-	dir := filepath.Join(uploadDir, "diary", fmt.Sprintf("%d", pair.ID))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	// 日期分区相对路径：upload/年/月/日/<随机名><扩展名>
+	rel := uploadDatePath(time.Now()) + "/" + randomCode(24) + ext
+	dst := filepath.Join(uploadDir, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		fail(c, 500, 1010, "存储目录创建失败")
 		return
 	}
-	filename := fmt.Sprintf("%s%s", randomCode(24), ext)
-	dst := filepath.Join(dir, filename)
 	if err := c.SaveUploadedFile(file, dst); err != nil {
 		fail(c, 500, 1010, "保存失败")
 		return
 	}
-	url := newStorage().PublicURL(fmt.Sprintf("diary/%d/%s", pair.ID, filename))
+	url := publicUploadURL(rel)
 	ok(c, gin.H{"url": url})
 }
 

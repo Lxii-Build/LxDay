@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -20,8 +21,7 @@ const bytesHeaderSlack = 1 << 20 // 1MB
 // handleUploadAvatar 接收 multipart 头像上传，经受限处理链裁剪并原子替换，返回权威资料。
 func handleUploadAvatar(c *gin.Context) {
 	uid := currentUID(c)
-	pair, okP := mustPair(c)
-	if !okP {
+	if _, okP := mustPair(c); !okP {
 		return
 	}
 
@@ -59,7 +59,8 @@ func handleUploadAvatar(c *gin.Context) {
 		return
 	}
 
-	worker := newVipsWorker(filepath.Join(uploadDir, "avatar", strconv.FormatInt(pair.ID, 10)))
+	// 存储改为日期分区：uploadDir/upload/年/月/日/，不再按后台设置的本地子目录/按对分目录。
+	worker := newVipsWorker(filepath.Join(uploadDir, filepath.FromSlash(uploadDatePath(time.Now()))))
 	result, err := processAvatar(AvatarInput{
 		SizeBytes: file.Size,
 		Probe:     probe,
@@ -71,8 +72,8 @@ func handleUploadAvatar(c *gin.Context) {
 		return
 	}
 
-	mainURL := publicAvatarURL(pair.ID, result.MainPath)
-	thumbURL := publicAvatarURL(pair.ID, result.ThumbPath)
+	mainURL := publicAvatarURL(result.MainPath)
+	thumbURL := publicAvatarURL(result.ThumbPath)
 
 	oldMain, oldThumb := currentAvatarPaths(uid)
 	if err := st.UpdateAvatar(uid, mainURL, thumbURL); err != nil {
@@ -128,8 +129,9 @@ func probeUploadedFile(path string) (AvatarProbe, bool) {
 	return probeAvatar(head[:n])
 }
 
-func publicAvatarURL(pairID int64, path string) string {
-	return fmt.Sprintf("/uploads/avatar/%d/%s", pairID, filepath.Base(path))
+// publicAvatarURL 将头像本地文件路径转为对外 URL（/upload/年/月/日/...；站点地址已配置则带域名）。
+func publicAvatarURL(path string) string {
+	return publicUploadURL(relFromUploadDir(path))
 }
 
 func currentAvatarPaths(uid int64) (string, string) {
@@ -147,13 +149,31 @@ func currentAvatarPaths(uid int64) (string, string) {
 	return main, thumb
 }
 
-// removeOldAvatar 将 /uploads/... 形式的旧 URL 直接映射回本地路径删除，避免全树遍历与跨对误删。
-func removeOldAvatar(url string) {
-	const prefix = "/uploads/"
-	if !strings.HasPrefix(url, prefix) {
+// removeOldAvatar 将历史头像 URL 映射回本地文件删除。
+// 兼容：带域名(https://host/...)或相对；新 /upload/年/月/日 日期分区与旧 /uploads/ 前缀。
+func removeOldAvatar(rawURL string) {
+	if rawURL == "" {
 		return
 	}
-	rel := filepath.Clean(strings.TrimPrefix(url, prefix))
+	p := rawURL
+	// 去掉可能的 scheme://host 前缀，仅留路径部分
+	if i := strings.Index(p, "://"); i >= 0 {
+		s := strings.IndexByte(p[i+3:], '/')
+		if s < 0 {
+			return
+		}
+		p = p[i+3+s:]
+	}
+	var rel string
+	switch {
+	case strings.HasPrefix(p, "/upload/"):
+		rel = strings.TrimPrefix(p, "/") // upload/年/月/日/xxx —— 与磁盘相对路径一致
+	case strings.HasPrefix(p, "/uploads/"):
+		rel = strings.TrimPrefix(p, "/uploads/") // 旧头像：uploadDir 下相对路径
+	default:
+		return
+	}
+	rel = filepath.Clean(filepath.FromSlash(rel))
 	// 防御路径穿越：清理后不得逃逸 uploadDir。
 	if rel == "." || strings.HasPrefix(rel, "..") {
 		return
