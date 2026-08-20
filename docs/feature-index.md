@@ -7,6 +7,12 @@
 | 主页 | `screens/NowScreen.kt` | `core/DeviceStatusHolder.kt` | 状态同步 WS；DemoMode 禁用远程互动 |
 | 待办 | `screens/TodoScreen.kt` / 主层 FAB | `core/TodoAlarmReceiver.kt`、`debug/DemoContent.kt` | REST + WS + AlarmManager；示例无副作用 |
 | 日记 | `screens/DiaryScreen.kt` / 主层 FAB | `data/ApiClient.kt`、`debug/DemoContent.kt` | REST `/diaries`；示例无上传/发布 |
+| 相册列表 | 发现页 → `Screen.DiscoverAlbum` / `screens/AlbumListScreen.kt` | `data/ApiClient.kt` | REST `/albums`、`/albums/summary`；见 [ALBUM.md](ALBUM.md) |
+| 相册详情（网格） | `screens/AlbumDetailScreen.kt` | Coil 3 加载 `/media/<id>/thumb` | REST `/albums/:id/photos` |
+| 大图查看 | `screens/PhotoViewerScreen.kt` | Pager + 双指缩放；Coil 3 加载 `/media/<id>` | REST `/photos/:id`、点赞/评论接口 |
+| 「这一天」 | `screens/OnThisDayScreen.kt` | `data/ApiClient.kt` | REST `/photos/on-this-day` |
+| 图片选择器 | `screens/PhotoPickerScreen.kt` | `data/MediaStoreImages.kt`；顶栏兜底系统 Photo Picker | READ_MEDIA_IMAGES（Photo Picker 免权限） |
+| 照片上传 | 选择器 → 上传 | `data/ImagePrep.kt`、`data/ImagePrepPolicy.kt` | EXIF 旋正 + 长边 2048 + HEIC→JPEG；REST `POST /media` |
 | 伴侣状态历史 | 我的 → `screens/HistoryScreen.kt` | `data/ApiClient.kt` | REST history endpoints；DemoMode 禁止进入 |
 | 状态采集 | 无独立页面 | `core/StatusCollector.kt` | Usage Access、定位、通知使用权 |
 | 实时同步 | 无独立页面 | `sync/StatusSyncManager.kt` | WSS `/ws?token=JWT` |
