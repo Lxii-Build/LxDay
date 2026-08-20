@@ -1,5 +1,6 @@
 package com.linxi.diary.ui.navigation
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -32,6 +33,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -64,10 +66,11 @@ import com.linxi.diary.ui.screens.SettingsScreen
 import com.linxi.diary.ui.screens.TodoScreen
 import com.linxi.diary.ui.screens.UpdateDialog
 import com.linxi.diary.ui.screens.UpdateInfo
-import com.linxi.diary.ui.screens.WallpaperScreen
+import com.linxi.diary.ui.screens.DiaryScreen
 import com.linxi.diary.util.Logs
 import com.linxi.diary.util.UserPrefs
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.FloatingActionButton
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Scaffold
@@ -101,6 +104,16 @@ fun LinxiApp() {
     LaunchedEffect(screen) {
         Logs.i("Nav", "screen=$screen pairId=${UserPrefs.pairId} consented=${UserPrefs.privacyConsented}")
     }
+
+    // 相册需要带参导航（相册 id/名称、大图列表与初始下标），而这套导航是手写的
+    // `enum + var screen` 状态机，本身不支持传参。此处用一个轻量参数载体补上，
+    // 不改动既有的 enum 分发结构（改成 sealed class 或引入 Navigation 组件
+    // 会牵动全部页面，风险不成比例）。
+    var albumArg by remember { mutableStateOf(0L to "相册") }
+    var viewerPhotos by remember { mutableStateOf<List<com.linxi.diary.data.PhotoItem>>(emptyList()) }
+    var viewerIndex by remember { mutableStateOf(0) }
+    // 选图结果：选择器页返回后由相册详情页消费。
+    var pickedUris by remember { mutableStateOf<List<android.net.Uri>>(emptyList()) }
     LaunchedEffect(Unit) {
         ProfileRuntime.actions.collect { action ->
             if (action.navigateToBind) {
@@ -177,8 +190,41 @@ fun LinxiApp() {
                         screen = Screen.Main
                     },
                 )
-                Screen.Wallpaper -> WallpaperScreen(onBack = { screen = Screen.Appearance })
-                Screen.DiscoverAlbum -> DiscoverPlaceholderScreen("相册", onBack = { mainInitialPage = 2; screen = Screen.Main })
+                Screen.DiscoverAlbum -> AlbumListScreen(
+                    onBack = { mainInitialPage = 2; screen = Screen.Main },
+                    onOpenAlbum = { id, name -> albumArg = id to name; screen = Screen.AlbumDetail },
+                    onOpenOnThisDay = { screen = Screen.OnThisDay },
+                    onOpenRecycleBin = { screen = Screen.RecycleBin },
+                )
+                Screen.RecycleBin -> RecycleBinScreen(onBack = { screen = Screen.DiscoverAlbum })
+                Screen.AlbumDetail -> AlbumDetailScreen(
+                    albumId = albumArg.first,
+                    albumName = albumArg.second,
+                    onBack = { screen = Screen.DiscoverAlbum },
+                    onOpenPhoto = { list, index ->
+                        viewerPhotos = list; viewerIndex = index; screen = Screen.PhotoViewer
+                    },
+                    onPickPhotos = { screen = Screen.PhotoPicker },
+                    pickedUris = pickedUris,
+                    onPickedConsumed = { pickedUris = emptyList() },
+                )
+                Screen.PhotoPicker -> PhotoPickerScreen(
+                    onBack = { screen = Screen.AlbumDetail },
+                    onPicked = { uris -> pickedUris = uris; screen = Screen.AlbumDetail },
+                )
+                Screen.PhotoViewer -> PhotoViewerScreen(
+                    photos = viewerPhotos,
+                    initialIndex = viewerIndex,
+                    onBack = { screen = Screen.AlbumDetail },
+                    onDeleted = { screen = Screen.AlbumDetail },
+                )
+                Screen.OnThisDay -> OnThisDayScreen(
+                    onBack = { screen = Screen.DiscoverAlbum },
+                    onOpenPhoto = { list, index ->
+                        viewerPhotos = list; viewerIndex = index; screen = Screen.PhotoViewer
+                    },
+                )
+                Screen.DiscoverDiary -> DiaryScreen(onBack = { mainInitialPage = 2; screen = Screen.Main })
                 Screen.DiscoverListen -> DiscoverPlaceholderScreen("一起听", onBack = { mainInitialPage = 2; screen = Screen.Main })
                 Screen.DiscoverWatch -> DiscoverPlaceholderScreen("一起看", onBack = { mainInitialPage = 2; screen = Screen.Main })
                 Screen.ProfileEdit -> ProfileEditScreen(onBack = { mainInitialPage = 3; screen = Screen.Main })
@@ -193,6 +239,7 @@ fun LinxiApp() {
                     onOpenBind = { screen = Screen.Bind },
                     onOpenAppearance = { screen = Screen.Appearance },
                     onOpenAlbum = { screen = Screen.DiscoverAlbum },
+                    onOpenDiary = { screen = Screen.DiscoverDiary },
                     onOpenListen = { screen = Screen.DiscoverListen },
                     onOpenWatch = { screen = Screen.DiscoverWatch },
                     onOpenProfileEdit = { screen = Screen.ProfileEdit },
@@ -213,6 +260,7 @@ private fun MainTabs(
     onOpenBind: () -> Unit,
     onOpenAppearance: () -> Unit,
     onOpenAlbum: () -> Unit,
+    onOpenDiary: () -> Unit,
     onOpenListen: () -> Unit,
     onOpenWatch: () -> Unit,
     onOpenProfileEdit: () -> Unit,
@@ -234,6 +282,29 @@ private fun MainTabs(
 
     LaunchedEffect(pagerState.currentPage) {
         mainState.syncPage()
+    }
+
+    // 主 tab 的返回键：非首页先回主页，首页需两秒内再按一次才退出。
+    // 此前主界面完全没有 BackHandler（只有二级页有），在任意 tab 按返回就直接退到桌面，
+    // 双人状态 App 被误退后前台服务与 WS 连接都会受影响。
+    val scope = rememberCoroutineScope()
+    var backArmedAt by remember { mutableStateOf(0L) }
+    val context = LocalContext.current
+    BackHandler {
+        if (pagerState.currentPage != 0) {
+            scope.launch { pagerState.animateScrollToPage(0) }
+            backArmedAt = 0L
+            return@BackHandler
+        }
+        val now = System.currentTimeMillis()
+        if (now - backArmedAt < 2000L) {
+            (context as? android.app.Activity)?.finish()
+        } else {
+            backArmedAt = now
+            android.widget.Toast
+                .makeText(context, "再按一次退出", android.widget.Toast.LENGTH_SHORT)
+                .show()
+        }
     }
 
     // C2 定期同步：前台每 30s 拉一次 /pair/status（内部按"已绑定且非 demo"门控），
@@ -259,6 +330,7 @@ private fun MainTabs(
                     1 -> TodoScreen()
                     2 -> DiscoverScreen(
                         onOpenAlbum = onOpenAlbum,
+                        onOpenDiary = onOpenDiary,
                         onOpenListen = onOpenListen,
                         onOpenWatch = onOpenWatch,
                     )
@@ -339,4 +411,10 @@ private fun MainTabs(
     )
 }
 
-private enum class Screen { Login, Register, Bind, Main, History, Appearance, Wallpaper, ProfileEdit, About, DiscoverAlbum, DiscoverListen, DiscoverWatch }
+// 注：Wallpaper 已移除——AppearanceScreen 精简后没有任何入口能到达它，
+// 整个壁纸裁剪页与 WallpaperProcessor 都是死代码（决策 Q29）。
+private enum class Screen {
+    Login, Register, Bind, Main, History, Appearance, ProfileEdit, About,
+    DiscoverAlbum, AlbumDetail, PhotoPicker, PhotoViewer, OnThisDay, RecycleBin,
+    DiscoverDiary, DiscoverListen, DiscoverWatch,
+}

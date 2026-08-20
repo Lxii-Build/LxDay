@@ -18,6 +18,7 @@ import com.linxi.diary.MainActivity
 import com.linxi.diary.R
 import com.linxi.diary.core.DeviceStatus
 import com.linxi.diary.core.DeviceStatusHolder
+import com.linxi.diary.core.NetworkWatcher
 import com.linxi.diary.core.ScreenStateReceiver
 import com.linxi.diary.core.StatusCollector
 import com.linxi.diary.sync.SharingRuntimePolicy
@@ -38,14 +39,18 @@ import com.linxi.diary.util.UserPrefs
 class StatusForegroundService : Service() {
 
     companion object {
-        const val CHANNEL_CARD = "status_card"
-        const val CHANNEL_EVENT = "status_event"
-        const val CHANNEL_RING = "status_ring"
-        const val NOTIFY_ID_CARD = 10001
+        // 渠道常量统一由 NotificationChannels 定义（此前 4 处各自创建、属性打架）。
+        // 这里保留同名别名，避免调用方大范围改动。
+        const val CHANNEL_CARD = NotificationChannels.CHANNEL_CARD
+        const val CHANNEL_EVENT = NotificationChannels.CHANNEL_EVENT
+        const val CHANNEL_RING = NotificationChannels.CHANNEL_RING
+        const val NOTIFY_ID_CARD = NotificationChannels.NOTIFY_ID_CARD
 
         const val ACTION_REFRESH = "com.linxi.diary.REFRESH"
         const val ACTION_RING = "com.linxi.diary.RING"
-        const val ACTION_SYNC = "com.linxi.diary.SYNC" // 后台 5 分钟定时采集
+
+        /** 周期心跳：重新采集本机状态 + 兼作服务存活自检。由 SyncHeartbeat 调度。 */
+        const val ACTION_SYNC = "com.linxi.diary.SYNC"
         private const val EXTRA_FORCE_NOTIFICATION_REFRESH = "force_notification_refresh"
 
         /** 刷新卡片（收到 partner_status 时调用）。用户关闭卡片后忽略 */
@@ -64,6 +69,18 @@ class StatusForegroundService : Service() {
         fun start(context: Context) {
             if (!UserPrefs.statusCardEnabled || !SharingRuntimePolicy.canRunNow()) return
             startSafe(context, null)
+        }
+
+        /**
+         * 重新采集本机状态并立即上报。
+         *
+         * 亮屏/息屏、网络恢复、周期心跳都走这里 —— 关键是**先采集再上报**：
+         * 直接调 StatusSyncManager.pushNow() 只会把上一次的旧快照发出去。
+         */
+        fun syncNow(context: Context?) {
+            val c = context ?: return
+            if (!SharingRuntimePolicy.canRunNow()) return
+            startSafe(c, ACTION_SYNC)
         }
 
         fun stop(context: Context) {
@@ -110,13 +127,21 @@ class StatusForegroundService : Service() {
             return
         }
         try { createChannels() } catch (t: Throwable) { Logs.w("Service", "createChannels 异常", t) }
+        // 网络可用性监听：替代静态注册的 NetworkReceiver（CONNECTIVITY_CHANGE 在 API24+ 不投递）
+        NetworkWatcher.register(this)
+        // 周期心跳：ACTION_SYNC 此前从未被任何代码调度，周期采集实际不存在。
+        SyncHeartbeat.schedule(
+            this,
+            appVisible = AppForegroundState.isForeground,
+            screenOn = DeviceStatusHolder.screenOn,
+            force = true,
+        )
         // 动态注册亮屏/锁屏监听（ACTION_SCREEN_ON/OFF 无法静态注册）
         screenReceiver = ScreenStateReceiver().also { r ->
             val f = IntentFilter()
             f.addAction(Intent.ACTION_SCREEN_ON)
             f.addAction(Intent.ACTION_SCREEN_OFF)
             f.addAction(Intent.ACTION_USER_PRESENT)
-            f.addAction(Intent.ACTION_LOCKED_BOOT_COMPLETED)
             ContextCompat.registerReceiver(this, r, f, ContextCompat.RECEIVER_NOT_EXPORTED)
         }
         // 指定 WiFi 连接监听：连接「关注 WiFi」时触发事件
@@ -199,21 +224,9 @@ class StatusForegroundService : Service() {
             .onFailure { Logs.w("Service", "更新状态卡失败", it) }
     }
 
+    /** 渠道创建委托给 NotificationChannels 单一入口（幂等）。 */
     private fun createChannels() {
-        val nm = getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(NotificationChannel(
-            CHANNEL_CARD, "伴侣状态卡", NotificationManager.IMPORTANCE_LOW).apply {
-            setShowBadge(false)
-            description = "常驻显示伴侣实时状态，静默更新"
-        })
-        nm.createNotificationChannel(NotificationChannel(
-            CHANNEL_EVENT, "互动提醒", NotificationManager.IMPORTANCE_HIGH).apply {
-            description = "求陪伴/待办/日记等互动提醒"
-        })
-        nm.createNotificationChannel(NotificationChannel(
-            CHANNEL_RING, "紧急响铃", NotificationManager.IMPORTANCE_HIGH).apply {
-            description = "强制响铃通知（铃声由播放器控制，不重复响）"
-        })
+        NotificationChannels.ensure(this)
     }
 
     /** 构建紧凑横向状态卡；系统仍保留通知装饰和标准响铃 Action。 */
@@ -277,6 +290,9 @@ class StatusForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        NetworkWatcher.unregister()
+        // 心跳不在此取消：服务可能是被系统杀掉的，届时正需要心跳把它拉回来。
+        // 仅在未绑定/关闭共享时由 SyncHeartbeatReceiver 自行 cancel。
         screenReceiver?.let { runCatching { unregisterReceiver(it) } }
         wifiReceiver?.let { runCatching { unregisterReceiver(it) } }
         screenReceiver = null

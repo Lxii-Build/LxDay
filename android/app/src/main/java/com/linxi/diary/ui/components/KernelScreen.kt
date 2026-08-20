@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.add
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
@@ -53,6 +54,12 @@ fun KernelScreen(
     header: (@Composable () -> Unit)? = null,
     isRefreshing: Boolean = false,
     onRefresh: (() -> Unit)? = null,
+    /**
+     * 首次加载态：在列表首位渲染统一的 miuix 加载指示器。
+     * 收敛到这里是为了让全 App 的加载动画只有一种观感（管理员要求「统一和待办的一样」），
+     * 各页不再各写一份 CircularProgressIndicator。
+     */
+    loading: Boolean = false,
     content: LazyListScope.() -> Unit,
 ) {
     val scrollBehavior = MiuixScrollBehavior()
@@ -92,8 +99,12 @@ fun KernelScreen(
                         bottom = innerPadding.calculateBottomPadding() + LocalMainBottomPadding.current + bottomPadding
                     ),
                     overscrollEffect = null,
-                    content = content
-                )
+                ) {
+                    if (loading) {
+                        item(key = "__kernel_loading__") { LoadingRow() }
+                    }
+                    content()
+                }
             }
         }
         Column(Modifier.fillMaxHeight()) {
@@ -109,12 +120,32 @@ fun KernelScreen(
                     pullToRefreshState = pullState,
                     onRefresh = onRefresh,
                     refreshTexts = listOf("下拉刷新", "松开刷新", "正在刷新…", "刷新成功"),
-                    contentPadding = PaddingValues(0.dp),
+                    // 刷新指示器必须让开悬浮的毛玻璃 TopAppBar，否则下拉时被顶栏完全盖住看不见。
+                    // miuix 的 RefreshHeader 靠 contentPadding.calculateTopPadding() 下移自己；
+                    // 此前写死 0.dp，于是指示器贴在容器 y=0 —— 正好在顶栏底下。
+                    // 有 header 时（如待办页搜索框）header 已把内容整体挤到顶栏之下，故只需 6dp 呼吸位。
+                    contentPadding = PaddingValues(
+                        top = if (header != null) 6.dp else innerPadding.calculateTopPadding() + 6.dp
+                    ),
                 ) { listBox() }
             } else {
                 listBox()
             }
         }
+    }
+}
+
+/**
+ * 全 App 统一的列表加载行：居中的 miuix CircularProgressIndicator。
+ * 与待办页原有观感一致（padding 24dp），作为唯一的加载动画样式。
+ */
+@Composable
+fun LoadingRow() {
+    Box(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = androidx.compose.ui.Alignment.Center,
+    ) {
+        top.yukonga.miuix.kmp.basic.CircularProgressIndicator(Modifier.padding(24.dp))
     }
 }
 

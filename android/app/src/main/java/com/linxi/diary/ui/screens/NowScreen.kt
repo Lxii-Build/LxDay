@@ -17,10 +17,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.linxi.diary.core.DeviceStatus
 import com.linxi.diary.core.DeviceStatusHolder
+import com.linxi.diary.core.RingHelper
 import com.linxi.diary.data.ProfileRuntime
 import com.linxi.diary.data.RelationshipDays
+import com.linxi.diary.sync.InteractionEvents
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.ui.components.KernelScreen
 import com.linxi.diary.ui.components.WarningCard
@@ -28,6 +31,7 @@ import com.linxi.diary.ui.components.WarningLevel
 import com.linxi.diary.ui.theme.BrandBlue
 import com.linxi.diary.util.UserPrefs
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Text
@@ -36,7 +40,10 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 import top.yukonga.miuix.kmp.theme.MiuixTheme.isDynamicColor
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 
-/** 远程互动按钮客户端冷却时长：点击后进行中态持续、且期间禁用重复点击（毫秒）。 */
+/**
+ * 远程互动按钮客户端冷却时长：点击后进行中态持续、且期间禁用重复点击（毫秒）。
+ * 与服务端 `store.go` 的 interactionCooldownWindow 保持一致（7s/1 次）。
+ */
 private const val INTERACTION_COOLDOWN_MS = 7000L
 
 /**
@@ -49,7 +56,10 @@ fun NowScreen(
     onOpenBind: () -> Unit = {}
 ) {
     val demo = UserPrefs.demoMode
-    val partner = if (demo) null else DeviceStatusHolder.partner
+    // 订阅 StateFlow 而非直读字段：此前读的是普通 @Volatile var，
+    // Compose 不会建立订阅，服务端推到了 UI 也不重组 —— 这才是"状态同步不实时"的真因。
+    val partnerState by DeviceStatusHolder.partnerFlow.collectAsStateWithLifecycle()
+    val partner = if (demo) null else partnerState
     val partnerName = UserPrefs.partnerName.ifBlank { "对方" }
     val profile = if (demo) null else ProfileRuntime.repository.profile.collectAsState().value
     val bound = !demo && UserPrefs.pairId > 0
@@ -58,15 +68,45 @@ fun NowScreen(
         RelationshipDays.dayNumber(it, java.time.LocalDate.now())
     }
 
-    // 远程互动三按钮各自独立的“进行中”态：点击后 7 秒内变蓝 + 禁用，到点自动恢复（客户端冷却）。
+    // 远程互动三按钮各自独立的"进行中"态：点击后 7 秒内变蓝 + 禁用，到点自动恢复（客户端冷却）。
     var comfortActive by remember { mutableStateOf(false) }
     var calmActive by remember { mutableStateOf(false) }
     var ringActive by remember { mutableStateOf(false) }
     LaunchedEffect(comfortActive) { if (comfortActive) { delay(INTERACTION_COOLDOWN_MS); comfortActive = false } }
     LaunchedEffect(calmActive) { if (calmActive) { delay(INTERACTION_COOLDOWN_MS); calmActive = false } }
-    LaunchedEffect(ringActive) { if (ringActive) { delay(INTERACTION_COOLDOWN_MS); ringActive = false } }
 
-    KernelScreen(title = "主页") {
+    // 响铃的进行中态由 InteractionEvents 驱动（含对方已知悉回执），不再只是本地 flag。
+    val pendingRing by InteractionEvents.pending.collectAsStateWithLifecycle()
+    val rejection by InteractionEvents.rejection.collectAsStateWithLifecycle()
+    LaunchedEffect(ringActive) {
+        if (ringActive) {
+            delay(RingHelper.RING_DURATION_MS)
+            ringActive = false
+            InteractionEvents.clear()
+        }
+    }
+    // 服务端拒绝（超频）→ 立即结束进行中态，把原因显示出来后清除。
+    LaunchedEffect(rejection) {
+        if (rejection != null) {
+            comfortActive = false; calmActive = false; ringActive = false
+        }
+    }
+
+    var refreshing by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    KernelScreen(
+        title = "主页",
+        isRefreshing = refreshing,
+        onRefresh = {
+            refreshing = true
+            scope.launch {
+                runCatching { ProfileRuntime.refreshAsync() }
+                delay(400) // 让刷新动画走完一个完整循环，避免闪跳
+                refreshing = false
+            }
+        },
+    ) {
         item {
             Column(
                 Modifier.padding(top = 12.dp),
@@ -85,6 +125,11 @@ fun NowScreen(
                 if (partner == null) {
                     WarningCard("等待 $partnerName 同步状态", level = WarningLevel.Notice)
                 }
+                // 服务端明确拒绝了刚才那次互动（如响铃超频）：给出可读原因，
+                // 而不是像此前那样静默丢弃、UI 仍显示"已发送"。
+                rejection?.let { reason ->
+                    WarningCard(reason, level = WarningLevel.Error)
+                }
 
                 // 伴侣状态卡（KernelSU StatusCard：绿色卡片 + 右下大图标叠层）
                 PartnerStatusCard(partner, partnerName)
@@ -102,23 +147,50 @@ fun NowScreen(
                             "求陪伴", Icons.Filled.Favorite, Modifier.weight(1f),
                             active = comfortActive, activeTitle = "已发送…"
                         ) {
-                            comfortActive = true
-                            StatusSyncManager.sendEvent("comfort_request")
+                            InteractionEvents.clearRejection()
+                            // 只有真发出去才进入"已发送"态：WS 离线时 sendEvent 返回 false，
+                            // 此前无论成败都亮起，造成离线假成功。
+                            if (StatusSyncManager.sendEvent("comfort_request")) {
+                                comfortActive = true
+                            } else {
+                                InteractionEvents.onRejected("comfort_request", "当前离线，消息未发出")
+                            }
                         }
                         ActionCard(
                             "求冷静", Icons.Filled.CheckCircle, Modifier.weight(1f),
                             active = calmActive, activeTitle = "已发送…"
                         ) {
-                            calmActive = true
-                            StatusSyncManager.sendEvent("calm_request")
+                            InteractionEvents.clearRejection()
+                            if (StatusSyncManager.sendEvent("calm_request")) {
+                                calmActive = true
+                            } else {
+                                InteractionEvents.onRejected("calm_request", "当前离线，消息未发出")
+                            }
                         }
                     }
+                    // 响铃：进行中显示"响铃中"并提供【撤回】，对方关闭后显示"对方已知悉"。
+                    val ringAcked = pendingRing?.acknowledged == true
                     ActionCard(
                         "响铃提醒（紧急找人）", Icons.Filled.Notifications, Modifier.fillMaxWidth(),
-                        active = ringActive, activeTitle = "响铃中…"
+                        active = ringActive,
+                        activeTitle = if (ringAcked) "对方已知悉" else "响铃中…（点击撤回）",
+                        allowClickWhenActive = true, // 否则撤回点不到
                     ) {
-                        ringActive = true
-                        StatusSyncManager.sendEvent("ring_request")
+                        if (ringActive) {
+                            // 进行中再次点击 = 撤回：让对方立刻停止响铃。
+                            StatusSyncManager.sendRingCancel(pendingRing?.ringId)
+                            ringActive = false
+                            InteractionEvents.clear()
+                        } else {
+                            InteractionEvents.clearRejection()
+                            val ringId = java.util.UUID.randomUUID().toString()
+                            if (StatusSyncManager.sendEvent("ring_request", ringId)) {
+                                ringActive = true
+                                InteractionEvents.begin("ring_request", ringId)
+                            } else {
+                                InteractionEvents.onRejected("ring_request", "当前离线，响铃未发出")
+                            }
+                        }
                     }
                 }
 
@@ -273,12 +345,18 @@ private fun ActionCard(
     modifier: Modifier = Modifier,
     active: Boolean = false,
     activeTitle: String = "进行中…",
+    /**
+     * 进行中态是否仍可点击。
+     * 求陪伴/求冷静为 false（冷却期禁止重复发）；
+     * 响铃为 true —— 进行中点击即「撤回」，若沿用禁用逻辑就永远撤不回。
+     */
+    allowClickWhenActive: Boolean = false,
     onClick: () -> Unit
 ) {
     val fg = if (active) Color.White else colorScheme.onSurface
     Card(
         modifier = modifier,
-        onClick = { if (!active) onClick() },
+        onClick = { if (!active || allowClickWhenActive) onClick() },
         colors = if (active) {
             CardDefaults.defaultColors(color = BrandBlue, contentColor = Color.White)
         } else {

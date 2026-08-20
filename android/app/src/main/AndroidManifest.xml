@@ -11,8 +11,24 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
+      精确闹钟：待办到点提醒依赖 setExactAndAllowWhileIdle。
+      minSdk=33 下若不声明，该调用直接抛 SecurityException（此前"添加带提醒的待办"必崩）。
+      USE_EXACT_ALARM 面向闹钟/日程类应用，安装即授予且 canScheduleExactAlarms() 恒为 true；
+      同时声明 SCHEDULE_EXACT_ALARM 以便在未获授权的设备上走用户授权引导。
+    -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
+    <!--
+      读取相册：自研 miuix 图片选择器需要枚举 MediaStore 图片。
+      READ_MEDIA_VISUAL_USER_SELECTED 对应 Android 14+「仅选择部分照片」，
+      未声明时用户选了"部分允许"会被当作完全拒绝。
+    -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
 
     <!-- ================= 特殊授权（设置页引导） ================= -->
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
@@ -21,10 +37,14 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
-    <!-- 定位：Android 10+ 读取 WiFi 名称必需 -->
+    <!--
+      定位：Android 10+ 读取 WiFi 名称必需。
+      不再声明 ACCESS_BACKGROUND_LOCATION：它此前从未在运行时请求过（等于永远拿不到），
+      只是徒增权限面并触发商店审核问题。前台服务类型也仅为 dataSync，
+      故同时移除了 FOREGROUND_SERVICE_LOCATION。
+    -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
 
     <application
         android:name=".App"
@@ -58,28 +78,47 @@
             </intent-filter>
         </service>
 
-        <!-- 开机自启保活 -->
+        <!--
+          开机自启保活 + 重建待办闹钟。
+          只监听 BOOT_COMPLETED：LOCKED_BOOT_COMPLETED 需要 directBootAware=true 才会投递，
+          而本应用的 SharedPreferences 是 MODE_PRIVATE（直接启动阶段不可读），
+          声明了反而会在解锁前触发并崩溃。
+        -->
         <receiver
             android:name=".core.BootReceiver"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
 
-        <!-- 网络变化重连 -->
-        <receiver
-            android:name=".core.NetworkReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.net.conn.CONNECTIVITY_CHANGE" />
-            </intent-filter>
-        </receiver>
+        <!--
+          网络变化重连改用 ConnectivityManager.NetworkCallback 动态注册
+          （CONNECTIVITY_CHANGE 隐式广播自 API 24 起不再投递给清单接收器，
+          静态注册在 minSdk 33 上 100% 无效）。见 core/NetworkWatcher.kt。
+        -->
 
         <!-- 待办本地到点提醒（AlarmManager 兜底） -->
         <receiver
             android:name=".core.TodoAlarmReceiver"
+            android:exported="false" />
+
+        <!-- 通知栏「停止响铃」：不依赖 Activity 能否拉起，是响铃可关闭的可靠兜底 -->
+        <receiver
+            android:name=".core.RingStopReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.linxi.diary.action.STOP_RING" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+          周期同步心跳：按前台/后台/息屏分档重复触发状态采集与上报，
+          并兼作前台服务存活自检（Android 15+ dataSync 前台服务有 6h/24h 运行上限，
+          超时被 stopSelf 后此前没有任何重启路径）。
+        -->
+        <receiver
+            android:name=".core.SyncHeartbeatReceiver"
             android:exported="false" />
 
         <!-- 电量低/连接 WiFi 即时推送由前台服务内动态注册监听 -->

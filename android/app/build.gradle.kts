@@ -22,14 +22,59 @@ val propVersionName = (project.findProperty("VERSION_NAME") as String?)?.takeIf 
     ?: "1.0.0"
 val propVersionCode = (project.findProperty("VERSION_CODE") as String?)?.toIntOrNull() ?: 1
 
+// ---- 正式签名（PKCS#12）----
+// 每次构建的 APK 签名必须完全一致，否则装不上/覆盖不了已有版本。
+// 此前 release 直接复用 debug 签名（signingConfigs.getByName("debug")），
+// 而 CI runner 每次都是全新机器、~/.android/debug.keystore 每次自动重新生成
+// → 每次构建指纹都不同，这就是「每次生成的 APK 签名都不一样」的根因。
+//
+// 密钥库经 CI 从 Secret ANDROID_KEYSTORE_BASE64 解码落盘后用 -P 注入路径。
+// Secret 缺失时（本地无参构建 / fork）自动回退 debug 签名，保证仍可编译。
+val propKeystoreFile = (project.findProperty("KEYSTORE_FILE") as String?)?.takeIf { it.isNotBlank() }
+val propKeystorePassword = (project.findProperty("KEYSTORE_PASSWORD") as String?) ?: ""
+val propKeyAlias = (project.findProperty("KEY_ALIAS") as String?) ?: ""
+val propKeyPassword = (project.findProperty("KEY_PASSWORD") as String?) ?: ""
+
+// 固定的 debug 密钥库：随仓库提交（debug 密钥按安卓惯例是公开的，口令固定 android）。
+// 目的是让本地与 CI 的 debug APK 签名也一致，调试时不必卸载重装丢数据。
+val debugKeystore = rootProject.file("keystore/lxday-debug.p12")
+
 android {
     namespace = "com.linxi.diary"
+
+    signingConfigs {
+        if (propKeystoreFile != null) {
+            create("release") {
+                storeFile = file(propKeystoreFile)
+                storeType = "PKCS12"
+                storePassword = propKeystorePassword
+                keyAlias = propKeyAlias
+                keyPassword = propKeyPassword
+                // v1 已废弃且拖慢构建；v2/v3 覆盖全部支持机型，v4 便于增量安装。
+                enableV1Signing = false
+                enableV2Signing = true
+                enableV3Signing = true
+                enableV4Signing = true
+            }
+        }
+        if (debugKeystore.exists()) {
+            getByName("debug") {
+                storeFile = debugKeystore
+                storeType = "PKCS12"
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
+    }
 
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("debug")
+            // 有正式密钥就用，否则回退 debug（保证无 Secret 也能出包）
+            signingConfig = signingConfigs.findByName("release")
+                ?: signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -103,10 +148,16 @@ dependencies {
 
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.process)
 
     implementation(libs.kotlinx.coroutines.android)
 
     implementation(libs.okhttp)
+
+    // 相册：网络图加载（内存+磁盘缓存、自动采样）与 EXIF 方向读取
+    implementation(libs.coil.compose)
+    implementation(libs.coil.network.okhttp)
+    implementation(libs.androidx.exifinterface)
 
     // miuix（小米 HyperOS 风格组件）
     implementation(libs.miuix.ui)

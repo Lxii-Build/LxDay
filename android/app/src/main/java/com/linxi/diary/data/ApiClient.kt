@@ -231,9 +231,76 @@ object ApiClient {
             .build()
         val resp = client.newCall(request("POST", "/profile/avatar", mb).build()).execute()
         val text = resp.body?.string().orEmpty()
-        if (!resp.isSuccessful) throw ApiException(-1, "HTTP ${resp.code}")
+        // 走统一的失败处理：服务端会返回中文原因（如"暂不支持该图片格式"），
+        // 此前直接抛 "HTTP 400" 把有用信息丢掉了。
+        if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
         check(text).optJSONObject("data") ?: JSONObject()
     }
+
+    /**
+     * 相册统一上传入口 `/media`。
+     *
+     * @param mime 真实 MIME（客户端已把 HEIC 转成 JPEG，见 ImagePrepPolicy）
+     * @param takenAtMs 客户端读到的 EXIF 拍摄时间；服务端也会自己解析，两者取其一即可
+     */
+    suspend fun uploadMedia(file: File, mime: String, takenAtMs: Long?): JSONObject =
+        withContext(Dispatchers.IO) {
+            netCall {
+                val builder = MultipartBody.Builder()
+                    .setType(MultipartBody.FORM)
+                    .addFormDataPart("file", file.name, file.asRequestBody(mime.toMediaType()))
+                if (takenAtMs != null && takenAtMs > 0) {
+                    builder.addFormDataPart("taken_at", takenAtMs.toString())
+                }
+                val resp = client.newCall(request("POST", "/media", builder.build()).build()).execute()
+                val text = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
+                check(text).optJSONObject("data") ?: JSONObject()
+            }
+        }
+
+    /**
+     * 把已上传的照片挂进相册（批量）。
+     *
+     * `/media` 上传时就已建好 photo 行（album_id=0，即「未归类」），返回完整 photo 对象，
+     * 所以这里传 id 列表即可，不必回传 url。albumId=0 表示保持未归类，无需调用本接口。
+     */
+    suspend fun attachPhotos(albumId: Long, photoIds: List<Long>): JSONObject {
+        val arr = org.json.JSONArray()
+        photoIds.forEach { arr.put(it) }
+        return postJson("/albums/$albumId/photos", JSONObject().put("photo_ids", arr))
+    }
+
+    suspend fun deletePhoto(photoId: Long): JSONObject = delete("/photos/$photoId")
+
+    suspend fun unlikePhoto(photoId: Long): JSONObject = delete("/photos/$photoId/like")
+
+    suspend fun updatePhotoCaption(photoId: Long, caption: String): JSONObject =
+        putJson("/photos/$photoId", JSONObject().put("caption", caption))
+
+    /**
+     * 回收站列表：软删的照片在这里，可恢复。
+     * 同样是 `{list,total,page,size}` 包装体，不是裸数组。
+     */
+    suspend fun recycledPhotos(): org.json.JSONArray =
+        get("/photos/recycled").optJSONArray("list") ?: org.json.JSONArray()
+
+    suspend fun restorePhoto(photoId: Long): JSONObject =
+        postJson("/photos/$photoId/restore", JSONObject())
+
+    suspend fun renameAlbum(albumId: Long, name: String): JSONObject =
+        putJson("/albums/$albumId", JSONObject().put("name", name))
+
+    /** 换封面。cover_photo_id 必须是该相册内的照片。 */
+    suspend fun setAlbumCover(albumId: Long, photoId: Long): JSONObject =
+        putJson("/albums/$albumId", JSONObject().put("cover_photo_id", photoId))
+
+    /** 删相册（软删）。其中照片不跟着删，会退回「未归类」。 */
+    suspend fun deleteAlbum(albumId: Long): JSONObject = delete("/albums/$albumId")
+
+    /** 删评论。服务端只允许删自己的。 */
+    suspend fun deletePhotoComment(photoId: Long, commentId: Long): JSONObject =
+        delete("/photos/$photoId/comments/$commentId")
 
     /** 状态历史时间线 */
     suspend fun historyTimeline(date: String?, limit: Int, offset: Int): org.json.JSONArray {
@@ -261,6 +328,49 @@ object ApiClient {
     suspend fun diaries(date: String? = null): org.json.JSONArray {
         return getArray(if (date.isNullOrBlank()) "/diaries" else "/diaries?date=$date")
     }
+
+    /** 日记篇数（发现页卡片副标题用）。服务端无专门计数接口，直接取列表长度。 */
+    suspend fun diaryCount(): Int = diaries().length()
+
+    // ---------- 相册 ----------
+
+    /**
+     * 相册概要：照片总数 / 相册数 / 最新缩略图。发现页卡片副标题用。
+     * 服务端把 summary 挂在 /albums/:id 通配 handler 下分派（gin 不允许同层静态段与通配段并存）。
+     */
+    suspend fun albumSummary(): Int = get("/albums/summary").optInt("photo_count")
+
+    suspend fun albums(): org.json.JSONArray = getArray("/albums")
+
+    /**
+     * 相册内照片（分页）。
+     *
+     * 服务端返回的是 `data: {list, total, page, size}` 包装体，**不是裸数组** ——
+     * 用 getArray 会因为 `data` 不是 JSONArray 而静默拿到空数组（相册详情永远显示为空）。
+     * 这里显式取 `list`。
+     */
+    suspend fun albumPhotos(albumId: Long, page: Int, size: Int): org.json.JSONArray =
+        get("/albums/$albumId/photos?page=$page&size=$size")
+            .optJSONArray("list") ?: org.json.JSONArray()
+
+    suspend fun createAlbum(name: String): JSONObject =
+        postJson("/albums", JSONObject().put("name", name))
+
+    suspend fun photoDetail(photoId: Long): JSONObject = get("/photos/$photoId")
+
+    suspend fun likePhoto(photoId: Long): JSONObject =
+        postJson("/photos/$photoId/like", JSONObject())
+
+    suspend fun commentPhoto(photoId: Long, content: String): JSONObject =
+        postJson("/photos/$photoId/comments", JSONObject().put("content", content))
+
+    /**
+     * 「这一天」：历年同月同日的照片。
+     * 返回 `{month, day, list, total}` 包装体，取 list。
+     */
+    suspend fun photosOnThisDay(month: Int, day: Int): org.json.JSONArray =
+        get("/photos/on-this-day?month=$month&day=$day")
+            .optJSONArray("list") ?: org.json.JSONArray()
 
     suspend fun createDiary(body: JSONObject): JSONObject = postJson("/diaries", body)
 }

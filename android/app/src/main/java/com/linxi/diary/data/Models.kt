@@ -8,8 +8,14 @@ import java.util.Locale
 
 /** 服务端 DTO 解析（org.json，时间字段兼容 RFC3339 字符串 与 epoch 毫秒/秒） */
 
-/** 解析时间字段：兼容 Go time.Time 的 RFC3339 字符串 或 epoch 毫秒。返回 epoch 毫秒；解析失败返回 0 */
-private fun optTimeMs(j: JSONObject, key: String): Long {
+/**
+ * 解析时间字段：兼容 Go time.Time 的 RFC3339 字符串 或 epoch 毫秒。
+ * 返回 epoch 毫秒；解析失败返回 0。
+ *
+ * internal 而非 private：相册模型（AlbumModels.kt）同样要解析服务端时间，
+ * 复用这一份而不是各写一套解析（格式不一致会导致时间显示错乱）。
+ */
+internal fun optTimeMs(j: JSONObject, key: String): Long {
     val raw = j.opt(key) ?: return 0L
     return when (raw) {
         is Number -> raw.toLong()
@@ -105,10 +111,17 @@ data class HistoryEntry(
     val network: String,
     val ts: Long                 // epoch 毫秒
 ) {
-    val timeLabel: String get() =
-        SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(ts))
+    /**
+     * 时间标签。用共享 formatter 而非每次 new：这是个 getter，
+     * 列表滚动时每个 item 每帧都会访问，此前每次访问都构造一个 SimpleDateFormat。
+     * SimpleDateFormat 非线程安全，故用 ThreadLocal 而非单例。
+     */
+    val timeLabel: String get() = hhmmFormat.get()!!.format(Date(ts))
 
     companion object {
+        private val hhmmFormat: ThreadLocal<SimpleDateFormat> =
+            ThreadLocal.withInitial { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+
         fun fromJson(j: JSONObject) = HistoryEntry(
             battery = j.optInt("battery"),
             charging = j.optBoolean("charging"),

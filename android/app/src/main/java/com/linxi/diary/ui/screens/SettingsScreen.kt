@@ -11,6 +11,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
@@ -49,6 +51,7 @@ fun SettingsScreen(
     val activity = context as? android.app.Activity
     var sharing by remember { mutableStateOf(UserPrefs.sharingEnabled) }
     var cardEnabled by remember { mutableStateOf(UserPrefs.statusCardEnabled) }
+    var quietNotify by remember { mutableStateOf(UserPrefs.quietNotifyEnabled) }
     val partnerName = UserPrefs.partnerName.ifBlank { "未绑定" }
     val bound = UserPrefs.pairId > 0
     val demo = UserPrefs.demoMode
@@ -64,10 +67,25 @@ fun SettingsScreen(
         }
     }
 
-    // 权限状态
-    val usageOk = PermissionHelper.hasUsageAccess(context)
-    val notifOk = PermissionHelper.hasNotificationListener(context)
-    val policyOk = PermissionHelper.hasNotificationPolicyAccess(context)
+    // 权限状态。
+    //
+    // 必须用 State 承载并在 ON_RESUME 时重查，原因有两个：
+    // ① 这些检查会做 AppOpsManager IPC 与 Settings.Secure 查询，
+    //    直接写在 composition 体里等于每次重组都在主线程跑一遍；
+    // ② 用户跳去系统设置授权后返回，旧写法不会重查，界面仍显示"未开启"，
+    //    用户会以为没生效而反复点。
+    var permTick by remember { mutableStateOf(0) }
+    val usageOk = remember(permTick) { PermissionHelper.hasUsageAccess(context) }
+    val notifOk = remember(permTick) { PermissionHelper.hasNotificationListener(context) }
+    val policyOk = remember(permTick) { PermissionHelper.hasNotificationPolicyAccess(context) }
+    val batteryOk = remember(permTick) { PermissionHelper.hasIgnoreBattery(context) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) permTick++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     KernelScreen(title = "我的") {
         // 分组1：共享与绑定
@@ -140,6 +158,19 @@ fun SettingsScreen(
                         else StatusForegroundService.stop(context)
                     }
                 )
+                // 静默通知：对方息屏/亮屏、上线/下线时在通知栏留一条，
+                // 不弹横幅、不响铃、不振动（走 status_quiet 渠道，IMPORTANCE_LOW + setSound(null)）。
+                SwitchPreference(
+                    title = "伴侣动态静默通知",
+                    summary = "对方息屏/亮屏、上下线时通知栏提示，不响铃不弹窗",
+                    startAction = { PrefIcon(Icons.Filled.Notifications, "伴侣动态静默通知") },
+                    checked = quietNotify,
+                    enabled = !demo && UserPrefs.privacyConsented && sharing,
+                    onCheckedChange = { on ->
+                        quietNotify = on
+                        UserPrefs.quietNotifyEnabled = on
+                    }
+                )
             }
         }
 
@@ -163,6 +194,15 @@ fun SettingsScreen(
                     summary = if (policyOk) "已开启" else "强制响铃可绕过勿扰",
                     startAction = { PrefIcon(Icons.Filled.Notifications, "勿扰访问") },
                     onClick = { PermissionHelper.toNotificationPolicy(context) }
+                )
+                // 电池优化白名单：PermissionHelper 里早就写好了 hasIgnoreBattery/toBatteryOptimization，
+                // 但全项目零引用 —— 国产 ROM 上前台服务被省电策略杀掉是"状态不同步"的最大单一原因，
+                // 缺这个入口等于把最有效的保活手段藏起来了。
+                ArrowPreference(
+                    title = "电池优化白名单",
+                    summary = if (batteryOk) "已加入白名单" else "允许后台运行，避免状态同步中断",
+                    startAction = { PrefIcon(Icons.Filled.Notifications, "电池优化白名单") },
+                    onClick = { PermissionHelper.toBatteryOptimization(context) }
                 )
                 ArrowPreference(
                     title = "vivo/OPPO 自启动白名单",

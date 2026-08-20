@@ -98,6 +98,7 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit)
     var upToDate by remember { mutableStateOf(false) }
     var showUnbind by remember { mutableStateOf(false) }
     var unbinding by remember { mutableStateOf(false) }
+    var unbindError by remember { mutableStateOf<String?>(null) }
 
     KernelScreen(title = "关于", navigationIcon = { BackAction(onBack) }) {
         item {
@@ -215,6 +216,9 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit)
                     "解除后你和对方都会回到绑定页，可重新绑定。确定解除当前绑定？",
                     color = colorScheme.onSurfaceVariantSummary,
                 )
+                unbindError?.let { msg ->
+                    Text(msg, color = colorScheme.primary)
+                }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     LxButton(
                         "取消",
@@ -228,7 +232,18 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit)
                         onClick = {
                             scope.launch {
                                 unbinding = true
-                                runCatching { ApiClient.postJson("/pair/unbind", JSONObject()) }
+                                unbindError = null
+                                // 必须先确认服务端解绑成功再清本地：
+                                // 此前 runCatching 的结果被直接丢弃，网络失败时服务端仍是绑定状态、
+                                // 本地却已清空并跳回绑定页 —— 双端状态分裂，重新登录也回不去。
+                                val ok = runCatching {
+                                    ApiClient.postJson("/pair/unbind", JSONObject())
+                                }.isSuccess
+                                if (!ok) {
+                                    unbindError = "解除绑定失败，请检查网络后重试"
+                                    unbinding = false
+                                    return@launch
+                                }
                                 UserPrefs.pairId = 0
                                 UserPrefs.partnerName = ""
                                 UserPrefs.sharingEnabled = false

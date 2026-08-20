@@ -56,6 +56,61 @@ class WsMessageDispatcherTest {
     }
 
     @Test
+    fun `动作被拒回执在状态共享关闭时也必须送达UI`() {
+        // 这是"你自己刚发的动作被服务端拒了"，与共享开关无关。
+        // 若被门控掉，就又回到"UI 显示已发送、其实对方没收到"的静默失败。
+        var rejectedAction = ""
+        var rejectedReason = ""
+        var sensitiveCount = 0
+        val dispatcher = WsMessageDispatcher(
+            refreshProfile = {},
+            handleSensitive = { sensitiveCount++ },
+            handleRejected = { a, r -> rejectedAction = a; rejectedReason = r },
+        )
+
+        val handled = dispatcher.dispatch(
+            text = """{"type":"action_rejected","data":{"action":"ring_request","reason":"对方 10 分钟内已被响铃 3 次"}}""",
+            sensitiveEventsAllowed = false,
+        )
+
+        assertTrue(handled)
+        assertEquals("ring_request", rejectedAction)
+        assertEquals("对方 10 分钟内已被响铃 3 次", rejectedReason)
+        assertEquals(0, sensitiveCount)
+    }
+
+    @Test
+    fun `拒绝回执缺少原因时给出兜底文案`() {
+        var reason = ""
+        val dispatcher = WsMessageDispatcher(
+            refreshProfile = {},
+            handleSensitive = {},
+            handleRejected = { _, r -> reason = r },
+        )
+
+        assertTrue(
+            dispatcher.dispatch(
+                """{"type":"action_rejected","data":{"action":"ring_request"}}""",
+                sensitiveEventsAllowed = true,
+            )
+        )
+        assertEquals("操作被拒绝", reason)
+    }
+
+    @Test
+    fun `撤回与回执事件走敏感处理链`() {
+        val seen = mutableListOf<String>()
+        val dispatcher = WsMessageDispatcher(
+            refreshProfile = {},
+            handleSensitive = { seen += it.getString("type") },
+        )
+
+        assertTrue(dispatcher.dispatch("""{"type":"ring_cancel","data":{}}""", true))
+        assertTrue(dispatcher.dispatch("""{"type":"ring_stopped","data":{}}""", true))
+        assertEquals(listOf("ring_cancel", "ring_stopped"), seen)
+    }
+
+    @Test
     fun `状态共享开启时损坏与未知事件不会进入敏感处理链`() {
         var sensitiveCount = 0
         val dispatcher = WsMessageDispatcher(

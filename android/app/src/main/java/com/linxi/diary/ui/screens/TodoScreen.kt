@@ -197,7 +197,10 @@ fun TodoScreen() {
                                 if (!enabled || t.assigneeId != meId) {
                                     TodoAlarmScheduler.cancel(context, t.id)
                                 } else if (t.remindAtMs != null) {
-                                    TodoAlarmScheduler.schedule(context, t.id, t.title, t.remindType, t.remindAtMs)
+                                    TodoAlarmScheduler.schedule(
+                                        context, t.id, t.title, t.remindType, t.remindAtMs,
+                                        t.repeatType, t.weekdays,
+                                    )
                                 }
                             }
                             refresh()
@@ -235,8 +238,13 @@ fun TodoScreen() {
             onDismiss = { showAdd = false },
             onAdded = { todo, ctx ->
                 // 本地闹钟兜底仅在"被提醒者=本人"时于本机调度；给对方的提醒由服务端扫描推送到对方设备。
+                // 必须把 repeatType/weekdays 一起传下去：闹钟触发后要靠它们重排下一次，
+                // 否则「每天/每周」只会响第一次（此前正是如此）。
                 if (todo.remindEnabled && todo.remindAtMs != null && todo.assigneeId == meId) {
-                    TodoAlarmScheduler.schedule(ctx, todo.id, todo.title, todo.remindType, todo.remindAtMs)
+                    TodoAlarmScheduler.schedule(
+                        ctx, todo.id, todo.title, todo.remindType, todo.remindAtMs,
+                        todo.repeatType, todo.weekdays,
+                    )
                 }
                 showAdd = false
                 refresh()
@@ -398,6 +406,8 @@ private fun AddTodoDialog(
     var repeatMode by remember { mutableStateOf(0) }   // 0 仅一次, 1 重复
     var weekdays by remember { mutableStateOf(0) }
     var customTime by remember { mutableStateOf(false) }
+    var submitting by remember { mutableStateOf(false) }
+    var submitError by remember { mutableStateOf<String?>(null) }
     val now = remember { Calendar.getInstance() }
     var year by remember { mutableStateOf(now.get(Calendar.YEAR)) }
     var month by remember { mutableStateOf(now.get(Calendar.MONTH) + 1) }
@@ -486,11 +496,22 @@ private fun AddTodoDialog(
                 LabeledSwitchRow("强提醒（闹钟音量）", strong) { strong = it }
             }
 
+            submitError?.let { msg ->
+                Text(msg, fontSize = 13.sp, color = MiuixTheme.colorScheme.primary)
+            }
             Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                LxButton("取消", onClick = onDismiss, variant = LxButtonVariant.Neutral, modifier = Modifier.weight(1f))
                 LxButton(
-                    text = "添加",
+                    "取消",
+                    onClick = onDismiss,
+                    variant = LxButtonVariant.Neutral,
+                    enabled = !submitting,
+                    modifier = Modifier.weight(1f),
+                )
+                LxButton(
+                    text = if (submitting) "添加中…" else "添加",
                     onClick = {
+                        submitting = true
+                        submitError = null
                         scope.launch {
                             val ms: Long? = if (!remindEnabled) null else {
                                 val cal = Calendar.getInstance()
@@ -516,9 +537,17 @@ private fun AddTodoDialog(
                             }
                             runCatching { ApiClient.createTodo(body) }
                                 .onSuccess { onAdded(TodoItem.fromJson(it), context) }
+                                .onFailure {
+                                    // 失败必须留在弹窗里并说明原因：此前只处理 onSuccess，
+                                    // 失败时弹窗不关、无提示、输入还在，用户只会反复点「添加」。
+                                    submitError = it.message?.takeIf { m -> m.isNotBlank() }
+                                        ?: "添加失败，请检查网络后重试"
+                                    submitting = false
+                                }
                         }
                     },
-                    enabled = canAdd,
+                    // busy 门控：此前没有，连点两次会创建两条一样的待办。
+                    enabled = canAdd && !submitting,
                     variant = LxButtonVariant.Positive,
                     modifier = Modifier.weight(1f),
                 )

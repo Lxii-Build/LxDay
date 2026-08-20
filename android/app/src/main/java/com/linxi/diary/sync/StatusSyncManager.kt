@@ -58,13 +58,15 @@ object StatusSyncManager {
     private val dispatcher = WsMessageDispatcher(
         refreshProfile = ProfileRuntime::refreshAsync,
         handleSensitive = ::handleInner,
+        handleRejected = ::handleRejected,
     )
 
     private val sharedClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
-            .pingInterval(20, TimeUnit.SECONDS) // 心跳保活：更短间隔更快发现死连接并重连，降低同步延迟
+            // 心跳保活：15s 一次，服务端判死 45s ≈ 3 个周期。心跳帧极小，流量可忽略。
+            .pingInterval(SyncIntervalPolicy.HEARTBEAT_SECONDS, TimeUnit.SECONDS)
             .build()
     }
 
@@ -86,6 +88,11 @@ object StatusSyncManager {
                     retry = 0
                 }
                 pushNow() // 上线立即上报一次全量状态
+            }
+
+            override fun onClosing(w: WebSocket, code: Int, reason: String) {
+                // 收到关闭帧即认为对端/自身连接将断，尽快让 UI 与通知反映离线。
+                Logs.i("Sync", "WS closing: code=$code")
             }
 
             override fun onMessage(w: WebSocket, text: String) = handle(text)
@@ -127,7 +134,8 @@ object StatusSyncManager {
                 return
             }
             if (!ProfileSyncPolicy.canConnectNow()) return
-            val delayMs = WsReconnectPolicy.backoffMillis(retry)
+            // 带抖动：双方常在同一 WiFi，确定性退避会导致两台设备永远同步重连（惊群）。
+            val delayMs = WsReconnectPolicy.backoffWithJitterMillis(retry)
             retry++
             reconnectJob?.cancel()
             reconnectJob = scope.launch {
@@ -154,18 +162,44 @@ object StatusSyncManager {
         }
     }
 
-    /** 触发一次性事件：comfort_request / calm_request / ring_request */
-    fun sendEvent(type: String) {
-        try {
-            if (!SharingRuntimePolicy.canRunNow()) return
-            ws?.send(JSONObject().apply {
+    /**
+     * 触发一次性事件：comfort_request / calm_request / ring_request。
+     *
+     * @param ringId 互动请求的唯一 id，用于之后撤回（ring_cancel）时精确匹配。
+     * @return 是否真的发出去了。**离线必须返回 false**——此前无论有没有连上都静默返回，
+     *         UI 却立刻显示"已发送"，造成离线假成功。
+     */
+    fun sendEvent(type: String, ringId: String? = null): Boolean {
+        return try {
+            if (!SharingRuntimePolicy.canRunNow()) {
+                Logs.w("Sync", "Sharing disabled; event dropped: $type")
+                return false
+            }
+            val socket = ws ?: run {
+                Logs.w("Sync", "WS offline; event not sent: $type")
+                return false
+            }
+            socket.send(JSONObject().apply {
                 put("type", type)
-                put("data", JSONObject().put("ts", System.currentTimeMillis()))
+                put("data", JSONObject().apply {
+                    put("ts", System.currentTimeMillis())
+                    if (ringId != null) put("ring_id", ringId)
+                })
             }.toString())
         } catch (t: Throwable) {
-            Logs.w("Sync", "sendEvent($type) 失败", t)
+            Logs.w("Sync", "sendEvent($type) failed", t)
+            false
         }
     }
+
+    /** 发送方撤回响铃：让接收方立刻停止响铃。 */
+    fun sendRingCancel(ringId: String?): Boolean = sendEvent(MSG_RING_CANCEL, ringId)
+
+    /**
+     * 接收方已关闭响铃的回执，供发送方结束"响铃中"倒计时并显示「对方已知悉」。
+     * 由 RingStopReceiver / RingActivity 调用。
+     */
+    fun sendRingStopped(ringId: String?): Boolean = sendEvent(MSG_RING_STOPPED, ringId)
 
     private fun handle(text: String) {
         try {
@@ -179,6 +213,7 @@ object StatusSyncManager {
         when (m.getString("type")) {
             "partner_status" -> {
                 val j = m.getJSONObject("data")
+                val previous = DeviceStatusHolder.partner
                 DeviceStatusHolder.partner = DeviceStatus(
                     batteryLevel = j.optInt("battery"),
                     isCharging = j.optBoolean("charging"),
@@ -195,13 +230,28 @@ object StatusSyncManager {
                     ts = j.optLong("ts")
                 )
                 StatusForegroundService.refreshCard(appContext) // 更新常驻卡片
+                // 息屏/亮屏 → 静默通知（不弹不响，仅落通知栏）。
+                maybeNotifyQuiet(previous, DeviceStatusHolder.partner)
             }
             "comfort_request" -> notifyEvent("对方 需要你的陪伴", "点击回应 TA")
             "calm_request" -> notifyEvent("对方 现在需要冷静", "暂时放缓沟通，给 TA 一点空间")
-            "ring_request" -> appContext?.let {
-                RingHelper.forceRing(it)
-                notifyRing()
+            "ring_request" -> appContext?.let { ctx ->
+                // RingHelper 自己就会发带【停止响铃】按钮的全屏通知（同一个 id）。
+                // 旧代码此处还额外 notify(10002) 一条普通通知，会把全屏通知连同停止按钮一起覆盖掉。
+                val ringId = m.optJSONObject("data")?.optString("ring_id")?.takeIf { it.isNotEmpty() }
+                RingHelper.forceRing(ctx, ringId)
             }
+            // 发送方撤回：立即停止本机响铃，并回执让对端结束倒计时。
+            MSG_RING_CANCEL -> appContext?.let { ctx ->
+                val ringId = m.optJSONObject("data")?.optString("ring_id")?.takeIf { it.isNotEmpty() }
+                if (RingHelper.stopRing(ctx, ringId, reason = "remote-cancel")) {
+                    sendRingStopped(ringId)
+                }
+            }
+            // 接收方已关闭：发送方侧结束"响铃中"状态。
+            MSG_RING_STOPPED -> InteractionEvents.onRingStopped(
+                m.optJSONObject("data")?.optString("ring_id")?.takeIf { it.isNotEmpty() }
+            )
             "todo_new" -> {
                 val title = m.optJSONObject("data")?.optString("title") ?: "新待办"
                 notifyEvent("对方 给你添加了待办", title)
@@ -234,10 +284,9 @@ object StatusSyncManager {
     private fun notifyEvent(title: String, body: String) {
         try {
             val c = appContext ?: return
-            val nm = c.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            nm.createNotificationChannel(
-                NotificationChannel(StatusForegroundService.CHANNEL_EVENT,
-                    "互动提醒", NotificationManager.IMPORTANCE_HIGH))
+            // 渠道由 NotificationChannels 统一创建；此处不再各自 createNotificationChannel
+            // （对已存在渠道改不了 importance/声音，反而制造属性竞态）。
+            val nm = NotificationChannels.ensure(c) ?: return
             val openApp = PendingIntent.getActivity(c, 0, Intent(c, MainActivity::class.java),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             val n = NotificationCompat.Builder(c, StatusForegroundService.CHANNEL_EVENT)
@@ -254,23 +303,63 @@ object StatusSyncManager {
         }
     }
 
-    private fun notifyRing() {
+    /**
+     * 服务端拒绝了本机刚发出的动作（如响铃 10 分钟内已 3 次）。
+     * 结束发送方的"进行中"状态并把原因交给 UI —— 此前服务端超频是静默丢弃，
+     * 客户端 UI 仍显示"已发送"，用户完全不知道对方根本没收到。
+     */
+    private fun handleRejected(action: String, reason: String) {
+        Logs.w("Sync", "Action rejected by server: action=$action")
+        InteractionEvents.onRejected(action, reason)
+    }
+
+    private val quietThrottle = QuietNotifyThrottle()
+
+    /** 伴侣屏幕状态变化 → 静默通知（60s 内同类合并，受设置页开关控制）。 */
+    private fun maybeNotifyQuiet(previous: DeviceStatus?, next: DeviceStatus?) {
+        val cur = next ?: return
+        val event = QuietNotifyPolicy.diff(previous, cur) ?: return
+        if (!quietThrottle.tryAcquire(event.kind, enabled = UserPrefs.quietNotifyEnabled)) return
+        notifyQuiet(event.title, event.body)
+    }
+
+    /** 在线/离线变化 → 静默通知。由 WS 建连与判死路径调用。 */
+    fun notifyPresence(online: Boolean) {
+        val event = QuietNotifyPolicy.presence(online)
+        if (!quietThrottle.tryAcquire(event.kind, enabled = UserPrefs.quietNotifyEnabled)) return
+        notifyQuiet(event.title, event.body)
+    }
+
+    /**
+     * 静默通知：只落通知栏，不弹横幅、不响铃、不振动（管理员要求的"静默的通知"）。
+     * 用固定 id 覆盖更新，避免对方频繁亮息屏时堆满一屏。
+     */
+    fun notifyQuiet(title: String, body: String) {
         try {
             val c = appContext ?: return
-            val nm = c.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            nm.createNotificationChannel(
-                NotificationChannel(StatusForegroundService.CHANNEL_RING,
-                    "紧急响铃", NotificationManager.IMPORTANCE_HIGH))
-        nm.notify(10002, NotificationCompat.Builder(c, StatusForegroundService.CHANNEL_RING)
-                .setSmallIcon(android.R.drawable.ic_lock_lock)
-                .setContentTitle("紧急响铃已触发")
-                .setContentText("对方正在找你，点击打开 APP")
-                .setPriority(NotificationCompat.PRIORITY_MAX)
-                .setAutoCancel(true)
-                .build())
+            val nm = NotificationChannels.ensure(c) ?: return
+            val openApp = PendingIntent.getActivity(
+                c, 0, Intent(c, MainActivity::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            nm.notify(
+                NotificationChannels.NOTIFY_ID_QUIET,
+                NotificationCompat.Builder(c, NotificationChannels.CHANNEL_QUIET)
+                    .setSmallIcon(android.R.drawable.ic_dialog_info)
+                    .setContentTitle(title)
+                    .setContentText(body)
+                    .setPriority(NotificationCompat.PRIORITY_LOW)
+                    .setSilent(true)
+                    .setOnlyAlertOnce(true)
+                    .setAutoCancel(true)
+                    .setContentIntent(openApp)
+                    .build()
+            )
         } catch (t: Throwable) {
-            Logs.w("Sync", "notifyRing 失败", t)
+            Logs.w("Sync", "notifyQuiet failed", t)
         }
     }
 
+    const val MSG_RING_CANCEL = "ring_cancel"
+    const val MSG_RING_STOPPED = "ring_stopped"
 }

@@ -2,7 +2,14 @@ package com.linxi.diary
 
 import android.app.Application
 import android.util.Log
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
+import com.linxi.diary.core.DeviceStatusHolder
+import com.linxi.diary.core.SyncHeartbeat
 import com.linxi.diary.data.ProfileRuntime
+import com.linxi.diary.service.StatusForegroundService
+import com.linxi.diary.sync.AppForegroundState
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.util.CrashHandler
 import com.linxi.diary.util.Logs
@@ -60,6 +67,38 @@ class App : Application() {
         } catch (t: Throwable) {
             Logs.e("App", "StatusSyncManager.init 失败", t)
         }
+        try {
+            observeAppForeground()
+            Logs.i("App", "Foreground observer registered")
+        } catch (t: Throwable) {
+            Logs.e("App", "Foreground observer registration failed", t)
+        }
         Logs.i("App", "App.onCreate 完成")
+    }
+
+    /**
+     * 进程级前后台观察：驱动 [AppForegroundState]，供同步间隔分档使用。
+     * 此前全仓没有任何前后台感知，轮询在后台仍按前台频率跑。
+     */
+    private fun observeAppForeground() {
+        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onStart(owner: LifecycleOwner) {
+                AppForegroundState.onEnterForeground()
+                // 回到前台：立刻切到最短间隔并触发一次同步，避免盯着旧数据。
+                SyncHeartbeat.schedule(
+                    this@App, appVisible = true,
+                    screenOn = DeviceStatusHolder.screenOn, force = true,
+                )
+                StatusForegroundService.syncNow(this@App)
+            }
+
+            override fun onStop(owner: LifecycleOwner) {
+                AppForegroundState.onEnterBackground()
+                SyncHeartbeat.schedule(
+                    this@App, appVisible = false,
+                    screenOn = DeviceStatusHolder.screenOn, force = true,
+                )
+            }
+        })
     }
 }

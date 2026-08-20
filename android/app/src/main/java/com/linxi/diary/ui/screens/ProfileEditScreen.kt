@@ -1,10 +1,10 @@
 package com.linxi.diary.ui.screens
 
-import android.graphics.BitmapFactory
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
+import com.linxi.diary.data.ImagePrep
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -17,8 +17,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -35,6 +33,9 @@ import com.linxi.diary.ui.components.KernelScreen
 import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
 import com.linxi.diary.ui.theme.BrandBlue
+import androidx.compose.ui.platform.LocalContext
+import coil3.compose.AsyncImage
+import com.linxi.diary.data.AppImageLoader
 import com.linxi.diary.util.Logs
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
@@ -103,20 +104,43 @@ fun ProfileEditScreen(onBack: () -> Unit) {
         }
     }
 
-    val avatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    var avatarError by remember { mutableStateOf<String?>(null) }
+
+    /**
+     * 头像选择改用系统 Photo Picker（`PickVisualMedia`）。
+     *
+     * 原先是 `OpenDocument()`——SAF **文件浏览器**，得在文件树里翻找图片，
+     * 是全 App 观感最差的一处。这里不用自研的 miuix 网格选择器：
+     * 头像是单选，系统 Photo Picker 更轻且**完全不需要读取权限**；
+     * 相册的多选场景才走自研网格（PhotoPickerScreen）。
+     */
+    val avatarPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
         if (uri != null) {
             avatarUploading = true
+            avatarError = null
             scope.launch {
+                // 统一走 ImagePrep：EXIF 旋正 + 长边压到 2048 + HEIC 转 JPEG。
+                // 服务端解码链是纯 Go（镜像无 libvips），不转 HEIC 会被直接拒；
+                // 且此前原样上传未旋正，竖拍头像会躺倒。
+                val prepared = ImagePrep.prepare(context, uri).getOrNull()
+                if (prepared == null) {
+                    avatarError = "这张图片无法处理，换一张试试"
+                    avatarUploading = false
+                    return@launch
+                }
                 runCatching {
-                    val ext = context.contentResolver.getType(uri)?.substringAfterLast('/')?.lowercase() ?: "img"
-                    val file = java.io.File(context.cacheDir, "avatar_src_${System.currentTimeMillis()}.$ext")
-                    context.contentResolver.openInputStream(uri)?.use { input ->
-                        file.outputStream().use { output -> input.copyTo(output) }
-                    }
-                    ApiClient.uploadAvatar(file)
+                    ApiClient.uploadAvatar(prepared.file)
                     MyProfile.fromJson(ApiClient.getMyProfile())
                 }.onSuccess { applyProfile(it); avatarVersion++ }
-                    .onFailure { Logs.w("Profile", "upload avatar failed", it) }
+                    .onFailure {
+                        // 失败必须有反馈：此前只写日志，UI 上「上传中…」消失、头像没变，
+                        // 用户完全不知道发生了什么。
+                        avatarError = it.message?.takeIf { m -> m.isNotBlank() } ?: "头像上传失败，请重试"
+                        Logs.w("Profile", "upload avatar failed", it)
+                    }
+                prepared.file.delete()
                 avatarUploading = false
             }
         }
@@ -134,11 +158,14 @@ fun ProfileEditScreen(onBack: () -> Unit) {
         avatarUrl = profile?.avatarUrl, avatarVersion = avatarVersion,
         avatarUploading = avatarUploading,
         onPickAvatar = {
+            // PickVisualMedia 的入参是 PickVisualMediaRequest（不再是 MIME 数组）。
+            // 不必再列 heic/heif：ImagePrep 会把一切非 JPEG/PNG/WebP/GIF 转成 JPEG。
             if (!avatarUploading) avatarPicker.launch(
-                arrayOf("image/png", "image/jpeg", "image/webp", "image/gif", "image/heif", "image/heic")
+                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
             )
         },
-        error = error,
+        // 头像上传失败的原因优先于表单错误展示（用户刚做的动作最相关）。
+        error = avatarError ?: error,
         saving = saving,
         onBack = onBack,
         onSave = {
@@ -273,26 +300,40 @@ private fun ProfileEditContent(
     }
 }
 
+/**
+ * 头像展示。
+ *
+ * 改用 Coil：原实现是 `produceState` + `BitmapFactory.decodeByteArray`，
+ * produceState 默认跑在**主线程**，等于每次换头像都在主线程解码一张图；
+ * 且没有任何内存/磁盘缓存，每次重组或页面重入都重新下载一遍。
+ * Coil 负责缓存、降采样与线程调度，[AppImageLoader] 负责带上鉴权头。
+ *
+ * `version` 参与 cache key：头像换了但 URL 不变时（服务端原子替换同名文件）
+ * 必须让 Coil 认为这是新图，否则会一直显示旧头像。
+ */
 @Composable
 private fun NetworkAvatar(url: String?, version: Int, fallback: String, size: Dp, onClick: () -> Unit) {
-    val bmp by produceState<ImageBitmap?>(null, url, version) {
-        value = null
-        if (!url.isNullOrBlank()) {
-            val bytes = ApiClient.downloadBytes(url)
-            value = bytes?.let {
-                runCatching { BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() }.getOrNull()
-            }
-        }
-    }
+    val context = LocalContext.current
     Box(
         Modifier.size(size).clip(CircleShape).background(BrandBlue.copy(alpha = 0.12f)).clickable { onClick() },
         contentAlignment = Alignment.Center,
     ) {
-        val b = bmp
-        when {
-            b != null -> Image(bitmap = b, contentDescription = "头像", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            fallback.isNotBlank() -> Text(fallback.take(1), color = BrandBlue, fontSize = 32.sp, fontWeight = FontWeight.SemiBold)
-            else -> Icon(Icons.Rounded.Person, contentDescription = "头像", tint = BrandBlue, modifier = Modifier.size(40.dp))
+        if (!url.isNullOrBlank()) {
+            AsyncImage(
+                model = coil3.request.ImageRequest.Builder(context)
+                    .data(url)
+                    .memoryCacheKey("$url#v$version")
+                    .diskCacheKey("$url#v$version")
+                    .build(),
+                imageLoader = AppImageLoader.get(context),
+                contentDescription = "头像",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else if (fallback.isNotBlank()) {
+            Text(fallback.take(1), color = BrandBlue, fontSize = 32.sp, fontWeight = FontWeight.SemiBold)
+        } else {
+            Icon(Icons.Rounded.Person, contentDescription = "头像", tint = BrandBlue, modifier = Modifier.size(40.dp))
         }
     }
 }

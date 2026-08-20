@@ -49,6 +49,14 @@ object UserPrefs {
         get() = sp.getBoolean("status_card", true)
         set(v) { sp.edit().putBoolean("status_card", v).apply() }
 
+    /**
+     * 伴侣动态静默通知开关：对方息屏/亮屏、上线/下线时在通知栏留一条
+     * （不弹横幅、不响铃、不振动）。默认开。
+     */
+    var quietNotifyEnabled: Boolean
+        get() = sp.getBoolean("quiet_notify", true)
+        set(v) { sp.edit().putBoolean("quiet_notify", v).apply() }
+
     // 触发即时推送的 WiFi 白名单（连接该 WiFi 时提醒）
     var watchSsid: String
         get() = sp.getString("watch_ssid", "") ?: ""
