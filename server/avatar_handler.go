@@ -60,7 +60,7 @@ func handleUploadAvatar(c *gin.Context) {
 	}
 
 	// 存储改为日期分区：uploadDir/upload/年/月/日/，不再按后台设置的本地子目录/按对分目录。
-	worker := newVipsWorker(filepath.Join(uploadDir, filepath.FromSlash(uploadDatePath(time.Now()))))
+	worker := newImageWorker(filepath.Join(uploadDir, filepath.FromSlash(uploadDatePath(time.Now()))))
 	result, err := processAvatar(AvatarInput{
 		SizeBytes: file.Size,
 		Probe:     probe,
@@ -193,6 +193,8 @@ func mapAvatarError(c *gin.Context, err error) {
 		fail(c, http.StatusBadRequest, 1002, "裁剪参数无效")
 	case errors.Is(err, ErrAnimatedNotSupported):
 		fail(c, http.StatusBadRequest, 1002, "暂不支持动态 HEIF/AVIF，请改用 GIF 或动态 WebP")
+	case errors.Is(err, ErrFormatNotDecodable):
+		fail(c, http.StatusBadRequest, 1002, "暂不支持该图片格式（HEIC/AVIF），请改用 JPG、PNG、WebP 或 GIF")
 	default:
 		fail(c, http.StatusInternalServerError, 1010, "头像处理失败，已保留原头像")
 	}

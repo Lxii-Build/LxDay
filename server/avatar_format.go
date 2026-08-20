@@ -13,7 +13,20 @@ const (
 	FormatBMP
 	FormatHEIF
 	FormatAVIF
+	FormatJPEG
 )
+
+// decodableInPureGo 标记该容器能否被服务端的纯 Go 解码链处理。
+// HEIF/AVIF 无纯 Go 解码实现，探测阶段即拒绝并给出可操作的提示，
+// 而不是让它走到解码层返回笼统的 500。
+func (f ImageFormat) decodableInPureGo() bool {
+	switch f {
+	case FormatJPEG, FormatPNG, FormatGIF, FormatWebP:
+		return true
+	default:
+		return false
+	}
+}
 
 // AvatarProbe 是对上传文件头的识别结果。
 type AvatarProbe struct {
@@ -27,6 +40,8 @@ func probeAvatar(head []byte) (AvatarProbe, bool) {
 		return AvatarProbe{}, false
 	}
 	switch {
+	case matchJPEG(head):
+		return AvatarProbe{Format: FormatJPEG}, true
 	case matchPNG(head):
 		return AvatarProbe{Format: FormatPNG}, true
 	case matchBMP(head):
@@ -40,6 +55,12 @@ func probeAvatar(head []byte) (AvatarProbe, bool) {
 		return probeISOBMFF(head)
 	}
 	return AvatarProbe{}, false
+}
+
+// matchJPEG 匹配 SOI 标记 FF D8 FF。手机相册绝大多数是 JPEG，
+// 旧白名单漏了它，导致「选 JPG 头像」必然报“不支持的图片格式”。
+func matchJPEG(b []byte) bool {
+	return len(b) >= 3 && b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF
 }
 
 func matchPNG(b []byte) bool {

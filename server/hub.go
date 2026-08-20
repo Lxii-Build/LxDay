@@ -2,8 +2,9 @@ package main
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +16,17 @@ import (
 // 单机版：内存维护 user_id -> conn。
 // 多节点部署时：改为把消息写入 Redis Pub/Sub，各节点订阅后本地投递，
 // 或使用 keyStatus 所在节点的 WS 路由，此处给出单机实现 + 扩展点。
+
+// maxWSMessageBytes 单个 WS 帧的最大字节数。上行只有状态上报与互动事件，64KB 绰绰有余。
+const maxWSMessageBytes = 64 * 1024
+
+// maxStatusUpdatesPerSec 单用户 status_update 的写库频率上限。
+// 每条 status_update 都会落 SQLite，不限频的话一个客户端死循环上报就能把库写满/拖垮。
+const maxStatusUpdatesPerSec = 2
+
+func statusRateKey(uid int64) string {
+	return "statusrate:" + strconv.FormatInt(uid, 10)
+}
 
 // wsClient 为单个连接封装写互斥：gorilla/websocket 禁止并发写同一连接，
 // scanDueTodos 定时器、对方状态转发、后台群发可能并发写同一接收者，故所有写必须串行化。
@@ -68,7 +80,7 @@ func NewHub(s *Store, p *PushGateway) *Hub {
 func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request, uid int64) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("upgrade error: %v", err)
+		slog.Warn("ws upgrade failed", "err", err)
 		return
 	}
 	defer conn.Close()
@@ -89,9 +101,13 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request, uid int64) {
 		client.write([]byte(msg))
 	}
 
-	// 空闲保活：客户端每 30s 发 PING，服务端在收到 PING 时刷新读超时并回 PONG，
-	// 90s 内无任何帧才判定掉线（原实现仅在收到 PONG 时刷新，而客户端从不主动发 PONG，会误断）。
-	const idleTimeout = 90 * time.Second
+	// 单帧体积上限：不设时单个连接发一个超大帧即可让服务端分配同等内存，
+	// 一条连接就能把进程打到 OOM。业务上行最大的是 status_update，远小于 64KB。
+	conn.SetReadLimit(maxWSMessageBytes)
+
+	// 空闲保活：客户端每 15s 发 PING，服务端在收到 PING 时刷新读超时并回 PONG。
+	// 判死 45s ≈ 3 个心跳周期（原为 90s，对方断网后最长 90 秒这边还以为在线）。
+	const idleTimeout = 45 * time.Second
 	conn.SetReadDeadline(time.Now().Add(idleTimeout))
 	conn.SetPingHandler(func(appData string) error {
 		conn.SetReadDeadline(time.Now().Add(idleTimeout))
@@ -136,17 +152,25 @@ func (h *Hub) handleIncoming(from int64, data []byte) {
 
 	switch m.Type {
 	case MsgStatusUpdate:
-		// 状态写入 Redis，原样转发对方
+		// 上行限频：每条 status_update 都会写内存态并尝试落库，
+		// 客户端若因 bug 死循环上报（或被恶意构造），能把 SQLite 写爆。
+		// 超频只丢弃本条，不断连——正常客户端偶发突发不该被踢下线。
+		if h.store.mem.incr(statusRateKey(from), time.Second) > maxStatusUpdatesPerSec {
+			return
+		}
+		// 状态写入内存态，原样转发对方
 		b, _ := json.Marshal(m.Data)
 		var st DeviceStatus
 		if err := json.Unmarshal(b, &st); err == nil {
 			st.UserID = from
 			st.UpdatedAt = time.Now().UnixMilli()
 			h.store.SaveStatus(&st)
-			// 落状态历史（5 分钟一条，INSERT IGNORE 幂等；客户端 5min 上报天然对齐）
+			// 落状态历史（5 分钟一条，INSERT OR IGNORE 幂等）。
+			// 注意：客户端的周期上报由 SyncHeartbeat 按前台/后台/息屏分档驱动
+			//（10s/60s/5min），并非固定 5 分钟，故这里靠 Truncate 去重而不依赖客户端节奏。
 			now := time.Now().Truncate(5 * time.Minute)
 			if err := h.store.InsertStatusHistory(pair, from, &st, now); err != nil {
-				log.Printf("insert status history error: %v", err)
+				slog.Error("insert status history failed", "err", err)
 			}
 			// 低电量(<15%)即时高优推送：状态变更 → 对方收到提醒
 			if st.BatteryLevel > 0 && st.BatteryLevel < 15 {
@@ -183,25 +207,52 @@ func (h *Hub) handleIncoming(from int64, data []byte) {
 			payload["from_name"] = u.Nickname
 		}
 		payload["ts"] = time.Now().UnixMilli()
-		// 限频：响铃与安抚/冷静各自独立计数，超频直接丢弃不转发，避免骚扰。
+		// 限频：响铃与安抚/冷静各自独立计数。
+		// 超频不再静默丢弃——必须回执给发送方，否则客户端 UI 仍显示"已发送"（假成功）。
 		switch m.Type {
 		case MsgRingRequest:
 			if !h.store.RingCooldown(pair.ID) {
-				log.Printf("ring too frequent pair=%d", pair.ID)
+				slog.Warn("ring rejected by cooldown", "pair_id", pair.ID, "uid", from)
+				h.rejectAction(from, m.Type, "对方 10 分钟内已被响铃 3 次，请稍后再试")
 				return
 			}
 		case MsgComfortRequest, MsgCalmRequest:
 			if !h.store.InteractionCooldown(pair.ID, m.Type) {
-				log.Printf("interaction %s too frequent pair=%d", m.Type, pair.ID)
+				slog.Warn("interaction rejected by cooldown", "type", m.Type, "pair_id", pair.ID, "uid", from)
+				h.rejectAction(from, m.Type, "操作过于频繁，请稍等几秒再试")
 				return
 			}
 		}
+		h.route(partner, WsMessage{Type: m.Type, Data: payload})
+
+	case MsgRingCancel, MsgRingStopped:
+		// 撤回与回执：原样透传给对方，不限频、不入离线队列（见 transientEvents）。
+		// 撤回被限频会导致"想停却停不了"，比骚扰更糟。
+		var raw struct {
+			Data map[string]interface{} `json:"data"`
+		}
+		json.Unmarshal(data, &raw)
+		payload := raw.Data
+		if payload == nil {
+			payload = map[string]interface{}{}
+		}
+		payload["ts"] = time.Now().UnixMilli()
 		h.route(partner, WsMessage{Type: m.Type, Data: payload})
 
 	default:
 		// 业务事件（todo_new / diary_new 等）由 HTTP handler 转发时调用
 		h.route(partner, m)
 	}
+}
+
+// rejectAction 把"这次上行动作被拒绝"回执给发送方本人。
+// 此前超频只 log 后静默 return，发送方 UI 仍显示"已发送"，用户以为送达了。
+func (h *Hub) rejectAction(to int64, action, reason string) {
+	h.route(to, WsMessage{Type: MsgActionRejected, Data: map[string]interface{}{
+		"action": action,
+		"reason": reason,
+		"ts":     time.Now().UnixMilli(),
+	}})
 }
 
 // route: 在线直转 WS，离线缓存事件 + 走厂商推送
@@ -216,6 +267,11 @@ func (h *Hub) route(to int64, m WsMessage) {
 			return
 		}
 		// 写失败（连接已坏）：降级为离线补偿
+	}
+	// 瞬时事件（撤回/回执/拒绝）不入队：迟到送达无意义，重连后突然收到一小时前的
+	// "对方撤回了响铃"只会造成困惑，而彼时本地响铃早已由 7s 定时器自行结束。
+	if isTransient(m.Type) {
+		return
 	}
 	// 离线：先入补偿队列
 	h.store.PushEventQ(to, string(b))

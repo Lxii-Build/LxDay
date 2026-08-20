@@ -106,8 +106,20 @@ func main() {
 	hub = NewHub(st, push)
 	startRequestLogWorker()
 
+	// 生产默认 release 模式：debug 模式会打印全部路由表与详细报错，
+	// 属信息泄露面，也拖慢每次请求。可用 GIN_MODE=debug 临时覆盖排查问题。
+	if os.Getenv("GIN_MODE") == "" {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
 	r := gin.New()
-	r.Use(RequestLogger(), gin.Recovery())
+	// 只信任本机反代（生产是宝塔 Nginx 同机反代）。
+	// 不设置时 Gin 信任所有代理，任何人都能用 X-Forwarded-For 伪造来源 IP，
+	// 从而污染审计日志、并绕过一切按 IP 的限流。
+	if err := r.SetTrustedProxies([]string{"127.0.0.1", "::1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}); err != nil {
+		slog.Warn("SetTrustedProxies failed", "err", err)
+	}
+	r.Use(SecurityHeaders(), RequestLogger(), gin.Recovery())
 
 	// ---- 公开路由 ----
 	// 通讯密钥中间件仅拦截 /api/v1/*（app_key 为空则禁用）；不影响 /ws、/uploads、SPA、/healthz、/api/admin
@@ -159,15 +171,43 @@ func main() {
 	// 日记图片上传（本地磁盘）
 	auth.POST("/diaries/images", handleUploadDiaryImage)
 
+	// ---- 相册 ----
+	// 注意路由形状：gin 不允许同层同时注册静态段与通配段（会在启动时 panic），
+	// 故 /albums/summary、/photos/on-this-day、/photos/recycled 一律由通配 handler 内部分派，
+	// 对外路径不变（见 handleAlbumByID / handlePhotoByID）。
+	auth.GET("/albums", handleListAlbums)
+	auth.POST("/albums", handleCreateAlbum)
+	auth.GET("/albums/:id", handleAlbumByID) // :id=summary → 相册概要
+	auth.PUT("/albums/:id", handleUpdateAlbum)
+	auth.DELETE("/albums/:id", handleDeleteAlbum)
+	auth.GET("/albums/:id/photos", handleListAlbumPhotos)
+	auth.POST("/albums/:id/photos", handleAttachPhotos)
+
+	auth.POST("/media", handleUploadMedia)
+
+	auth.GET("/photos/:id", handlePhotoByID) // :id=on-this-day / recycled → 见 handlePhotoByID
+	auth.PUT("/photos/:id", handleUpdatePhoto)
+	auth.DELETE("/photos/:id", handleDeletePhoto)
+	auth.POST("/photos/:id/restore", handleRestorePhoto)
+	auth.POST("/photos/:id/like", handleLikePhoto)
+	auth.DELETE("/photos/:id/like", handleUnlikePhoto)
+	auth.POST("/photos/:id/comments", handleCreatePhotoComment)
+	auth.DELETE("/photos/:id/comments/:cid", handleDeletePhotoComment)
+
+	// ---- 相册图片鉴权代理 ----
+	// 挂在根路径而非 /api/v1：对外图片 URL 就是 /media/<id>，与 netlog 的 skip 前缀对齐
+	// （照片 URL 不进 request_log，避免任何后台管理员能从日志直接点开私密相册）。
+	// 只挂 JWTAuth、不挂 AppKeyGuard：图片由客户端图片库加载，只能确保带上 Authorization 头。
+	media := r.Group("/media", JWTAuth())
+	media.GET("/:id", handleGetMedia)
+	media.GET("/:id/thumb", handleGetMediaThumb)
+
 	// ---- WebSocket ----
 	r.GET("/ws", func(c *gin.Context) {
-		token := c.Query("token")
-		uid, err := ParseToken(token)
+		// 与 JWTAuth 共用 authUserByToken：WS 同样要校验封禁状态与 token_ver，
+		// 否则被封禁用户仍能保持长连接持续接收对方实时状态（位置/电量/前台应用）。
+		uid, err := authUserByToken(c.Query("token"))
 		if err != nil {
-			c.JSON(401, gin.H{"code": 1003, "message": "登录已失效"})
-			return
-		}
-		if _, err := st.GetUserByID(uid); err != nil {
 			c.JSON(401, gin.H{"code": 1003, "message": "登录已失效"})
 			return
 		}

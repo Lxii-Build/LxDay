@@ -1,139 +1,238 @@
 package main
 
 import (
-	"bufio"
-	"context"
 	"fmt"
+	"image"
+	"image/gif"
+	"image/jpeg"
+	"image/png"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"time"
+
+	"golang.org/x/image/draw"
+	"golang.org/x/image/webp"
 )
 
-// VipsWorker 用受限的 libvips CLI 子进程执行裁剪与缩略图，设置执行超时与内存上限。
-// 真实媒体解码依赖 CI 固定的 Ubuntu 24.04 + libheif 插件；单测使用 stubWorker 替换。
-type VipsWorker struct {
+// GoImageWorker 用纯 Go 标准库 + golang.org/x/image 完成解码、居中方裁与缩放。
+//
+// 为什么不用 libvips：运行镜像是 alpine 精简镜像，不含 libvips CLI，
+// 旧实现 fork vipsheader/vipsthumbnail 在生产必然失败（返回 500）。
+// 纯 Go 实现与「单容器 + 纯 Go SQLite」的架构一致，无外部依赖、无子进程。
+//
+// 代价：不支持 HEIF/AVIF 解码（Go 无纯实现），动图只取首帧转静态 PNG。
+// 客户端会在上传前把 HEIC 转成 JPEG，故实际影响仅限「直接把 HEIC 文件喂给接口」。
+type GoImageWorker struct {
 	WorkDir    string        // 输出目录
-	Timeout    time.Duration // 单作业墙钟超时
-	MaxMemoryK int           // VIPS_DISC_THRESHOLD（KB），0 用默认
+	Timeout    time.Duration // 单作业墙钟预算（仅用于超大图的兜底判断）
+	MaxPixels  int           // 解码前的像素上限，防解压炸弹
+	Interpolat draw.Interpolator
 }
 
-func newVipsWorker(workDir string) VipsWorker {
-	return VipsWorker{
+func newImageWorker(workDir string) GoImageWorker {
+	return GoImageWorker{
 		WorkDir:    workDir,
 		Timeout:    20 * time.Second,
-		MaxMemoryK: 256 * 1024, // 256MB
+		MaxPixels:  64 << 20, // 64M 像素（约 8000x8000），超过即拒绝
+		Interpolat: draw.CatmullRom,
 	}
 }
 
-func (w VipsWorker) Process(req AvatarWorkerRequest) (AvatarWorkerResult, error) {
+func (w GoImageWorker) Process(req AvatarWorkerRequest) (AvatarWorkerResult, error) {
 	if err := os.MkdirAll(w.WorkDir, 0o755); err != nil {
 		return AvatarWorkerResult{}, err
 	}
-	base := randomCode(24)
-	mainExt := "webp"
-	if !req.Animated {
-		mainExt = "png"
-	}
-	mainPath := filepath.Join(w.WorkDir, base+"."+mainExt)
-	thumbPath := filepath.Join(w.WorkDir, base+"_thumb.png")
 
-	meta, err := w.inspect(req.Source)
+	src, meta, err := w.decode(req.Source)
 	if err != nil {
 		return AvatarWorkerResult{}, err
 	}
 
-	// 主输出：动画加载全部帧([n=-1])，居中方裁到 OutputDimension。
-	mainSource := req.Source
-	if req.Animated {
-		mainSource = req.Source + "[n=-1]"
-	}
-	if err := w.thumbnail(mainSource, mainPath, req.OutputDimension); err != nil {
+	base := randomCode(24)
+	// 统一输出 PNG：无损、无需质量参数、Go 标准库原生支持。
+	mainPath := filepath.Join(w.WorkDir, base+".png")
+	thumbPath := filepath.Join(w.WorkDir, base+"_thumb.png")
+
+	if err := w.writeSquare(src, mainPath, req.OutputDimension); err != nil {
 		return AvatarWorkerResult{}, err
 	}
-	// 缩略图：始终静态首帧，ThumbDimension 见方。
-	if err := w.thumbnail(req.Source, thumbPath, req.ThumbDimension); err != nil {
+	if err := w.writeSquare(src, thumbPath, req.ThumbDimension); err != nil {
 		_ = os.Remove(mainPath)
 		return AvatarWorkerResult{}, err
 	}
 	return AvatarWorkerResult{Meta: meta, MainPath: mainPath, ThumbPath: thumbPath}, nil
 }
 
-// inspect 用单次 vipsheader -a 读取尺寸、帧数与帧延迟，避免多次 fork。
-func (w VipsWorker) inspect(src string) (AvatarMeta, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), w.Timeout)
-	defer cancel()
-	out, err := w.run(ctx, "vipsheader", "-a", src)
+// decode 按容器格式解码首帧，并回报真实尺寸/帧数。
+func (w GoImageWorker) decode(path string) (image.Image, AvatarMeta, error) {
+	f, err := os.Open(path)
 	if err != nil {
-		return AvatarMeta{}, err
+		return nil, AvatarMeta{}, err
 	}
-	fields := parseVipsHeader(out)
-	meta := AvatarMeta{
-		Width:  fields["width"],
-		Height: fields["height"],
-		Frames: 1,
-	}
-	if pages := fields["n-pages"]; pages > 0 {
-		meta.Frames = pages
-	}
-	if delay := fields["gif-delay"]; delay > 0 {
-		// gif-delay 单位 1/100s；用平均帧延迟乘帧数估算时长。
-		meta.DurationSeconds = float64(meta.Frames) * float64(delay) / 100.0
-	}
-	return meta, nil
-}
+	defer f.Close()
 
-// parseVipsHeader 解析 `vipsheader -a` 的 "field: value" 行，仅提取所需整型字段。
-func parseVipsHeader(out string) map[string]int {
-	fields := map[string]int{}
-	scanner := bufio.NewScanner(strings.NewReader(out))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		key, value, ok := strings.Cut(line, ":")
-		if !ok {
-			continue
-		}
-		key = strings.TrimSpace(key)
-		field := strings.Fields(strings.TrimSpace(value))
-		if len(field) == 0 {
-			continue
-		}
-		if n, err := strconv.Atoi(field[0]); err == nil {
-			fields[key] = n
-		}
-	}
-	return fields
-}
-
-// thumbnail 调用 vipsthumbnail：居中方裁到 dimension×dimension。
-// 当前客户端契约为居中全幅(center 0.5/0.5, scale 1.0)，故用 --crop centre 忠实实现。
-func (w VipsWorker) thumbnail(source, dst string, dimension int) error {
-	ctx, cancel := context.WithTimeout(context.Background(), w.Timeout)
-	defer cancel()
-	size := fmt.Sprintf("%dx%d", dimension, dimension)
-	_, err := w.run(ctx, "vipsthumbnail", source,
-		"--size", size, "--crop", "centre", "-o", dst)
-	return err
-}
-
-func (w VipsWorker) run(ctx context.Context, bin string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Env = append(os.Environ(),
-		"VIPS_CONCURRENCY=1",
-		fmt.Sprintf("VIPS_DISC_THRESHOLD=%dk", w.discThreshold()),
-	)
-	out, err := cmd.CombinedOutput()
+	// 先只读配置校验像素规模，避免直接解码超大图打爆内存。
+	cfg, format, err := image.DecodeConfig(f)
 	if err != nil {
-		return "", fmt.Errorf("%s %v: %w: %s", bin, args, err, string(out))
+		// WebP 的 DecodeConfig 由 x/image/webp 通过 init 注册；此处失败即真的不认识。
+		return nil, AvatarMeta{}, fmt.Errorf("decode config: %w", err)
 	}
-	return string(out), nil
+	if cfg.Width <= 0 || cfg.Height <= 0 {
+		return nil, AvatarMeta{}, fmt.Errorf("invalid image dimensions")
+	}
+	if cfg.Width*cfg.Height > w.MaxPixels {
+		return nil, AvatarMeta{}, ErrAvatarTooLarge
+	}
+	if _, err := f.Seek(0, 0); err != nil {
+		return nil, AvatarMeta{}, err
+	}
+
+	meta := AvatarMeta{Width: cfg.Width, Height: cfg.Height, Frames: 1}
+
+	switch format {
+	case "gif":
+		g, err := gif.DecodeAll(f)
+		if err != nil || len(g.Image) == 0 {
+			return nil, AvatarMeta{}, fmt.Errorf("decode gif: %w", err)
+		}
+		meta.Frames = len(g.Image)
+		total := 0
+		for _, d := range g.Delay {
+			total += d // 单位 1/100 秒
+		}
+		meta.DurationSeconds = float64(total) / 100.0
+		return g.Image[0], meta, nil
+	case "jpeg":
+		img, err := jpeg.Decode(f)
+		return img, meta, wrapDecode(err, "jpeg")
+	case "png":
+		img, err := png.Decode(f)
+		return img, meta, wrapDecode(err, "png")
+	case "webp":
+		img, err := webp.Decode(f)
+		return img, meta, wrapDecode(err, "webp")
+	default:
+		// bmp 等由 image.Decode 的注册表兜底（bmp 未注册则在此返回不支持）。
+		img, _, err := image.Decode(f)
+		if err != nil {
+			return nil, AvatarMeta{}, fmt.Errorf("unsupported format %q: %w", format, err)
+		}
+		return img, meta, nil
+	}
 }
 
-func (w VipsWorker) discThreshold() int {
-	if w.MaxMemoryK > 0 {
-		return w.MaxMemoryK
+func wrapDecode(err error, kind string) error {
+	if err == nil {
+		return nil
 	}
-	return 256 * 1024
+	return fmt.Errorf("decode %s: %w", kind, err)
+}
+
+// writeSquare 居中方裁后缩放到 dim×dim 并写出 PNG。
+// 裁剪语义与旧 vipsthumbnail `--crop centre` 一致：取源图最大居中正方形。
+func (w GoImageWorker) writeSquare(src image.Image, dst string, dim int) error {
+	if dim <= 0 {
+		return fmt.Errorf("invalid output dimension %d", dim)
+	}
+	square := centerSquare(src.Bounds())
+	out := image.NewRGBA(image.Rect(0, 0, dim, dim))
+	interp := w.Interpolat
+	if interp == nil {
+		interp = draw.CatmullRom
+	}
+	interp.Scale(out, out.Bounds(), src, square, draw.Over, nil)
+
+	f, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	enc := png.Encoder{CompressionLevel: png.DefaultCompression}
+	if err := enc.Encode(f, out); err != nil {
+		_ = os.Remove(dst)
+		return err
+	}
+	return nil
+}
+
+// writeFit 保持长宽比缩放到「长边 = maxEdge」并写出。
+//
+// 与 writeSquare（头像，居中方裁）并存而非替代：头像位是圆形/方形槽位，必须方裁；
+// 相册网格若沿用方裁，竖构图的人像会被切掉头和脚——照片是内容本体，不能裁。
+// 小图不放大（放大只是徒增体积与模糊）。
+//
+// 输出格式随源图：JPEG 源出 JPEG（照片体积小一个数量级），
+// 其余（PNG/GIF/WebP，可能带透明通道）出 PNG——JPEG 不支持透明，会把透明区压成黑块。
+func (w GoImageWorker) writeFit(src image.Image, dst string, maxEdge int, asJPEG bool) error {
+	if maxEdge <= 0 {
+		return fmt.Errorf("invalid thumb edge %d", maxEdge)
+	}
+	b := src.Bounds()
+	tw, th := fitDimensions(b.Dx(), b.Dy(), maxEdge)
+	out := image.NewRGBA(image.Rect(0, 0, tw, th))
+	interp := w.Interpolat
+	if interp == nil {
+		interp = draw.CatmullRom
+	}
+	interp.Scale(out, out.Bounds(), src, b, draw.Over, nil)
+
+	f, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if asJPEG {
+		// 质量 85：网格缩略图肉眼无损，体积约为 PNG 的 1/10。
+		if err := jpeg.Encode(f, out, &jpeg.Options{Quality: 85}); err != nil {
+			_ = os.Remove(dst)
+			return err
+		}
+		return nil
+	}
+	enc := png.Encoder{CompressionLevel: png.DefaultCompression}
+	if err := enc.Encode(f, out); err != nil {
+		_ = os.Remove(dst)
+		return err
+	}
+	return nil
+}
+
+// fitDimensions 计算「长边缩到 maxEdge、短边按比例取整」的目标尺寸。
+// 短边至少为 1：极端长条图（如 4000x3）按比例算出 0 会让编码器直接失败。
+func fitDimensions(srcW, srcH, maxEdge int) (int, int) {
+	if srcW <= 0 || srcH <= 0 {
+		return 1, 1
+	}
+	if srcW <= maxEdge && srcH <= maxEdge {
+		return srcW, srcH // 小图不放大
+	}
+	if srcW >= srcH {
+		h := srcH * maxEdge / srcW
+		if h < 1 {
+			h = 1
+		}
+		return maxEdge, h
+	}
+	wd := srcW * maxEdge / srcH
+	if wd < 1 {
+		wd = 1
+	}
+	return wd, maxEdge
+}
+
+// decodeSource 只解码不裁剪，供相册上传取真实尺寸并生成等比缩略图。
+func (w GoImageWorker) decodeSource(path string) (image.Image, AvatarMeta, error) {
+	return w.decode(path)
+}
+
+// centerSquare 返回 b 内部最大的居中正方形。
+func centerSquare(b image.Rectangle) image.Rectangle {
+	wd, ht := b.Dx(), b.Dy()
+	side := wd
+	if ht < side {
+		side = ht
+	}
+	offX := b.Min.X + (wd-side)/2
+	offY := b.Min.Y + (ht-side)/2
+	return image.Rect(offX, offY, offX+side, offY+side)
 }

@@ -12,7 +12,7 @@ type memStore struct {
 	mu      sync.Mutex
 	online  map[int64]time.Time
 	status  map[int64]*DeviceStatus
-	eventQ  map[int64][]string
+	eventQ  map[int64][]queuedEvent
 	kv      map[string]memEntry
 	counter map[string]memCounter
 }
@@ -31,7 +31,7 @@ func newMemStore() *memStore {
 	return &memStore{
 		online:  map[int64]time.Time{},
 		status:  map[int64]*DeviceStatus{},
-		eventQ:  map[int64][]string{},
+		eventQ:  map[int64][]queuedEvent{},
 		kv:      map[string]memEntry{},
 		counter: map[string]memCounter{},
 	}
@@ -73,17 +73,45 @@ func (m *memStore) getStatus(uid int64) *DeviceStatus {
 	return m.status[uid]
 }
 
+// 离线事件队列的上限与保鲜期。
+//
+// 队列在进程内存里，此前**既无长度上限也无 TTL**：
+// 对一个长期离线的用户持续触发事件（或反复调用后台群发），内存会无界增长直到 OOM。
+// 且过期太久的事件补拉出来也没有意义（用户不需要在三天后收到"对方在找你"）。
+const (
+	maxEventQPerUser = 100
+	eventQTTL        = 24 * time.Hour
+)
+
+type queuedEvent struct {
+	msg string
+	at  time.Time
+}
+
 func (m *memStore) pushEvent(uid int64, msg string) {
 	m.mu.Lock()
-	m.eventQ[uid] = append(m.eventQ[uid], msg)
-	m.mu.Unlock()
+	defer m.mu.Unlock()
+	q := append(m.eventQ[uid], queuedEvent{msg: msg, at: time.Now()})
+	// 超上限时丢弃最旧的：新事件比陈旧事件更有价值。
+	if len(q) > maxEventQPerUser {
+		q = q[len(q)-maxEventQPerUser:]
+	}
+	m.eventQ[uid] = q
 }
 
 func (m *memStore) popEvents(uid int64) []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	msgs := m.eventQ[uid]
+	queued := m.eventQ[uid]
 	delete(m.eventQ, uid)
+	cutoff := time.Now().Add(-eventQTTL)
+	msgs := make([]string, 0, len(queued))
+	for _, e := range queued {
+		if e.at.Before(cutoff) {
+			continue // 过期事件直接丢弃，不再补拉
+		}
+		msgs = append(msgs, e.msg)
+	}
 	return msgs
 }
 
@@ -135,6 +163,20 @@ func (m *memStore) incr(key string, ttl time.Duration) int64 {
 		c = memCounter{n: 0, exp: now.Add(ttl)}
 	}
 	c.n++
+	m.counter[key] = c
+	return c.n
+}
+
+// incrBy 按给定增量累加（相册上传配额要累加字节数，不是次数）。返回窗口内当前累计值。
+func (m *memStore) incrBy(key string, delta int64, ttl time.Duration) int64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := time.Now()
+	c, ok := m.counter[key]
+	if !ok || now.After(c.exp) {
+		c = memCounter{n: 0, exp: now.Add(ttl)}
+	}
+	c.n += delta
 	m.counter[key] = c
 	return c.n
 }

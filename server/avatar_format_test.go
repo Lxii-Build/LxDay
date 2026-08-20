@@ -68,14 +68,43 @@ func TestProbeAvatarMarksGifAsAnimatedContainer(t *testing.T) {
 }
 
 func TestProbeAvatarRejectsUnknownOrSniffableContent(t *testing.T) {
-	// 纯文本、JPEG（规格未列头像格式）与过短输入都必须被拒绝，禁止内容嗅探。
+	// 纯文本与过短输入必须被拒绝，禁止内容嗅探。
 	for _, head := range [][]byte{
 		[]byte("<html>"),
-		{0xFF, 0xD8, 0xFF, 0xE0}, // JPEG
-		{0x89, 'P'},              // 过短
+		{0x89, 'P'},        // 过短
+		{0xFF, 0xD8},       // JPEG 头不完整
+		{0x00, 0x01, 0x02}, // 随机字节
 	} {
 		if probe, ok := probeAvatar(head); ok {
 			t.Fatalf("expected reject, got probe=%#v", probe)
+		}
+	}
+}
+
+// JPEG 是手机相册最常见格式，旧白名单漏了它导致选 JPG 必失败，此处锁定回归。
+func TestProbeAvatarAcceptsJPEG(t *testing.T) {
+	for _, head := range [][]byte{
+		{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 'J', 'F', 'I', 'F'}, // JFIF
+		{0xFF, 0xD8, 0xFF, 0xE1, 0x00, 0x16, 'E', 'x', 'i', 'f'}, // EXIF
+		{0xFF, 0xD8, 0xFF, 0xDB},                                 // 无 APPn 段
+	} {
+		probe, ok := probeAvatar(head)
+		if !ok || probe.Format != FormatJPEG || probe.Animated {
+			t.Fatalf("jpeg probe=%#v ok=%v", probe, ok)
+		}
+	}
+}
+
+// 纯 Go 解码链的能力边界：JPEG/PNG/GIF/WebP 可解，HEIF/AVIF/BMP 不可解。
+func TestFormatDecodableInPureGo(t *testing.T) {
+	for _, f := range []ImageFormat{FormatJPEG, FormatPNG, FormatGIF, FormatWebP} {
+		if !f.decodableInPureGo() {
+			t.Fatalf("format %v should be decodable", f)
+		}
+	}
+	for _, f := range []ImageFormat{FormatHEIF, FormatAVIF, FormatBMP, FormatUnknown} {
+		if f.decodableInPureGo() {
+			t.Fatalf("format %v should not be decodable", f)
 		}
 	}
 }

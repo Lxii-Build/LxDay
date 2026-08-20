@@ -143,11 +143,12 @@ func (s *Store) PartnerID(p *Pair, me int64) int64 {
 	return p.UserAID
 }
 
-func (s *Store) BindPair(code, uid int64) (int64, error) {
+// BindPair 用邀请码把 uid 填入 pair 空位。
+// code 改为字符串：邀请码已从 6 位纯数字升级为 8 位混合字符，不再能用 int64 承载。
+func (s *Store) BindPair(code string, uid int64) (int64, error) {
 	var pairID int64
 	err := s.DB.QueryRow(
-		`SELECT id FROM pair WHERE invite_code=? AND status=1 LIMIT 1`,
-		formatInviteCode(code)).Scan(&pairID)
+		`SELECT id FROM pair WHERE invite_code=? AND status=1 LIMIT 1`, code).Scan(&pairID)
 	if err != nil {
 		return 0, errors.New("邀请码无效或已失效")
 	}
@@ -177,9 +178,25 @@ func (s *Store) BindPair(code, uid int64) (int64, error) {
 	return pairID, nil
 }
 
-func formatInviteCode(v int64) string {
-	// 存库用 6 位固定长度，补零
-	return fmt.Sprintf("%06d", v)
+// ---------- token 撤销（token_ver） ----------
+
+// UserAuthState 读用户当前 status 与 token_ver，供每次鉴权实时比对。
+func (s *Store) UserAuthState(id int64) (status int, tokenVer int64, err error) {
+	err = s.DB.QueryRow("SELECT status,token_ver FROM `user` WHERE id=?", id).Scan(&status, &tokenVer)
+	return
+}
+
+// UserTokenVer 读用户当前 token_ver，签发新 token 时写进 claims。
+func (s *Store) UserTokenVer(id int64) (int64, error) {
+	var v int64
+	err := s.DB.QueryRow("SELECT token_ver FROM `user` WHERE id=?", id).Scan(&v)
+	return v, err
+}
+
+// BumpUserTokenVer 令该用户所有已签发 token 立即失效（改密、封禁、删号时调用）。
+func (s *Store) BumpUserTokenVer(id int64) error {
+	_, err := s.DB.Exec("UPDATE `user` SET token_ver=token_ver+1 WHERE id=?", id)
+	return err
 }
 
 // ---------- 待办 ----------
@@ -360,7 +377,15 @@ func (s *Store) DiaryImages(id int64) ([]string, error) {
 	return out, nil
 }
 
+// AddDiaryImages 落库日记配图 URL。
+//
+// 必须先过白名单校验：此前把客户端传来的任意字符串直接入库并回显给双方客户端，可被用于
+//   - 注入 javascript:/data: 串 → 客户端渲染时执行脚本；
+//   - 注入攻击者服务器 URL 当追踪像素 → 对方一打开日记就回传 IP/UA/访问时间。
 func (s *Store) AddDiaryImages(id int64, urls []string) error {
+	if err := validateUploadURLs(urls); err != nil {
+		return err
+	}
 	for i, u := range urls {
 		_, err := s.DB.Exec(`INSERT INTO diary_image(diary_id,url,sort_no) VALUES(?,?,?)`, id, u, i)
 		if err != nil {

@@ -147,16 +147,29 @@ func randomPassword(n int) string {
 
 // ================= JWT =================
 
+// signToken 签发用户 token。App 端不接受频繁重登，故仍保留 720h 长有效期，
+// 改密/封禁后的即时失效改由 claims 里的 tv(token_ver) 承担（见 JWTAuth）。
 func signToken(uid int64) (string, error) {
+	tv, err := st.UserTokenVer(uid)
+	if err != nil {
+		return "", err
+	}
+	return signTokenWithVer(uid, tv)
+}
+
+func signTokenWithVer(uid int64, tokenVer int64) (string, error) {
 	claims := jwt.MapClaims{
 		"uid": uid,
+		"tv":  tokenVer,
 		"exp": time.Now().Add(time.Duration(cfg.App.TokenTTLHours) * time.Hour).Unix(),
 	}
 	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return t.SignedString([]byte(cfg.App.JWTSecret))
 }
 
-func ParseToken(token string) (int64, error) {
+// ParseToken 解析用户 token，返回 uid 与 claims 中的 token_ver。
+// 老 token 无 tv 字段 → 视为 0，与新库默认值一致，升级后不会把所有人踢下线。
+func ParseToken(token string) (int64, int64, error) {
 	t, err := jwt.Parse(token, func(t *jwt.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method")
@@ -164,29 +177,62 @@ func ParseToken(token string) (int64, error) {
 		return []byte(cfg.App.JWTSecret), nil
 	})
 	if err != nil || !t.Valid {
-		return 0, err
+		if err == nil {
+			err = fmt.Errorf("invalid token")
+		}
+		return 0, 0, err
 	}
 	claims, ok := t.Claims.(jwt.MapClaims)
 	if !ok {
-		return 0, fmt.Errorf("bad claims")
+		return 0, 0, fmt.Errorf("bad claims")
 	}
-	return int64(claims["uid"].(float64)), nil
+	uidF, ok := claims["uid"].(float64)
+	if !ok {
+		return 0, 0, fmt.Errorf("bad claims")
+	}
+	tv, _ := claims["tv"].(float64)
+	return int64(uidF), int64(tv), nil
 }
+
+// authUserByToken 用户鉴权的公共校验：token 合法性 + 账号存在 + 未被封禁 + token_ver 未被撤销。
+// HTTP 与 /ws 两处入口共用，避免 WS 侧漏校验成为绕过口。
+func authUserByToken(token string) (int64, error) {
+	uid, tv, err := ParseToken(token)
+	if err != nil {
+		return 0, err
+	}
+	// 实时读库：status 与 token_ver 都必须查当前值。
+	// 不查 status 的后果：后台「封禁用户」形同虚设，被封用户拿旧 token 照样读写全部接口；
+	// 不查 token_ver 的后果：改密/封禁后旧 token 仍能用满 720h（整整一个月）。
+	status, dbVer, err := st.UserAuthState(uid)
+	if err != nil {
+		return 0, fmt.Errorf("user not found")
+	}
+	if status != 1 {
+		return 0, errUserDisabled
+	}
+	if dbVer != tv {
+		return 0, fmt.Errorf("token revoked")
+	}
+	return uid, nil
+}
+
+// errUserDisabled 账号被封禁，前端据独立业务码提示「账号已被禁用」而非「登录已失效」。
+var errUserDisabled = errors.New("user disabled")
 
 func JWTAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		h := c.GetHeader("Authorization")
 		token := strings.TrimPrefix(h, "Bearer ")
-		uid, err := ParseToken(token)
+		uid, err := authUserByToken(token)
 		if err != nil {
-			fail(c, http.StatusUnauthorized, 1003, "登录已失效，请重新登录")
-			c.Abort()
-			return
-		}
-		// token 有效但用户不存在（如数据库重建 / 账号被删）→ 视为登录失效，
-		// 让客户端据 401 自动清会话并回登录页，而非报 500/403。
-		if _, err := st.GetUserByID(uid); err != nil {
-			fail(c, http.StatusUnauthorized, 1003, "登录已失效，请重新登录")
+			// token 有效但用户不存在/被撤销（如数据库重建、账号被删、改密）→ 视为登录失效，
+			// 让客户端据 401 自动清会话并回登录页，而非报 500/403。
+			if errors.Is(err, errUserDisabled) {
+				fail(c, http.StatusForbidden, 1018, "账号已被禁用，请联系管理员")
+			} else {
+				fail(c, http.StatusUnauthorized, 1003, "登录已失效，请重新登录")
+			}
 			c.Abort()
 			return
 		}
@@ -244,10 +290,13 @@ func handleCreateInvite(c *gin.Context) {
 		// 过期：作废旧码重新生成
 		st.DB.Exec(`UPDATE pair SET status=0 WHERE invite_code=?`, existCode)
 	}
-	// 生成唯一 6 位邀请码
-	var code string
+	// 生成唯一 8 位混合字符邀请码（crypto/rand，见 invite.go）。
+	// 唯一索引 uk_invite_code 冲突时重试，重试 5 次仍冲突才报失败。
 	for i := 0; i < 5; i++ {
-		code = randomCode(6)
+		code := generateInviteCode()
+		if code == "" {
+			break // 系统随机源异常，绝不退化到可预测随机
+		}
 		_, err := st.DB.Exec(
 			`INSERT INTO pair(user_a_id,user_b_id,invite_code,status) VALUES(?,0,?,1)`,
 			uid, code)
@@ -272,15 +321,21 @@ func handleBind(c *gin.Context) {
 		fail(c, 400, 1001, "已绑定")
 		return
 	}
-	num, err := strconv.ParseInt(req.InviteCode, 10, 64)
-	if err != nil || len(req.InviteCode) != 6 {
-		fail(c, 400, 1002, "邀请码为 6 位数字")
+	// 爆破防护：先记一次尝试并判额度，再校验码本身。
+	// 顺序很关键——若先校验码后计数，则「码不存在」这条最常见的失败路径不消耗额度，限流等于没做。
+	if !bindAttemptAllowed(uid) {
+		fail(c, 429, 1019, "绑定尝试过于频繁，请 10 分钟后再试")
+		return
+	}
+	code := normalizeInviteCode(req.InviteCode)
+	if code == "" {
+		fail(c, 400, 1002, "邀请码格式不正确")
 		return
 	}
 	// 校验有效期：邀请记录创建时间必须在 1 小时内
 	var created time.Time
 	if err := st.DB.QueryRow(
-		`SELECT created_at FROM pair WHERE invite_code=? AND status=1`, req.InviteCode).
+		`SELECT created_at FROM pair WHERE invite_code=? AND status=1`, code).
 		Scan(&created); err != nil {
 		fail(c, 400, 1009, "邀请码无效或已失效")
 		return
@@ -289,12 +344,11 @@ func handleBind(c *gin.Context) {
 		fail(c, 400, 1009, "邀请码已过期，请让对方重新生成")
 		return
 	}
-	pairID, err := st.BindPair(num, uid)
-	if err != nil {
+	if _, err := st.BindPair(code, uid); err != nil {
 		fail(c, 400, 1009, err.Error())
 		return
 	}
-	_ = pairID
+	bindAttemptReset(uid)
 	// 返回伴侣信息
 	pair, _ := st.GetPairByUserID(uid)
 	partner := st.PartnerID(pair, uid)

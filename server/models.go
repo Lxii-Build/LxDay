@@ -105,6 +105,60 @@ type Diary struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
+// ================= 相册 =================
+
+// Album 相册。CoverPhotoID 为空时列表回退用最新一张照片的缩略图当封面。
+type Album struct {
+	ID           int64     `json:"id"`
+	PairID       int64     `json:"pair_id"`
+	Name         string    `json:"name"`
+	CoverPhotoID *int64    `json:"cover_photo_id"`
+	CreatedBy    int64     `json:"created_by"`
+	Status       int       `json:"status"` // 1正常 2已删除
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	// 列表用的派生字段（不落库）
+	PhotoCount int    `json:"photo_count"`
+	CoverThumb string `json:"cover_thumb_url,omitempty"`
+}
+
+// Photo 单张照片。
+//
+// URL/ThumbURL 对外一律是鉴权代理形态 /media/<id>、/media/<id>/thumb，
+// **真实磁盘相对路径只存在库里**（diskPath/diskThumb，json 标签为 "-"）：
+// /upload 静态目录无鉴权，一旦真实路径外泄，拿到 URL 的任何人都能看私密照片。
+type Photo struct {
+	ID         int64      `json:"id"`
+	AlbumID    int64      `json:"album_id"` // 0=未归类
+	PairID     int64      `json:"pair_id"`
+	UploaderID int64      `json:"uploader_id"`
+	URL        string     `json:"url"`
+	ThumbURL   string     `json:"thumb_url"`
+	Width      int        `json:"width"`
+	Height     int        `json:"height"`
+	SizeBytes  int64      `json:"size_bytes"`
+	Mime       string     `json:"mime"`
+	TakenAt    *time.Time `json:"taken_at,omitempty"` // EXIF 拍摄时间，解析不到则为空
+	Caption    string     `json:"caption,omitempty"`
+	Status     int        `json:"status"` // 1正常 2回收站
+	CreatedAt  time.Time  `json:"created_at"`
+
+	diskPath  string // uploadDir 相对路径，仅服务端内部使用
+	diskThumb string
+}
+
+// PhotoComment 照片评论。
+type PhotoComment struct {
+	ID        int64     `json:"id"`
+	PhotoID   int64     `json:"photo_id"`
+	PairID    int64     `json:"pair_id"`
+	UserID    int64     `json:"user_id"`
+	UserName  string    `json:"user_name"`
+	Content   string    `json:"content"`
+	Status    int       `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type PushToken struct {
 	UserID   int64  `json:"user_id"`
 	Platform string `json:"platform"`
@@ -138,6 +192,9 @@ const (
 	MsgComfortRequest = "comfort_request" // 求陪伴
 	MsgCalmRequest    = "calm_request"    // 求冷静
 	MsgRingRequest    = "ring_request"    // 强制响铃
+	MsgRingCancel     = "ring_cancel"     // 发送方撤回响铃（接收方据此立即停止）
+	MsgRingStopped    = "ring_stopped"    // 接收方已关闭响铃的回执（发送方据此结束倒计时）
+	MsgActionRejected = "action_rejected" // 服务端拒绝了一次上行动作（如超频），回给发送方
 	MsgTodoNew        = "todo_new"        // 新待办
 	MsgTodoCompleted  = "todo_completed"  // 待办完成
 	MsgDiaryNew       = "diary_new"       // 新日记
@@ -149,7 +206,19 @@ const (
 	MsgAdminNotice    = "admin_notice"    // 后台广播通知
 	MsgPaired         = "paired"          // 绑定成功后通知邀请方（另一方绑定 → 邀请方据此进入主界面）
 	MsgUnbound        = "unbound"         // 解除绑定后通知对方（对方据此回到绑定页）
+	MsgAlbumNew       = "album_new"       // 伴侣上传了新照片
 )
+
+// 瞬时事件：对端离线则直接丢弃，**不得入离线补偿队列**。
+// 撤回/回执一旦延迟送达就毫无意义甚至有害——用户重连后突然收到一小时前的
+// "对方撤回了响铃"，只会造成困惑；而彼时本地响铃早已由 7s 定时器自行结束。
+var transientEvents = map[string]bool{
+	MsgRingCancel:     true,
+	MsgRingStopped:    true,
+	MsgActionRejected: true,
+}
+
+func isTransient(t string) bool { return transientEvents[t] }
 
 // 高优事件：离线时必须入队（不接商业推送，靠重连补拉）
 var highPriorityEvents = map[string]bool{

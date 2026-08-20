@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"strconv"
@@ -64,9 +65,18 @@ func startRequestLogWorker() {
 
 // RequestLogger 请求日志中间件：注入 X-Request-Id，记录结构化 slog 行并异步入库。
 func RequestLogger() gin.HandlerFunc {
+	// 跳过的路径不入库。
+	//
+	// **`/upload` 必须在列表里**：实际落盘路径是 /upload/年/月/日/<随机名>，
+	// 而此前只写了 `/uploads`（旧前缀），于是每张私密照片的完整 URL 都被写进 request_log。
+	// 后台「网络日志」页对管理员是可读的 → 任何管理员都能从日志里直接点开情侣的私密相册。
+	// 这些静态资源本身也没有记录价值，只会把日志表撑爆。
 	skip := func(p string) bool {
-		return p == "/healthz" || strings.HasPrefix(p, "/ws") ||
-			strings.HasPrefix(p, "/uploads") || strings.HasPrefix(p, "/assets")
+		return p == "/healthz" ||
+			strings.HasPrefix(p, "/ws") ||
+			strings.HasPrefix(p, "/upload") || // 覆盖 /upload 与 /uploads
+			strings.HasPrefix(p, "/media") || // 鉴权图片代理
+			strings.HasPrefix(p, "/assets")
 	}
 	return func(c *gin.Context) {
 		start := time.Now()
@@ -101,8 +111,27 @@ func (s *Store) InsertRequestLog(rl RequestLog) {
 		rl.Method, rl.Path, rl.Status, rl.LatencyMs, rl.IP, rl.UA, rl.RequestID)
 }
 
+// CleanupRequestLogs 删除 N 天前的请求日志。
+//
+// 这里必须用 SQLite 的 datetime() 而非 MySQL 的 `NOW() - INTERVAL ? DAY`——
+// 后者在 SQLite 上直接语法报错，而调用方（定时任务）忽略了返回值，
+// 于是清理**永久静默失败**、request_log 无限增长，最终把磁盘打满导致全站不可用。
+// 这是 0813 从 MySQL 迁到 SQLite 时漏改的残留。
+//
+// 参数用 printf 拼进 modifier 字符串：SQLite 的 datetime modifier 不支持占位符，
+// 故 days 必须是受信整数（调用方传常量），此处再做一次范围收敛以防注入。
 func (s *Store) CleanupRequestLogs(days int) {
-	s.DB.Exec(`DELETE FROM request_log WHERE created_at < (NOW() - INTERVAL ? DAY)`, days)
+	if days < 1 {
+		days = 1
+	}
+	if days > 3650 {
+		days = 3650
+	}
+	modifier := fmt.Sprintf("-%d days", days)
+	if _, err := s.DB.Exec(
+		`DELETE FROM request_log WHERE created_at < datetime('now', ?)`, modifier); err != nil {
+		slog.Error("cleanup request_log failed", "err", err, "days", days)
+	}
 }
 
 func (s *Store) ListRequestLogs(method, path string, status, limit, offset int) ([]RequestLog, int, error) {

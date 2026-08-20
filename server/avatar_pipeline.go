@@ -13,6 +13,7 @@ var (
 	ErrAvatarTooManyFrames    = errors.New("avatar frame count exceeds limit")
 	ErrAvatarBadCrop          = errors.New("invalid crop parameters")
 	ErrAnimatedNotSupported   = errors.New("animated heif/avif not supported")
+	ErrFormatNotDecodable     = errors.New("format not decodable in pure go")
 	ErrAvatarProcessingFailed = errors.New("avatar processing failed")
 )
 
@@ -105,6 +106,11 @@ func processAvatar(in AvatarInput, limits AvatarLimits, worker AvatarWorker) (Av
 	// 规格：动态 HEIF/AVIF 不静默降级为静图，直接拒绝并保留旧头像。
 	if in.Probe.Animated && (in.Probe.Format == FormatHEIF || in.Probe.Format == FormatAVIF) {
 		return AvatarResult{}, ErrAnimatedNotSupported
+	}
+	// 纯 Go 解码链不支持 HEIF/AVIF/BMP：在进入 worker 前拒绝，给出可操作提示，
+	// 而不是让解码失败后返回笼统的“处理失败”。客户端已会把 HEIC 转 JPEG 再传。
+	if !in.Probe.Format.decodableInPureGo() {
+		return AvatarResult{}, ErrFormatNotDecodable
 	}
 
 	result, err := worker.Process(AvatarWorkerRequest{

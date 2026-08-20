@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-func stillProbe(f ImageFormat) AvatarProbe  { return AvatarProbe{Format: f, Animated: false} }
-func animProbe(f ImageFormat) AvatarProbe   { return AvatarProbe{Format: f, Animated: true} }
+func stillProbe(f ImageFormat) AvatarProbe { return AvatarProbe{Format: f, Animated: false} }
+func animProbe(f ImageFormat) AvatarProbe  { return AvatarProbe{Format: f, Animated: true} }
 
 func baseLimits() AvatarLimits {
 	return AvatarLimits{
@@ -66,6 +66,39 @@ func TestProcessAvatarRejectsWorkerProbeExceedingFrameOrDuration(t *testing.T) {
 	}, limits, worker)
 	if !errors.Is(err, ErrAvatarTooLong) {
 		t.Fatalf("err=%v want ErrAvatarTooLong", err)
+	}
+}
+
+// 纯 Go 解码链不支持的容器（静态 HEIF/AVIF/BMP）必须在进 worker 前就被拒，
+// 且给出专门的错误而不是笼统的“处理失败”。
+func TestProcessAvatarRejectsFormatsPureGoCannotDecode(t *testing.T) {
+	limits := baseLimits()
+	for _, f := range []ImageFormat{FormatHEIF, FormatAVIF, FormatBMP} {
+		_, err := processAvatar(AvatarInput{
+			SizeBytes: 1024,
+			Probe:     stillProbe(f),
+			Crop:      unitCrop(),
+		}, limits, stubWorker{})
+		if !errors.Is(err, ErrFormatNotDecodable) {
+			t.Fatalf("format=%v err=%v want ErrFormatNotDecodable", f, err)
+		}
+	}
+}
+
+// JPEG 必须能一路走通到 worker（此前白名单漏 JPEG，手机相册主力格式全挂）。
+func TestProcessAvatarAcceptsJPEG(t *testing.T) {
+	limits := baseLimits()
+	worker := stubWorker{meta: AvatarMeta{Frames: 1, Width: 800, Height: 600}}
+	out, err := processAvatar(AvatarInput{
+		SizeBytes: 4096,
+		Probe:     stillProbe(FormatJPEG),
+		Crop:      unitCrop(),
+	}, limits, worker)
+	if err != nil {
+		t.Fatalf("jpeg must be accepted, err=%v", err)
+	}
+	if out.Animated {
+		t.Fatal("jpeg output must not be animated")
 	}
 }
 

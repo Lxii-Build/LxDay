@@ -23,8 +23,31 @@ var (
 
 const emailCodeTTL = 10 * time.Minute
 
-func emailCodeKey(email string) string { return "emailcode:" + strings.ToLower(email) }
+func emailCodeKey(email string) string   { return "emailcode:" + strings.ToLower(email) }
 func emailCodeCDKey(email string) string { return "emailcode:cd:" + strings.ToLower(email) }
+
+// ---------- 验证码爆破防护 ----------
+
+// maxEmailCodeAttempts 单个验证码允许的校验失败次数。
+// 6 位数字仅 100 万组合，无上限时可在有效期内穷举 → 冒用他人邮箱注册。
+const maxEmailCodeAttempts = 5
+
+func emailCodeAttemptKey(email string) string {
+	return "emailcode:try:" + strings.ToLower(email)
+}
+
+// emailCodeAttemptAllowed 是否还允许尝试。
+func emailCodeAttemptAllowed(email string) bool {
+	return st.mem.count(emailCodeAttemptKey(email)) < maxEmailCodeAttempts
+}
+
+// emailCodeAttemptFailed 记一次失败，返回是否已达上限（达到则调用方应作废该验证码）。
+func emailCodeAttemptFailed(email string) bool {
+	// TTL 与验证码有效期同量级即可：验证码过期后计数自然失效。
+	return st.mem.incr(emailCodeAttemptKey(email), 15*time.Minute) >= maxEmailCodeAttempts
+}
+
+func emailCodeAttemptReset(email string) { st.mem.del(emailCodeAttemptKey(email)) }
 
 // ---------- SMTP（配置来自后台 app_setting，可随时修改） ----------
 
@@ -200,9 +223,20 @@ func handleRegister(c *gin.Context) {
 		fail(c, 400, 1002, "密码至少 6 位")
 		return
 	}
-	// 校验验证码
+	// 校验验证码。
+	//
+	// 必须有尝试次数上限：6 位数字只有 100 万种组合，此前校验失败**完全不计数**，
+	// 攻击者可在验证码 10 分钟有效期内穷举，从而用他人邮箱完成注册（抢占身份）。
+	if !emailCodeAttemptAllowed(email) {
+		fail(c, 429, 1016, "验证码尝试次数过多，请重新获取")
+		return
+	}
 	saved, found := st.mem.kvGet(emailCodeKey(email))
 	if !found || saved != strings.TrimSpace(req.Code) {
+		// 失败即计数；达到上限后连同验证码一起作废，迫使对方重新获取（重新获取有 60s 冷却）。
+		if emailCodeAttemptFailed(email) {
+			st.mem.kvDel(emailCodeKey(email))
+		}
 		fail(c, 400, 1015, "验证码错误或已过期")
 		return
 	}
@@ -221,6 +255,7 @@ func handleRegister(c *gin.Context) {
 		return
 	}
 	st.mem.kvDel(emailCodeKey(email))
+	emailCodeAttemptReset(email)
 	token, _ := signToken(id)
 	ok(c, gin.H{"user_id": id, "token": token})
 }
