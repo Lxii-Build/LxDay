@@ -87,6 +87,8 @@ func AdminAuth() gin.HandlerFunc {
 	allowWhileMustChange := map[string]bool{
 		"/api/admin/user/info":          true,
 		"/api/admin/change-credentials": true,
+		// 改密页也要显示站点名与 LOGO；不放行会让改密页顶栏空白并在控制台刷 403。
+		"/api/admin/site-info": true,
 	}
 	return func(c *gin.Context) {
 		token := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
@@ -947,6 +949,21 @@ var settingKeys = []string{
 	"push.provider",
 }
 
+// handleAdminSiteInfo 只回站点展示信息（名称/LOGO/描述），任何已登录管理员可读。
+//
+// 为什么要单独开一个：站点名与 LOGO 是后台每次加载都要用的展示数据，
+// 而 GET /settings 里含 SMTP 主机账号与存储密钥，已被收敛到超管
+// —— 若前端继续用它取站点名，普通 admin 会吃 403、后台顶栏连站点名都显示不出来。
+// 同时它也在首登强制改密的白名单里：改密页自己也要显示站点名与 LOGO。
+func handleAdminSiteInfo(c *gin.Context) {
+	get := func(k string) string { v, _ := st.GetSetting(k); return v }
+	aok(c, gin.H{
+		"site.name":        get("site.name"),
+		"site.logo":        get("site.logo"),
+		"site.description": get("site.description"),
+	})
+}
+
 func handleAdminGetSettings(c *gin.Context) {
 	m := map[string]string{}
 	for _, k := range settingKeys {
@@ -1430,6 +1447,8 @@ func registerAdminRoutes(r *gin.Engine) {
 	auth.GET("/network-logs", handleAdminListNetworkLogs)
 	auth.GET("/notify-templates", handleAdminListTemplates)
 	auth.GET("/notify-records", handleAdminListRecords)
+	// 站点展示信息：所有已登录管理员可读（含首登改密期间），不含任何密钥。
+	auth.GET("/site-info", handleAdminSiteInfo)
 
 	// ---- 以下为敏感操作，一律要求超级管理员 ----
 	//

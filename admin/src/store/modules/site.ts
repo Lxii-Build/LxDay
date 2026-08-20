@@ -1,14 +1,17 @@
 /**
  * 站点信息状态管理
  *
- * 站点名称 / LOGO / 描述从后端 /api/admin/settings 的 site.* 读取，
+ * 站点名称 / LOGO / 描述从后端 /api/admin/site-info 读取，
  * 未登录或取数失败时使用默认值兜底。
+ *
+ * 注意别改回 /api/admin/settings：那个接口含 SMTP 与存储密钥、已收敛到超管，
+ * 普通 admin 会 403，且首登强制改密期间任何人都读不到。
  *
  * @module store/modules/site
  */
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { fetchSettings } from '@/api/admin'
+import { fetchSiteInfo } from '@/api/admin'
 import AppConfig from '@/config'
 
 const DEFAULT_NAME = AppConfig.systemInfo.name
@@ -23,7 +26,7 @@ export const useSiteStore = defineStore(
     /** 从后端加载站点信息 */
     const loadSiteInfo = async (): Promise<void> => {
       try {
-        const settings = await fetchSettings()
+        const settings = await fetchSiteInfo()
         name.value = settings['site.name']?.trim() || DEFAULT_NAME
         logo.value = settings['site.logo'] || ''
         description.value = settings['site.description'] || ''

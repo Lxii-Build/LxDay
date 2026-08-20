@@ -11,6 +11,37 @@ import (
 
 // ================= 安全加固（响应头 / 可信代理 / 口令强度 / URL 白名单） =================
 
+// adminCSP 后台 SPA 的 CSP。
+//
+// **script-src 必须带 'unsafe-inline'。** 原先写成 `script-src 'self'`，
+// 结果 Vite 产物里的 inline 引导脚本被浏览器整段拦掉：
+// 控制台只报一句 "Executing inline script violates ... 'script-src 'self”"，
+// 然后整个后台白屏——菜单、按钮、任何内容都不渲染，表现为"加载半天什么都没有"。
+// 这个坑在只看 HTML/接口时完全看不出来，必须用真实浏览器打开才会暴露。
+//
+// 安全权衡：本项目后台是纯内嵌的自有 SPA，不渲染任何用户输入为 HTML，
+// inline script 的 XSS 面很小；而 CSP 的主要价值在这里是 frame-ancestors
+// （防点击劫持）与 object-src/base-uri（防注入外部内容），这些仍然生效。
+// 若将来要收紧，正确做法是给 Vite 配 nonce 或改用 hash，而不是直接禁 inline。
+//
+// style-src 同样需要 'unsafe-inline'：Vue 运行时会注入 inline <style>。
+//
+// connect-src 需要放开三处：
+//   - ws:/wss: —— /ws 与后台同域，WebSocket 握手要用；
+//   - iconify 的三个 CDN —— 后台用 @iconify/vue 在线按需拉图标（不是离线包），
+//     拦掉后菜单项与按钮全部没有图标，只剩空白占位。
+//     它们会依次回退（api.iconify.design → api.simplesvg.com → api.unisvg.com），
+//     三个都要放行，否则每次加载都要等前面的超时。
+const adminCSP = "default-src 'self'; " +
+	"script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+	"style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data: blob:; " +
+	"font-src 'self' data:; " +
+	"connect-src 'self' ws: wss: https://api.iconify.design https://api.simplesvg.com https://api.unisvg.com; " +
+	"object-src 'none'; " +
+	"base-uri 'self'; " +
+	"frame-ancestors 'none'"
+
 // SecurityHeaders 全局安全响应头中间件。
 // 不下发这些头的后果：
 //   - 缺 nosniff：上传目录里的文本被浏览器嗅探成 HTML/JS 执行 → 同源存储型 XSS；
@@ -18,19 +49,7 @@ import (
 //   - 缺 Referrer-Policy：后台/日记页跳外链时把带图片路径的完整 URL 塞进 Referer 头，
 //     情侣私密照片 URL 因此泄露给任意第三方站点（本项目图片仅靠随机文件名保密，URL 泄露=照片泄露）。
 func SecurityHeaders() gin.HandlerFunc {
-	// CSP 说明：后台是 Vue3 打包产物，运行时会注入 inline <style>，
-	// 因此 style-src 必须保留 'unsafe-inline'，否则后台样式全废。
-	// script 不给 'unsafe-inline'（打包产物是外链 js，无需 inline 脚本）。
-	// connect-src 放开 ws/wss：/ws 与后台同域，需允许 WebSocket 握手。
-	const csp = "default-src 'self'; " +
-		"script-src 'self'; " +
-		"style-src 'self' 'unsafe-inline'; " +
-		"img-src 'self' data: blob:; " +
-		"font-src 'self' data:; " +
-		"connect-src 'self' ws: wss:; " +
-		"object-src 'none'; " +
-		"base-uri 'self'; " +
-		"frame-ancestors 'none'"
+	const csp = adminCSP
 	return func(c *gin.Context) {
 		h := c.Writer.Header()
 		h.Set("X-Content-Type-Options", "nosniff")

@@ -113,6 +113,17 @@ export function fetchSettings() {
   return request.get<Api.Admin.Settings>({ url: '/api/admin/settings' })
 }
 
+/**
+ * 站点展示信息（名称/LOGO/描述）。
+ *
+ * 与 fetchSettings 分开：后者含 SMTP 与存储密钥，本轮已收敛到超管；
+ * 普通 admin 用它取站点名会吃 403，且首登强制改密期间任何人都拿不到
+ * （改密页顶栏会因此空白并在控制台刷 403）。
+ */
+export function fetchSiteInfo() {
+  return request.get<Record<string, string>>({ url: '/api/admin/site-info' })
+}
+
 export function updateSettings(data: Api.Admin.Settings) {
   return request.put<{ ok: boolean }>({ url: '/api/admin/settings', data })
 }
