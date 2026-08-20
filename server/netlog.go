@@ -184,4 +184,3 @@ func handleAdminListNetworkLogs(c *gin.Context) {
 	}
 	pageResp(c, list, total, current, size)
 }
-

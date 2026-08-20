@@ -8,14 +8,14 @@ import (
 // 后台密码强度：此前只要 len>=6，`123456` 就能过。
 func TestValidateStrongPassword(t *testing.T) {
 	bad := map[string]string{
-		"短":       "Ab3",
-		"纯数字":     "123456789012",
-		"纯小写":     "abcdefghijkl",
-		"缺数字":     "AbcdefghIjkl",
-		"缺大写":     "abcdefgh1234",
-		"缺小写":     "ABCDEFGH1234",
-		"刚好11位":   "Abcdefghij1",
-		"经典弱口令":   "123456",
+		"短":        "Ab3",
+		"纯数字":      "123456789012",
+		"纯小写":      "abcdefghijkl",
+		"缺数字":      "AbcdefghIjkl",
+		"缺大写":      "abcdefgh1234",
+		"缺小写":      "ABCDEFGH1234",
+		"刚好11位":    "Abcdefghij1",
+		"经典弱口令":    "123456",
 		"admin弱口令": "admin123",
 	}
 	for name, pw := range bad {

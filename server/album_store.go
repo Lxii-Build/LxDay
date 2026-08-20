@@ -281,22 +281,39 @@ func (s *Store) ListAlbums(pairID int64) ([]Album, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	out := []Album{}
-	for rows.Next() {
-		var photoCount int
-		var coverID int64
-		a, err := scanAlbum(rows, &photoCount, &coverID)
-		if err != nil {
-			return nil, err
+	coverIDs := []int64{}
+	// 先把行读完并立刻关闭 rows，**不要在遍历中做任何会触发新查询的事**。
+	//
+	// 死锁原因：SQLite 连接池是 MaxOpenConns(1)（见 main.go），遍历 rows 期间那条唯一连接
+	// 被占用；而 mediaThumbURL → siteBaseURL → GetSetting 会再发一次查询，
+	// 于是它排队等一条永远不会被释放的连接——测试里表现为整包 600s 超时。
+	func() {
+		defer rows.Close()
+		for rows.Next() {
+			var photoCount int
+			var coverID int64
+			a, scanErr := scanAlbum(rows, &photoCount, &coverID)
+			if scanErr != nil {
+				err = scanErr
+				return
+			}
+			a.PhotoCount = photoCount
+			out = append(out, *a)
+			coverIDs = append(coverIDs, coverID)
 		}
-		a.PhotoCount = photoCount
-		if coverID > 0 {
-			a.CoverThumb = mediaThumbURL(coverID)
-		}
-		out = append(out, *a)
+		err = rows.Err()
+	}()
+	if err != nil {
+		return nil, err
 	}
-	return out, rows.Err()
+	// rows 已关闭，此时再取站点地址（可能查库）是安全的。
+	for i := range out {
+		if coverIDs[i] > 0 {
+			out[i].CoverThumb = mediaThumbURL(coverIDs[i])
+		}
+	}
+	return out, nil
 }
 
 // UpdateAlbum 改名/换封面（两者都可选）。cover 必须是本 pair 名下的正常照片，调用方先校验。

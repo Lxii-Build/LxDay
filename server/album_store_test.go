@@ -406,10 +406,12 @@ func Test时间文本解析区分本地与UTC(t *testing.T) {
 	if !okU {
 		t.Fatal("UTC 解析失败")
 	}
-	// 同一串文本，两种解释相差正好一个本地时区偏移。
+	// 同一串墙钟文本，两种解释相差正好一个本地时区偏移。
+	// 方向：把 "18:30" 当本地(如 UTC+8) → 绝对时刻是 10:30Z；当 UTC → 18:30Z。
+	// 所以 local 代表的时刻**更早**，local.Sub(utc) 为负的一个偏移量。
 	_, offset := local.Zone()
-	if diff := local.Sub(utc); diff != time.Duration(offset)*time.Second {
-		t.Fatalf("两种解释差值=%v want %v", diff, time.Duration(offset)*time.Second)
+	if diff := local.Sub(utc); diff != -time.Duration(offset)*time.Second {
+		t.Fatalf("两种解释差值=%v want %v", diff, -time.Duration(offset)*time.Second)
 	}
 	// 驱动可能给出的其他形态也要认。
 	for _, s := range []string{

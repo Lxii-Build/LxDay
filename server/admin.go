@@ -232,7 +232,7 @@ func (s *Store) AdminTokenVer(id int64) (int64, error) {
 }
 
 // BumpAdminTokenVer 令该管理员所有已签发 token 立即失效
-//（重置密码、禁用、改角色、删除时调用）。
+// （重置密码、禁用、改角色、删除时调用）。
 func (s *Store) BumpAdminTokenVer(id int64) error {
 	_, err := s.DB.Exec("UPDATE admin_user SET token_ver=token_ver+1 WHERE id=?", id)
 	return err
@@ -266,7 +266,7 @@ func (s *Store) DeleteAdmin(id int64) error {
 }
 
 // CountActiveSuperAdmins 统计仍启用的超管数量，用于阻止把最后一个超管删掉/降级/禁用
-//（否则系统再也没有人能管理系统设置与管理员）。
+// （否则系统再也没有人能管理系统设置与管理员）。
 func (s *Store) CountActiveSuperAdmins(excludeID int64) (int, error) {
 	var n int
 	err := s.DB.QueryRow(
@@ -978,7 +978,11 @@ func handleAdminUpdateSettings(c *gin.Context) {
 		}
 		st.SetSetting(k, v)
 	}
-	st.AddAudit(c.GetInt64("aid"), "", "update_settings", "", c.ClientIP())
+	// site.url 被 siteBaseURL() 缓存（缓存是为了避开 MaxOpenConns(1) 下的自锁），
+	// 改完必须失效，否则新配的站点地址要等进程重启才生效。
+	invalidateSiteBaseCache()
+	st.AddAudit(c.GetInt64("aid"), c.GetString("admin_name"), "update_settings",
+		fmt.Sprintf("keys=%d", len(in)), c.ClientIP())
 	aok(c, gin.H{"ok": true})
 }
 

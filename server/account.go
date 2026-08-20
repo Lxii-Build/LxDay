@@ -17,7 +17,7 @@ import (
 // ================= 账号体系（注册/登录/邮箱验证码/扩展资料） =================
 
 var (
-	reUsername = regexp.MustCompile(`^[A-Za-z]{3,20}$`)          // 用户名：3-20 位大小写英文
+	reUsername = regexp.MustCompile(`^[A-Za-z]{3,20}$`)           // 用户名：3-20 位大小写英文
 	reEmail    = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`) // 邮箱基础校验
 )
 
@@ -380,5 +380,3 @@ func handleUpdateMyProfile(c *gin.Context) {
 	applyProfileAvatarDefault(p)
 	ok(c, p)
 }
-
-

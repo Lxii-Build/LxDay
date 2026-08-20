@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -48,13 +49,49 @@ func relFromUploadDir(fullPath string) string {
 	return filepath.ToSlash(rel)
 }
 
+// siteBaseCache 缓存 site.url。
+//
+// **这不是性能优化，是正确性要求。** SQLite 连接池是 MaxOpenConns(1)（见 main.go），
+// 而 siteBaseURL 会被 scanPhoto → mediaURL 在 `for rows.Next()` 遍历中调用；
+// 若此刻再发一次查询，它就要排队等那条正被 rows 占用、且要等遍历结束才释放的连接
+// —— 自己等自己，直接死锁（照片列表接口永久挂起，测试里表现为整包 600s 超时）。
+var siteBaseCache struct {
+	sync.RWMutex
+	val    string
+	loaded bool
+}
+
+// invalidateSiteBaseCache 在后台保存设置后调用，使下次读取重新取库。
+func invalidateSiteBaseCache() {
+	siteBaseCache.Lock()
+	siteBaseCache.loaded = false
+	siteBaseCache.Unlock()
+}
+
 // siteBaseURL 读后台站点地址(site.url)，规整为无尾斜杠的 scheme://host 前缀；未配置返回空（回退相对路径）。
 func siteBaseURL() string {
 	if st == nil {
 		return ""
 	}
-	v, _ := st.GetSetting("site.url")
-	v = strings.TrimSpace(v)
+	siteBaseCache.RLock()
+	if siteBaseCache.loaded {
+		v := siteBaseCache.val
+		siteBaseCache.RUnlock()
+		return v
+	}
+	siteBaseCache.RUnlock()
+
+	raw, _ := st.GetSetting("site.url")
+	v := normalizeSiteBase(raw)
+	siteBaseCache.Lock()
+	siteBaseCache.val = v
+	siteBaseCache.loaded = true
+	siteBaseCache.Unlock()
+	return v
+}
+
+func normalizeSiteBase(raw string) string {
+	v := strings.TrimSpace(raw)
 	if v == "" {
 		return ""
 	}
