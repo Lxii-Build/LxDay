@@ -108,6 +108,7 @@ declare namespace Api {
       created_at: string
     }
     type PairList = Api.Common.PaginatedResponse<PairItem>
+    type PairSearchParams = Partial<Api.Common.CommonSearchParams & { keyword: string }>
 
     /** 待办列表项 */
     interface TodoItem {
@@ -140,6 +141,42 @@ declare namespace Api {
       created_at: string
     }
     type DiaryList = Api.Common.PaginatedResponse<DiaryItem>
+    type DiarySearchParams = Partial<Api.Common.CommonSearchParams & { keyword: string }>
+
+    /**
+     * 相册照片列表项（后台审核用）
+     *
+     * 服务端 Store.ListPhotosAll 刻意**不返回任何图片 URL**：管理员没有用户 token，
+     * 本就读不了 `/media/<id>` 鉴权代理，返回 URL 只会凭空多出一条隐私泄露面。
+     * 故本页只做元数据审核，不显示缩略图。
+     */
+    interface PhotoItem {
+      id: number
+      pair_id: number
+      /** 所属相册；0 = 未归类 */
+      album_id: number
+      uploader_id: number
+      uploader_name: string
+      caption: string
+      width: number
+      height: number
+      size_bytes: number
+      mime: string
+      /** EXIF 拍摄时间，解析不到时服务端回 null */
+      taken_at: string | null
+      /** 1 正常 / 2 回收站 */
+      status: number
+      created_at: string | null
+    }
+    type PhotoList = Api.Common.PaginatedResponse<PhotoItem>
+    type PhotoSearchParams = Partial<
+      Api.Common.CommonSearchParams & {
+        /** 关键词，服务端只搜 caption */
+        keyword: string
+        /** 按绑定关系筛选；0 或不传表示不筛选 */
+        pair_id: number
+      }
+    >
 
     /** APP 版本项 */
     interface AppVersionItem {
@@ -203,6 +240,18 @@ declare namespace Api {
       created_at: string
     }
     type AuditLogList = Api.Common.PaginatedResponse<AuditLog>
+    type AuditLogSearchParams = Partial<
+      Api.Common.CommonSearchParams & {
+        /** 操作人用户名 */
+        admin_name: string
+        /** 动作 */
+        action: string
+        /** 起始时间 YYYY-MM-DD HH:mm:ss */
+        start: string
+        /** 结束时间 YYYY-MM-DD HH:mm:ss */
+        end: string
+      }
+    >
 
     /** 网络请求日志 */
     interface NetworkLog {
@@ -236,6 +285,12 @@ declare namespace Api {
       role?: string
       email?: string
     }
+    /**
+     * 管理员列表响应
+     * 服务端目前返回裸数组；为兼容后续加分页，这里允许两种形态，前端统一归一化。
+     */
+    type AdminListResponse = AdminItem[] | { list: AdminItem[]; total: number }
+    type AdminSearchParams = Partial<Api.Common.CommonSearchParams>
 
     /** 系统设置键值 map */
     type Settings = Record<string, string>

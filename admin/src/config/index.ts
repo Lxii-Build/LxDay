@@ -26,7 +26,7 @@
  * - headerBar: 顶部栏功能配置
  *
  * @module config
- * @author Art Design Pro Team
+ * @author LxDay
  */
 
 import { MenuThemeEnum, MenuTypeEnum, SystemThemeEnum } from '@/enums/appEnum'

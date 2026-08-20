@@ -28,7 +28,7 @@
  * ```
  *
  * @module useTheme
- * @author Art Design Pro Team
+ * @author LxDay
  */
 
 import { useSettingStore } from '@/store/modules/setting'

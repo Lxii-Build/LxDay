@@ -5,7 +5,7 @@
  * 通过修改此配置文件可以快速启用或禁用顶部栏的功能按钮。
  *
  * @module config/headerBar
- * @author Art Design Pro Team
+ * @author LxDay
  */
 
 import { HeaderBarFeatureConfig } from '@/types'
@@ -30,21 +30,9 @@ export const headerBarConfig: HeaderBarFeatureConfig = {
     enabled: true,
     description: '面包屑导航，显示当前页面路径'
   },
-  globalSearch: {
-    enabled: true,
-    description: '全局搜索功能，支持快捷键 Ctrl+K 或 Cmd+K'
-  },
   fullscreen: {
     enabled: true,
     description: '全屏切换功能'
-  },
-  notification: {
-    enabled: false,
-    description: '通知中心，显示系统通知和消息'
-  },
-  chat: {
-    enabled: false,
-    description: '聊天功能，提供实时沟通'
   },
   language: {
     enabled: true,

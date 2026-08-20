@@ -1,5 +1,5 @@
 {
-  "name": "art-design-pro",
+  "name": "lxday-admin",
   "version": "0.0.0",
   "type": "module",
   "engines": {
@@ -57,27 +57,20 @@
     "@tailwindcss/vite": "^4.1.14",
     "@vue/reactivity": "3.5.22",
     "@vueuse/core": "^13.9.0",
-    "@wangeditor/editor": "^5.1.23",
-    "@wangeditor/editor-for-vue": "next",
     "axios": "1.12.2",
     "crypto-js": "^4.2.0",
     "echarts": "^6.0.0",
     "element-plus": "2.11.4",
-    "file-saver": "^2.0.5",
-    "highlight.js": "^11.10.0",
     "mitt": "^3.0.1",
     "nprogress": "^0.2.0",
     "ohash": "^2.0.11",
     "pinia": "^3.0.3",
     "pinia-plugin-persistedstate": "^4.3.0",
-    "qrcode.vue": "^3.6.0",
     "tailwindcss": "^4.1.14",
     "vue": "3.5.22",
     "vue-draggable-plus": "^0.6.0",
     "vue-i18n": "^9.14.0",
-    "vue-router": "^4.5.1",
-    "xgplayer": "^3.0.20",
-    "xlsx": "^0.18.5"
+    "vue-router": "^4.5.1"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.4.1",
@@ -117,7 +110,6 @@
     "vite-plugin-compression": "^0.5.1",
     "vite-plugin-vue-devtools": "^7.7.6",
     "vue-demi": "^0.14.9",
-    "vue-img-cutter": "^3.0.5",
     "vue-tsc": "~2.1.6"
   }
 }

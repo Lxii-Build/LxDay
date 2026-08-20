@@ -12,7 +12,7 @@
  * 4. 响应式状态 - 所有状态自动响应配置和 store 变化
  *
  * @module useHeaderBar
- * @author Art Design Pro Team
+ * @author LxDay
  */
 
 import { computed } from 'vue'
@@ -73,24 +73,9 @@ export function useHeaderBar() {
     return isFeatureEnabled('breadcrumb') && showCrumbs.value
   })
 
-  // 检查全局搜索是否显示
-  const shouldShowGlobalSearch = computed(() => {
-    return isFeatureEnabled('globalSearch')
-  })
-
   // 检查全屏按钮是否显示
   const shouldShowFullscreen = computed(() => {
     return isFeatureEnabled('fullscreen')
-  })
-
-  // 检查通知中心是否显示
-  const shouldShowNotification = computed(() => {
-    return isFeatureEnabled('notification')
-  })
-
-  // 检查聊天功能是否显示
-  const shouldShowChat = computed(() => {
-    return isFeatureEnabled('chat')
   })
 
   // 检查语言切换是否显示
@@ -177,10 +162,7 @@ export function useHeaderBar() {
     shouldShowRefreshButton, // 是否显示刷新按钮
     shouldShowFastEnter, // 是否显示快速入口
     shouldShowBreadcrumb, // 是否显示面包屑
-    shouldShowGlobalSearch, // 是否显示全局搜索
     shouldShowFullscreen, // 是否显示全屏按钮
-    shouldShowNotification, // 是否显示通知中心
-    shouldShowChat, // 是否显示聊天功能
     shouldShowLanguage, // 是否显示语言切换
     shouldShowSettings, // 是否显示设置面板
     shouldShowThemeToggle, // 是否显示主题切换

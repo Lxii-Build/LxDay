@@ -2,55 +2,85 @@
 <template>
   <div class="notify-templates">
     <div class="mb-3 flex justify-end">
-      <ElButton :loading="loading" @click="loadTemplates">刷新</ElButton>
-      <ElButton type="primary" @click="openDialog()">新增模板</ElButton>
+      <ElButton :loading="loading" @click="loadTemplates">{{ $t('common.refresh') }}</ElButton>
+      <ElButton type="primary" @click="openDialog()">{{ $t('notify.templates.create') }}</ElButton>
     </div>
 
     <ElTable v-loading="loading" :data="templates" border>
-      <ElTableColumn prop="code" label="Code" width="180" />
-      <ElTableColumn prop="title" label="标题" min-width="160" />
-      <ElTableColumn prop="body" label="内容" min-width="240" show-overflow-tooltip />
-      <ElTableColumn label="启用" width="90">
+      <ElTableColumn prop="code" :label="$t('notify.templates.table.code')" width="180" />
+      <ElTableColumn prop="title" :label="$t('notify.templates.table.title')" min-width="160" />
+      <ElTableColumn
+        prop="body"
+        :label="$t('notify.templates.table.body')"
+        min-width="240"
+        show-overflow-tooltip
+      />
+      <ElTableColumn :label="$t('notify.templates.table.enabled')" width="90">
         <template #default="{ row }">
-          <ElTag :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '停用' }}</ElTag>
+          <ElTag :type="row.enabled ? 'success' : 'info'">
+            {{ row.enabled ? $t('common.enabled') : $t('common.disabled') }}
+          </ElTag>
         </template>
       </ElTableColumn>
-      <ElTableColumn prop="updated_at" label="更新时间" width="180" />
-      <ElTableColumn label="操作" width="90" fixed="right">
+      <ElTableColumn :label="$t('notify.templates.table.updatedAt')" width="180">
+        <template #default="{ row }">{{ formatDateTime(row.updated_at) }}</template>
+      </ElTableColumn>
+      <ElTableColumn :label="$t('common.operation')" width="140" fixed="right">
         <template #default="{ row }">
-          <ElButton type="primary" link @click="openDialog(row)">编辑</ElButton>
+          <ElButton type="primary" link @click="openDialog(row)">{{ $t('common.edit') }}</ElButton>
+          <ElButton type="danger" link @click="handleDelete(row)">
+            {{ $t('common.delete') }}
+          </ElButton>
         </template>
       </ElTableColumn>
+      <template #empty>
+        <ElEmpty :description="$t('notify.templates.empty')" :image-size="120" />
+      </template>
     </ElTable>
 
-    <ElDialog v-model="dialogVisible" :title="isEdit ? '编辑模板' : '新增模板'" width="520px" align-center>
+    <ElDialog
+      v-model="dialogVisible"
+      :title="isEdit ? $t('notify.templates.editTitle') : $t('notify.templates.createTitle')"
+      width="520px"
+      align-center
+    >
       <ElForm ref="formRef" :model="formData" :rules="rules" label-width="80px">
-        <ElFormItem label="Code" prop="code">
-          <ElInput v-model.trim="formData.code" :disabled="isEdit" placeholder="模板唯一标识" />
+        <ElFormItem :label="$t('notify.templates.table.code')" prop="code">
+          <ElInput
+            v-model.trim="formData.code"
+            :disabled="isEdit"
+            :placeholder="$t('notify.templates.codePlaceholder')"
+          />
         </ElFormItem>
-        <ElFormItem label="标题" prop="title">
+        <ElFormItem :label="$t('notify.templates.table.title')" prop="title">
           <ElInput v-model.trim="formData.title" />
         </ElFormItem>
-        <ElFormItem label="内容" prop="body">
+        <ElFormItem :label="$t('notify.templates.table.body')" prop="body">
           <ElInput v-model="formData.body" type="textarea" :rows="4" />
         </ElFormItem>
-        <ElFormItem label="启用">
+        <ElFormItem :label="$t('notify.templates.table.enabled')">
           <ElSwitch v-model="formData.enabled" :active-value="1" :inactive-value="0" />
         </ElFormItem>
       </ElForm>
       <template #footer>
-        <ElButton @click="dialogVisible = false">取消</ElButton>
-        <ElButton type="primary" :loading="submitting" @click="handleSubmit">保存</ElButton>
+        <ElButton @click="dialogVisible = false">{{ $t('common.cancel') }}</ElButton>
+        <ElButton type="primary" :loading="submitting" @click="handleSubmit">
+          {{ $t('common.save') }}
+        </ElButton>
       </template>
     </ElDialog>
   </div>
 </template>
 
 <script setup lang="ts">
-  import { fetchNotifyTemplates, upsertNotifyTemplate } from '@/api/admin'
-  import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
+  import { useI18n } from 'vue-i18n'
+  import { fetchNotifyTemplates, upsertNotifyTemplate, deleteNotifyTemplate } from '@/api/admin'
+  import { formatDateTime } from '@/utils/format/datetime'
+  import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 
   defineOptions({ name: 'NotifyTemplates' })
+
+  const { t } = useI18n()
 
   const templates = ref<Api.Admin.NotifyTemplate[]>([])
   const loading = ref(false)
@@ -66,11 +96,11 @@
     enabled: 1
   })
 
-  const rules = reactive<FormRules>({
-    code: [{ required: true, message: '请输入 Code', trigger: 'blur' }],
-    title: [{ required: true, message: '请输入标题', trigger: 'blur' }],
-    body: [{ required: true, message: '请输入内容', trigger: 'blur' }]
-  })
+  const rules = computed<FormRules>(() => ({
+    code: [{ required: true, message: t('notify.rules.code'), trigger: 'blur' }],
+    title: [{ required: true, message: t('notify.rules.title'), trigger: 'blur' }],
+    body: [{ required: true, message: t('notify.rules.body'), trigger: 'blur' }]
+  }))
 
   const loadTemplates = async () => {
     loading.value = true
@@ -90,6 +120,7 @@
       enabled: row?.enabled ?? 1
     })
     dialogVisible.value = true
+    formRef.value?.clearValidate()
   }
 
   const handleSubmit = async () => {
@@ -99,12 +130,28 @@
     submitting.value = true
     try {
       await upsertNotifyTemplate({ ...formData })
-      ElMessage.success('保存成功')
+      ElMessage.success(t('common.saveSuccess'))
       dialogVisible.value = false
       loadTemplates()
     } finally {
       submitting.value = false
     }
+  }
+
+  const handleDelete = (row: Api.Admin.NotifyTemplate) => {
+    ElMessageBox.confirm(
+      t('notify.templates.deleteConfirm', { code: row.code }),
+      t('notify.templates.deleteTitle'),
+      {
+        confirmButtonText: t('common.confirmDelete'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning'
+      }
+    ).then(async () => {
+      await deleteNotifyTemplate(row.id)
+      ElMessage.success(t('common.deleteSuccess'))
+      loadTemplates()
+    })
   }
 
   onMounted(loadTemplates)

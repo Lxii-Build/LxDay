@@ -15,14 +15,9 @@
     "requestConfigError": "Request configuration error"
   },
   "topBar": {
-    "search": {
-      "title": "Search"
-    },
     "user": {
       "userCenter": "Change Credentials",
-      "docs": "Document",
-      "github": "Github",
-      "lockScreen": "Lock screen",
+      "repo": "Repository",
       "logout": "Log out"
     },
     "guide": {
@@ -36,23 +31,41 @@
     "tips": "Prompt",
     "cancel": "Cancel",
     "confirm": "Confirm",
-    "logOutTips": "Do you want to log out?"
-  },
-  "search": {
-    "placeholder": "Search page",
-    "historyTitle": "Search history",
-    "switchKeydown": "Navigate",
-    "selectKeydown": "Select",
-    "exitKeydown": "Close"
+    "confirmDelete": "Delete",
+    "logOutTips": "Do you want to log out?",
+    "search": "Search",
+    "reset": "Reset",
+    "refresh": "Refresh",
+    "save": "Save",
+    "edit": "Edit",
+    "delete": "Delete",
+    "enable": "Enable",
+    "disable": "Disable",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "operation": "Actions",
+    "saveSuccess": "Saved",
+    "deleteSuccess": "Deleted",
+    "enableSuccess": "Enabled",
+    "disableSuccess": "Disabled"
   },
   "setting": {
     "menuType": {
       "title": "Menu Layout",
-      "list": ["Vertical", "Horizontal", "Mixed", "Dual"]
+      "list": [
+        "Vertical",
+        "Horizontal",
+        "Mixed",
+        "Dual"
+      ]
     },
     "theme": {
       "title": "Theme Style",
-      "list": ["Light", "Dark", "System"]
+      "list": [
+        "Light",
+        "Dark",
+        "System"
+      ]
     },
     "menu": {
       "title": "Menu Style"
@@ -62,11 +75,17 @@
     },
     "box": {
       "title": "Box Style",
-      "list": ["Border", "Shadow"]
+      "list": [
+        "Border",
+        "Shadow"
+      ]
     },
     "container": {
       "title": "Container Width",
-      "list": ["Full", "Boxed"]
+      "list": [
+        "Full",
+        "Boxed"
+      ]
     },
     "basics": {
       "title": "Basic Config",
@@ -109,13 +128,6 @@
       "resetFailed": "Reset failed, please refresh the page and try again"
     }
   },
-  "notice": {
-    "title": "Notice",
-    "btnRead": "Mark as read",
-    "bar": ["Notice", "Message", "Todo"],
-    "text": ["No"],
-    "viewAll": "View all"
-  },
   "worktab": {
     "btn": {
       "refresh": "Refresh",
@@ -134,11 +146,6 @@
     },
     "title": "Welcome back",
     "subTitle": "Please enter your account and password to login",
-    "roles": {
-      "super": "Super Admin",
-      "admin": "Admin",
-      "user": "User"
-    },
     "placeholder": {
       "username": "Please enter your account",
       "password": "Please enter your password",
@@ -146,33 +153,11 @@
     },
     "sliderText": "Please slide to verify",
     "sliderSuccessText": "Verification successful",
-    "rememberPwd": "Remember password",
-    "forgetPwd": "Forgot password",
     "btnText": "Login",
-    "noAccount": "No account yet?",
-    "register": "Register",
     "success": {
       "title": "Login successful",
       "message": "Welcome back"
     }
-  },
-  "lockScreen": {
-    "pwdError": "Password error",
-    "lock": {
-      "inputPlaceholder": "Please input lock screen password",
-      "btnText": "Lock"
-    },
-    "unlock": {
-      "inputPlaceholder": "Please input unlock password",
-      "btnText": "Unlock",
-      "backBtnText": "Back to login"
-    }
-  },
-  "greeting": {
-    "dawn": "Good morning!",
-    "morning": "Good morning!",
-    "afternoon": "Good afternoon!",
-    "evening": "Good evening!"
   },
   "exceptionPage": {
     "gohome": "Go Home",
@@ -192,9 +177,6 @@
     },
     "pairManage": {
       "title": "Pairs"
-    },
-    "todoManage": {
-      "title": "Todos"
     },
     "contentAudit": {
       "title": "Content Audit"
@@ -222,6 +204,9 @@
       "forbidden": "403",
       "notFound": "404",
       "serverError": "500"
+    },
+    "changeCredentials": {
+      "title": "Change credentials"
     }
   },
   "table": {
@@ -251,5 +236,433 @@
     "zebra": "Zebra",
     "border": "Border",
     "headerBackground": "Header BG"
+  },
+  "dashboard": {
+    "stats": {
+      "users": "Total users",
+      "pairs": "Paired couples",
+      "todos": "Active todos",
+      "diaries": "Total diaries",
+      "newUsers7d": "New in last 7 days"
+    },
+    "chart": {
+      "title": "New users in the last 7 days"
+    }
+  },
+  "userManage": {
+    "searchPlaceholder": "Search by username, nickname or email",
+    "empty": "No users yet",
+    "table": {
+      "id": "ID",
+      "user": "User",
+      "email": "Email",
+      "gender": "Gender",
+      "signature": "Bio",
+      "birthday": "Birthday",
+      "anniversary": "Anniversary",
+      "status": "Status",
+      "createdAt": "Registered"
+    },
+    "gender": {
+      "male": "Male",
+      "female": "Female",
+      "unknown": "Undisclosed"
+    },
+    "status": {
+      "normal": "Active",
+      "disabled": "Disabled"
+    },
+    "enableTitle": "Enable user",
+    "disableTitle": "Disable user",
+    "enableConfirm": "Enable the user \"{name}\"?",
+    "disableConfirm": "Disable the user \"{name}\"? They will no longer be able to sign in.",
+    "enableSuccess": "User enabled",
+    "disableSuccess": "User disabled"
+  },
+  "pairManage": {
+    "searchPlaceholder": "Search by nickname or invite code",
+    "empty": "No pairs yet",
+    "table": {
+      "id": "ID",
+      "userA": "User A",
+      "userB": "User B",
+      "inviteCode": "Invite code",
+      "status": "Status",
+      "createdAt": "Paired at"
+    },
+    "status": {
+      "bound": "Paired",
+      "unbound": "Unpaired"
+    },
+    "unbind": "Unpair",
+    "unbindTitle": "Unpair",
+    "unbindConfirm": "Unpair this couple (#{id})? They will stop sharing data with each other.",
+    "unbindSuccess": "Unpaired"
+  },
+  "contentAudit": {
+    "tabs": {
+      "todo": "Todos",
+      "diary": "Diaries",
+      "photo": "Photos"
+    },
+    "todo": {
+      "searchPlaceholder": "Search by task, note or member",
+      "empty": "No todos yet",
+      "table": {
+        "id": "ID",
+        "title": "Task",
+        "note": "Note",
+        "creator": "Created by",
+        "assignee": "Assigned to",
+        "remindEnabled": "Reminder",
+        "repeat": "Frequency",
+        "remindAt": "Remind at",
+        "pairId": "Pair ID",
+        "status": "Status"
+      },
+      "remind": {
+        "on": "On",
+        "off": "Off"
+      },
+      "repeat": {
+        "once": "Once",
+        "daily": "Daily",
+        "weekly": "Weekly"
+      },
+      "status": {
+        "pending": "Pending",
+        "done": "Completed",
+        "deleted": "Deleted"
+      },
+      "deleteTitle": "Delete todo",
+      "deleteConfirm": "Delete the todo \"{title}\"?"
+    },
+    "diary": {
+      "searchPlaceholder": "Search by title or author",
+      "empty": "No diaries yet",
+      "untitled": "(Untitled)",
+      "table": {
+        "id": "ID",
+        "title": "Title",
+        "author": "Author",
+        "pairId": "Pair ID",
+        "diaryDate": "Diary date",
+        "createdAt": "Created"
+      },
+      "deleteTitle": "Delete diary",
+      "deleteConfirm": "Diary #{id} will be permanently deleted and cannot be recovered. Continue?"
+    },
+    "photo": {
+      "searchPlaceholder": "Search by caption",
+      "pairIdPlaceholder": "Pair ID",
+      "empty": "No photos yet",
+      "unfiled": "Unfiled",
+      "albumPrefix": "Album ",
+      "table": {
+        "id": "ID",
+        "pairId": "Pair / album",
+        "uploader": "Uploaded by",
+        "dimension": "Dimensions",
+        "size": "Size",
+        "mime": "Type",
+        "takenAt": "Taken",
+        "createdAt": "Uploaded",
+        "caption": "Caption",
+        "status": "Status"
+      },
+      "status": {
+        "normal": "Active",
+        "recycled": "In trash"
+      },
+      "deleteTitle": "Delete photo",
+      "deleteConfirm": "Photo #{id} will be soft-deleted and moved to the owner's trash, where they can restore it themselves. The file on disk is kept. Continue?",
+      "deleteSuccess": "Moved to the owner's trash"
+    }
+  },
+  "appVersion": {
+    "empty": "No releases yet",
+    "publish": "New release",
+    "download": "Download",
+    "online": "Publish",
+    "offline": "Unpublish",
+    "onlineSuccess": "Release published",
+    "offlineSuccess": "Release unpublished",
+    "publishSuccess": "Release created",
+    "uploadSuccess": "Upload complete",
+    "uploadNoUrl": "Upload finished but no URL was returned. Please fill it in manually.",
+    "uploadFailed": "Upload failed. Try again or paste the APK URL directly.",
+    "filter": {
+      "allPlatforms": "All platforms"
+    },
+    "platform": {
+      "android": "Android",
+      "ios": "iOS"
+    },
+    "force": {
+      "yes": "Forced",
+      "no": "No"
+    },
+    "status": {
+      "online": "Published",
+      "offline": "Unpublished"
+    },
+    "table": {
+      "id": "ID",
+      "platform": "Platform",
+      "versionName": "Version",
+      "versionCode": "Build",
+      "apk": "APK",
+      "forceUpdate": "Forced",
+      "status": "Status",
+      "createdAt": "Released"
+    },
+    "dialog": {
+      "title": "New release",
+      "submit": "Publish"
+    },
+    "form": {
+      "platform": "Platform",
+      "versionName": "Version name",
+      "versionNamePlaceholder": "e.g. 1.2.0",
+      "versionCode": "Build number",
+      "apkUrl": "APK URL",
+      "apkUrlPlaceholder": "Paste the APK download URL, or upload on the right",
+      "notes": "Release notes",
+      "notesPlaceholder": "What changed in this release",
+      "forceUpdate": "Force update",
+      "upload": "Upload"
+    },
+    "rules": {
+      "platform": "Select a platform",
+      "versionName": "Enter a version name",
+      "versionCodeRequired": "Enter a build number",
+      "versionCodePositive": "Build number must be a positive integer",
+      "versionCodeDuplicate": "Build number {code} is already used by \"{name}\". Publishing anyway may break update checks on the client. Continue?"
+    },
+    "deleteTitle": "Delete release",
+    "deleteConfirm": "Delete the release \"{name}\"?"
+  },
+  "notify": {
+    "tabs": {
+      "send": "Send",
+      "templates": "Templates",
+      "records": "History"
+    },
+    "send": {
+      "template": "Template",
+      "templatePlaceholder": "Optional — picking one fills in the title and body",
+      "title": "Title",
+      "titlePlaceholder": "Notification title",
+      "body": "Body",
+      "bodyPlaceholder": "Notification body",
+      "target": "Audience",
+      "targetAll": "Everyone",
+      "targetUsers": "Specific users",
+      "uids": "User IDs",
+      "uidsPlaceholder": "Comma-separated, e.g. 1,2,3",
+      "submit": "Send notification",
+      "success": "Sent to {count} user(s)"
+    },
+    "templates": {
+      "create": "New template",
+      "createTitle": "New template",
+      "editTitle": "Edit template",
+      "empty": "No templates yet",
+      "codePlaceholder": "Unique template code",
+      "table": {
+        "code": "Code",
+        "title": "Title",
+        "body": "Body",
+        "enabled": "Enabled",
+        "updatedAt": "Updated"
+      },
+      "deleteTitle": "Delete template",
+      "deleteConfirm": "Template \"{code}\" will be deleted. Past send records are unaffected. Continue?"
+    },
+    "records": {
+      "empty": "Nothing sent yet",
+      "targetUsers": "{count} user(s)",
+      "table": {
+        "id": "ID",
+        "title": "Title",
+        "body": "Body",
+        "template": "Template",
+        "target": "Audience",
+        "sentCount": "Delivered",
+        "createdAt": "Sent at"
+      }
+    },
+    "rules": {
+      "code": "Enter a template code",
+      "title": "Enter a title",
+      "body": "Enter the body",
+      "uidsRequired": "Enter at least one user ID",
+      "uidsInvalid": "User IDs must be positive integers, separated by commas"
+    }
+  },
+  "systemSettings": {
+    "save": "Save settings",
+    "saveFailed": "Could not save. Please try again.",
+    "loadFailed": "Could not load settings. Please refresh.",
+    "site": {
+      "title": "Site",
+      "name": "Site name",
+      "namePlaceholder": "LxDay",
+      "url": "Site URL",
+      "urlHint": "Used to build absolute URLs for uploads. Leave blank to return relative paths.",
+      "logo": "Site logo",
+      "logoPlaceholder": "Logo image URL",
+      "description": "Site description"
+    },
+    "storage": {
+      "title": "Storage",
+      "driver": "Driver",
+      "local": "Local disk",
+      "hint": "This build supports local disk storage only."
+    },
+    "smtp": {
+      "title": "SMTP",
+      "host": "Host",
+      "port": "Port",
+      "username": "Username",
+      "password": "Password",
+      "passwordSet": "Already set — leave blank to keep it",
+      "passwordUnset": "Not set",
+      "from": "From address",
+      "fromPlaceholder": "Sender email address",
+      "ssl": "SSL",
+      "test": "Send test email",
+      "testHint": "Save your settings first, then send a test.",
+      "testTitle": "Send test email",
+      "testTo": "Recipient",
+      "testToPlaceholder": "Where to send the test email",
+      "testSend": "Send",
+      "testSuccess": "Test email sent",
+      "testFailed": "Could not send the test email"
+    },
+    "rules": {
+      "siteName": "Enter a site name",
+      "siteNameMax": "Site name must be 50 characters or fewer",
+      "url": "Enter a valid URL starting with http:// or https://",
+      "port": "Port must be a number between 1 and 65535",
+      "portRequired": "SMTP host is set — a port is required",
+      "usernameRequired": "SMTP host is set — a username is required",
+      "from": "Enter a valid email address",
+      "testToRequired": "Enter a recipient address",
+      "testTo": "Enter a valid email address"
+    }
+  },
+  "auditLog": {
+    "empty": "No audit entries yet",
+    "filter": {
+      "operator": "Operator",
+      "action": "Action, e.g. update_settings",
+      "start": "Start time",
+      "end": "End time"
+    },
+    "table": {
+      "id": "ID",
+      "operator": "Operator",
+      "action": "Action",
+      "detail": "Details",
+      "ip": "IP",
+      "createdAt": "Time"
+    }
+  },
+  "networkLog": {
+    "empty": "No request logs yet",
+    "filter": {
+      "method": "Method",
+      "path": "Path contains, e.g. /api/admin",
+      "status": "Status code, e.g. 200"
+    },
+    "table": {
+      "id": "ID",
+      "method": "Method",
+      "path": "Path",
+      "status": "Status",
+      "latency": "Latency (ms)",
+      "ip": "IP",
+      "ua": "User agent",
+      "requestId": "Request ID",
+      "createdAt": "Time"
+    }
+  },
+  "adminManage": {
+    "empty": "No administrators yet",
+    "create": "New administrator",
+    "createTitle": "New administrator",
+    "createSuccess": "Administrator created",
+    "editRole": "Change role",
+    "editRoleTitle": "Change role",
+    "resetPassword": "Reset password",
+    "resetPasswordTitle": "Reset password",
+    "resetPasswordConfirm": "Reset the password for \"{name}\"? They will need the new password to sign in.",
+    "resetPasswordSuccess": "Password reset",
+    "table": {
+      "id": "ID",
+      "username": "Username",
+      "email": "Email",
+      "role": "Role",
+      "status": "Status",
+      "mustChange": "First login"
+    },
+    "role": {
+      "admin": "Administrator",
+      "super": "Super admin"
+    },
+    "status": {
+      "normal": "Active",
+      "disabled": "Disabled"
+    },
+    "mustChange": {
+      "pending": "Change required"
+    },
+    "form": {
+      "password": "Password",
+      "passwordPlaceholder": "At least 12 characters with upper, lower and digits",
+      "newPassword": "New password",
+      "confirmPassword": "Confirm password",
+      "emailPlaceholder": "Optional",
+      "submit": "Create"
+    },
+    "rules": {
+      "username": "Enter a username",
+      "role": "Select a role",
+      "email": "Enter a valid email address",
+      "passwordRequired": "Enter a password",
+      "passwordWeak": "Password must be at least 12 characters and include uppercase, lowercase and digits",
+      "passwordMismatch": "The two passwords do not match"
+    },
+    "enableTitle": "Enable administrator",
+    "disableTitle": "Disable administrator",
+    "enableConfirm": "Enable the administrator \"{name}\"?",
+    "disableConfirm": "Disable the administrator \"{name}\"? They will lose access to this console.",
+    "deleteTitle": "Delete administrator",
+    "deleteConfirm": "Administrator \"{name}\" will be deleted. This cannot be undone. Continue?"
+  },
+  "changeCredentials": {
+    "title": "Change sign-in credentials",
+    "subTitle": "Required on first sign-in or by security policy — please update your account details",
+    "oldPassword": "Current password",
+    "oldPasswordPlaceholder": "Enter your current password",
+    "newUsername": "New username",
+    "newUsernamePlaceholder": "Leave blank to keep your username",
+    "newPassword": "New password",
+    "newPasswordPlaceholder": "At least 6 characters",
+    "confirmPassword": "Confirm password",
+    "confirmPasswordPlaceholder": "Re-enter the new password",
+    "email": "Email",
+    "emailPlaceholder": "Optional, used for account recovery",
+    "submit": "Save and continue",
+    "logout": "Log out",
+    "success": "Credentials updated",
+    "rules": {
+      "oldPassword": "Enter your current password",
+      "username": "Username must be 3-64 characters",
+      "password": "Password must be at least 6 characters",
+      "mismatch": "The two passwords do not match",
+      "atLeastOne": "Change at least your username or password"
+    }
   }
 }

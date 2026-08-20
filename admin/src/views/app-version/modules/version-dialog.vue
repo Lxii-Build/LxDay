@@ -1,21 +1,33 @@
 <!-- APP 版本 - 新增弹窗 -->
 <template>
-  <ElDialog v-model="visible" title="发布新版本" width="520px" align-center>
+  <ElDialog v-model="visible" :title="$t('appVersion.dialog.title')" width="520px" align-center>
     <ElForm ref="formRef" :model="formData" :rules="rules" label-width="100px">
-      <ElFormItem label="平台" prop="platform">
+      <ElFormItem :label="$t('appVersion.form.platform')" prop="platform">
         <ElSelect v-model="formData.platform" style="width: 100%">
-          <ElOption label="Android" value="android" />
-          <ElOption label="iOS" value="ios" />
+          <ElOption :label="$t('appVersion.platform.android')" value="android" />
+          <ElOption :label="$t('appVersion.platform.ios')" value="ios" />
         </ElSelect>
       </ElFormItem>
-      <ElFormItem label="版本名" prop="version_name">
-        <ElInput v-model.trim="formData.version_name" placeholder="如 1.2.0" />
+      <ElFormItem :label="$t('appVersion.form.versionName')" prop="version_name">
+        <ElInput
+          v-model.trim="formData.version_name"
+          :placeholder="$t('appVersion.form.versionNamePlaceholder')"
+        />
       </ElFormItem>
-      <ElFormItem label="版本号" prop="version_code">
-        <ElInputNumber v-model="formData.version_code" :min="1" :step="1" style="width: 100%" />
+      <ElFormItem :label="$t('appVersion.form.versionCode')" prop="version_code">
+        <ElInputNumber
+          v-model="formData.version_code"
+          :min="1"
+          :step="1"
+          :precision="0"
+          style="width: 100%"
+        />
       </ElFormItem>
-      <ElFormItem label="APK 地址" prop="apk_url">
-        <ElInput v-model.trim="formData.apk_url" placeholder="填写 APK 下载地址，或点击右侧上传">
+      <ElFormItem :label="$t('appVersion.form.apkUrl')" prop="apk_url">
+        <ElInput
+          v-model.trim="formData.apk_url"
+          :placeholder="$t('appVersion.form.apkUrlPlaceholder')"
+        >
           <template #append>
             <ElUpload
               :action="uploadAction"
@@ -25,37 +37,58 @@
               :on-error="handleUploadError"
               accept=".apk"
             >
-              <ElButton>上传</ElButton>
+              <ElButton>{{ $t('appVersion.form.upload') }}</ElButton>
             </ElUpload>
           </template>
         </ElInput>
       </ElFormItem>
-      <ElFormItem label="更新说明" prop="notes">
-        <ElInput v-model="formData.notes" type="textarea" :rows="3" placeholder="本次更新内容" />
+      <ElFormItem :label="$t('appVersion.form.notes')" prop="notes">
+        <ElInput
+          v-model="formData.notes"
+          type="textarea"
+          :rows="3"
+          :placeholder="$t('appVersion.form.notesPlaceholder')"
+        />
       </ElFormItem>
-      <ElFormItem label="强制更新" prop="force_update">
+      <ElFormItem :label="$t('appVersion.form.forceUpdate')" prop="force_update">
         <ElSwitch v-model="formData.force_update" />
       </ElFormItem>
     </ElForm>
     <template #footer>
-      <ElButton @click="visible = false">取消</ElButton>
-      <ElButton type="primary" :loading="submitting" @click="handleSubmit">发布</ElButton>
+      <ElButton @click="visible = false">{{ $t('common.cancel') }}</ElButton>
+      <ElButton type="primary" :loading="submitting" @click="handleSubmit">
+        {{ $t('appVersion.dialog.submit') }}
+      </ElButton>
     </template>
   </ElDialog>
 </template>
 
 <script setup lang="ts">
+  import { useI18n } from 'vue-i18n'
   import { createAppVersion } from '@/api/admin'
   import { useUserStore } from '@/store/modules/user'
-  import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
+  import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 
   defineOptions({ name: 'AppVersionDialog' })
 
-  const props = defineProps<{ modelValue: boolean }>()
+  /** 列表中已存在的版本，用于提交前的重复提示 */
+  interface ExistingVersion {
+    platform: string
+    version_code: number
+    version_name: string
+  }
+
+  const props = withDefaults(
+    defineProps<{ modelValue: boolean; existing?: ExistingVersion[] }>(),
+    { existing: () => [] }
+  )
+
   const emit = defineEmits<{
     (e: 'update:modelValue', v: boolean): void
     (e: 'success'): void
   }>()
+
+  const { t } = useI18n()
 
   const visible = computed({
     get: () => props.modelValue,
@@ -63,7 +96,6 @@
   })
 
   const userStore = useUserStore()
-  // 上传接口（如后端未实现，请改为对象存储直传或后端上传接口）
   const uploadAction = '/api/admin/upload'
   const uploadHeaders = computed(() => ({ Authorization: userStore.accessToken }))
 
@@ -81,38 +113,81 @@
 
   const formData = reactive<Api.Admin.AppVersionCreateParams>(defaultForm())
 
-  const rules = reactive<FormRules>({
-    platform: [{ required: true, message: '请选择平台', trigger: 'change' }],
-    version_name: [{ required: true, message: '请输入版本名', trigger: 'blur' }],
-    version_code: [{ required: true, message: '请输入版本号', trigger: 'blur' }]
-  })
+  /** version_code 必填且为正整数 */
+  const validateVersionCode = (
+    _rule: unknown,
+    value: unknown,
+    callback: (e?: Error) => void
+  ): void => {
+    if (value === null || value === undefined || value === '') {
+      return callback(new Error(t('appVersion.rules.versionCodeRequired')))
+    }
+    const n = Number(value)
+    if (!Number.isInteger(n) || n < 1) {
+      return callback(new Error(t('appVersion.rules.versionCodePositive')))
+    }
+    callback()
+  }
+
+  const rules = computed<FormRules>(() => ({
+    platform: [{ required: true, message: t('appVersion.rules.platform'), trigger: 'change' }],
+    version_name: [
+      { required: true, message: t('appVersion.rules.versionName'), trigger: 'blur' }
+    ],
+    version_code: [{ required: true, validator: validateVersionCode, trigger: 'blur' }]
+  }))
 
   watch(visible, (v) => {
-    if (v) Object.assign(formData, defaultForm())
+    if (v) {
+      Object.assign(formData, defaultForm())
+      formRef.value?.clearValidate()
+    }
   })
 
   const handleUploadSuccess = (response: any) => {
     const url = response?.data?.apk_url || response?.data?.url || response?.url
     if (url) {
       formData.apk_url = url
-      ElMessage.success('上传成功')
+      ElMessage.success(t('appVersion.uploadSuccess'))
     } else {
-      ElMessage.warning('上传成功，但未返回地址，请手动填写')
+      ElMessage.warning(t('appVersion.uploadNoUrl'))
     }
   }
 
   const handleUploadError = () => {
-    ElMessage.error('上传失败，请稍后重试或直接填写 APK 地址')
+    ElMessage.error(t('appVersion.uploadFailed'))
   }
 
   const handleSubmit = async () => {
     if (!formRef.value) return
     const valid = await formRef.value.validate().catch(() => false)
     if (!valid) return
+
+    // 同平台下 version_code 重复：先提示，由操作者确认后再提交
+    const dup = props.existing.find(
+      (item) =>
+        item.platform === formData.platform && item.version_code === formData.version_code
+    )
+    if (dup) {
+      const confirmed = await ElMessageBox.confirm(
+        t('appVersion.rules.versionCodeDuplicate', {
+          code: formData.version_code,
+          name: dup.version_name
+        }),
+        t('common.tips'),
+        {
+          confirmButtonText: t('common.confirm'),
+          cancelButtonText: t('common.cancel'),
+          type: 'warning'
+        }
+      ).catch(() => false)
+      if (!confirmed) return
+    }
+
     submitting.value = true
     try {
       await createAppVersion({ ...formData })
-      ElMessage.success('发布成功')
+      ElMessage.success(t('appVersion.publishSuccess'))
       visible.value = false
       emit('success')
     } finally {

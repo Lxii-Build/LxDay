@@ -23,7 +23,7 @@ export function updateUserStatus(id: number, status: number) {
 }
 
 // ---------- 绑定关系 ----------
-export function fetchPairList(params: Api.Common.CommonSearchParams) {
+export function fetchPairList(params: Api.Admin.PairSearchParams) {
   return request.get<Api.Admin.PairList>({ url: '/api/admin/pairs', params })
 }
 
@@ -40,12 +40,26 @@ export function deleteTodo(id: number) {
   return request.del<{ ok: boolean }>({ url: `/api/admin/todos/${id}` })
 }
 
-export function fetchDiaryList(params: Api.Common.CommonSearchParams) {
+export function fetchDiaryList(params: Api.Admin.DiarySearchParams) {
   return request.get<Api.Admin.DiaryList>({ url: '/api/admin/diaries', params })
 }
 
 export function deleteDiary(id: number) {
   return request.del<{ ok: boolean }>({ url: `/api/admin/diaries/${id}` })
+}
+
+/**
+ * 相册照片列表（仅超级管理员可用）
+ *
+ * 只回元数据，不含图片 URL——相册是全站最私密的内容，后台只做违规处置不做浏览。
+ */
+export function fetchPhotoList(params: Api.Admin.PhotoSearchParams) {
+  return request.get<Api.Admin.PhotoList>({ url: '/api/admin/photos', params })
+}
+
+/** 删除照片：软删进用户回收站，用户可自行恢复，不删磁盘文件 */
+export function deletePhoto(id: number) {
+  return request.del<{ ok: boolean }>({ url: `/api/admin/photos/${id}` })
 }
 
 // ---------- APP 版本发布 ----------
@@ -82,6 +96,10 @@ export function upsertNotifyTemplate(data: {
   return request.put<{ ok: boolean }>({ url: '/api/admin/notify-templates', data })
 }
 
+export function deleteNotifyTemplate(id: number) {
+  return request.del<{ ok: boolean }>({ url: `/api/admin/notify-templates/${id}` })
+}
+
 export function sendNotify(data: Api.Admin.NotifySendParams) {
   return request.post<{ sent: number }>({ url: '/api/admin/notify', data })
 }
@@ -99,8 +117,13 @@ export function updateSettings(data: Api.Admin.Settings) {
   return request.put<{ ok: boolean }>({ url: '/api/admin/settings', data })
 }
 
+/** 发送一封 SMTP 测试邮件，用于验证邮件配置是否可用 */
+export function sendSmtpTest(to: string) {
+  return request.post<{ ok: boolean }>({ url: '/api/admin/settings/smtp-test', data: { to } })
+}
+
 // ---------- 审计日志 ----------
-export function fetchAuditLogs(params: Api.Common.CommonSearchParams) {
+export function fetchAuditLogs(params: Api.Admin.AuditLogSearchParams) {
   return request.get<Api.Admin.AuditLogList>({ url: '/api/admin/audit-logs', params })
 }
 
@@ -110,10 +133,32 @@ export function fetchNetworkLogs(params: Api.Admin.NetworkLogSearchParams) {
 }
 
 // ---------- 管理员管理 ----------
-export function fetchAdmins() {
-  return request.get<Api.Admin.AdminItem[]>({ url: '/api/admin/admins' })
+export function fetchAdmins(params?: Api.Admin.AdminSearchParams) {
+  return request.get<Api.Admin.AdminListResponse>({ url: '/api/admin/admins', params })
 }
 
 export function createAdmin(data: Api.Admin.AdminCreateParams) {
   return request.post<{ id: number }>({ url: '/api/admin/admins', data })
+}
+
+/** 修改管理员角色（admin / super） */
+export function updateAdminRole(id: number, role: string) {
+  return request.put<{ ok: boolean }>({ url: `/api/admin/admins/${id}`, data: { role } })
+}
+
+/** 启用(1)/禁用(2) 管理员 */
+export function updateAdminStatus(id: number, status: number) {
+  return request.put<{ ok: boolean }>({ url: `/api/admin/admins/${id}/status`, data: { status } })
+}
+
+/** 重置管理员密码 */
+export function resetAdminPassword(id: number, password: string) {
+  return request.post<{ ok: boolean }>({
+    url: `/api/admin/admins/${id}/reset-password`,
+    data: { password }
+  })
+}
+
+export function deleteAdmin(id: number) {
+  return request.del<{ ok: boolean }>({ url: `/api/admin/admins/${id}` })
 }

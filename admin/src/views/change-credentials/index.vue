@@ -4,46 +4,54 @@
     <ElCard class="change-cred-card">
       <template #header>
         <div class="change-cred-header">
-          <h3>修改登录凭据</h3>
-          <p>首次登录或安全策略要求，请修改您的账号信息</p>
+          <h3>{{ $t('changeCredentials.title') }}</h3>
+          <p>{{ $t('changeCredentials.subTitle') }}</p>
         </div>
       </template>
 
       <ElForm ref="formRef" :model="formData" :rules="rules" label-width="96px" @keyup.enter="handleSubmit">
-        <ElFormItem label="原密码" prop="old_password">
+        <ElFormItem :label="$t('changeCredentials.oldPassword')" prop="old_password">
           <ElInput
             v-model.trim="formData.old_password"
             type="password"
             show-password
-            placeholder="请输入当前密码（默认 123456）"
+            :placeholder="$t('changeCredentials.oldPasswordPlaceholder')"
           />
         </ElFormItem>
-        <ElFormItem label="新用户名" prop="username">
-          <ElInput v-model.trim="formData.username" placeholder="留空则不修改用户名" />
+        <ElFormItem :label="$t('changeCredentials.newUsername')" prop="username">
+          <ElInput
+            v-model.trim="formData.username"
+            :placeholder="$t('changeCredentials.newUsernamePlaceholder')"
+          />
         </ElFormItem>
-        <ElFormItem label="新密码" prop="password">
+        <ElFormItem :label="$t('changeCredentials.newPassword')" prop="password">
           <ElInput
             v-model.trim="formData.password"
             type="password"
             show-password
-            placeholder="留空则不修改密码，至少 6 位"
+            :placeholder="$t('changeCredentials.newPasswordPlaceholder')"
           />
         </ElFormItem>
-        <ElFormItem label="确认新密码" prop="confirmPassword">
+        <ElFormItem :label="$t('changeCredentials.confirmPassword')" prop="confirmPassword">
           <ElInput
             v-model.trim="formData.confirmPassword"
             type="password"
             show-password
-            placeholder="请再次输入新密码"
+            :placeholder="$t('changeCredentials.confirmPasswordPlaceholder')"
           />
         </ElFormItem>
-        <ElFormItem label="邮箱" prop="email">
-          <ElInput v-model.trim="formData.email" placeholder="选填，用于找回等" />
+        <ElFormItem :label="$t('changeCredentials.email')" prop="email">
+          <ElInput
+            v-model.trim="formData.email"
+            :placeholder="$t('changeCredentials.emailPlaceholder')"
+          />
         </ElFormItem>
 
         <div class="change-cred-actions">
-          <ElButton type="primary" :loading="loading" @click="handleSubmit">保存并继续</ElButton>
-          <ElButton @click="handleLogout">退出登录</ElButton>
+          <ElButton type="primary" :loading="loading" @click="handleSubmit">
+            {{ $t('changeCredentials.submit') }}
+          </ElButton>
+          <ElButton @click="handleLogout">{{ $t('changeCredentials.logout') }}</ElButton>
         </div>
       </ElForm>
     </ElCard>
@@ -51,12 +59,14 @@
 </template>
 
 <script setup lang="ts">
+  import { useI18n } from 'vue-i18n'
   import { fetchChangeCredentials } from '@/api/auth'
   import { useUserStore } from '@/store/modules/user'
   import type { FormInstance, FormRules } from 'element-plus'
 
   defineOptions({ name: 'ChangeCredentials' })
 
+  const { t } = useI18n()
   const router = useRouter()
   const userStore = useUserStore()
   const formRef = ref<FormInstance>()
@@ -72,18 +82,22 @@
 
   const validateConfirm = (_rule: unknown, value: string, callback: (e?: Error) => void) => {
     if (formData.password && value !== formData.password) {
-      callback(new Error('两次输入的密码不一致'))
+      callback(new Error(t('changeCredentials.rules.mismatch')))
     } else {
       callback()
     }
   }
 
-  const rules = reactive<FormRules>({
-    old_password: [{ required: true, message: '请输入原密码', trigger: 'blur' }],
-    username: [{ min: 3, max: 64, message: '用户名长度 3-64', trigger: 'blur' }],
-    password: [{ min: 6, message: '密码至少 6 位', trigger: 'blur' }],
+  const rules = computed<FormRules>(() => ({
+    old_password: [
+      { required: true, message: t('changeCredentials.rules.oldPassword'), trigger: 'blur' }
+    ],
+    username: [
+      { min: 3, max: 64, message: t('changeCredentials.rules.username'), trigger: 'blur' }
+    ],
+    password: [{ min: 6, message: t('changeCredentials.rules.password'), trigger: 'blur' }],
     confirmPassword: [{ validator: validateConfirm, trigger: 'blur' }]
-  })
+  }))
 
   const handleSubmit = async () => {
     if (!formRef.value) return
@@ -92,7 +106,7 @@
 
     // 至少要修改用户名或密码之一
     if (!formData.username && !formData.password) {
-      ElMessage.warning('请至少修改用户名或密码')
+      ElMessage.warning(t('changeCredentials.rules.atLeastOne'))
       return
     }
 
@@ -104,7 +118,7 @@
       if (formData.email) payload.email = formData.email
 
       const res = await fetchChangeCredentials(payload)
-      ElMessage.success('修改成功')
+      ElMessage.success(t('changeCredentials.success'))
       // 改密后服务端签发新 token（must_change 已清零）；必须换用新 token，否则后续请求仍带旧 token 被 403 拦。
       if (res?.token) userStore.setToken(res.token, res.refreshToken || res.token)
       if (userStore.info) userStore.info.must_change = false

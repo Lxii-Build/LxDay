@@ -7,7 +7,7 @@
           <ElSpace wrap>
             <ElSelect
               v-model="searchForm.method"
-              placeholder="请求方法"
+              :placeholder="$t('networkLog.filter.method')"
               clearable
               style="width: 130px"
               @change="handleSearch"
@@ -17,7 +17,7 @@
             </ElSelect>
             <ElInput
               v-model.trim="searchForm.path"
-              placeholder="路径包含，如 /api/admin"
+              :placeholder="$t('networkLog.filter.path')"
               clearable
               style="width: 240px"
               @keyup.enter="handleSearch"
@@ -25,14 +25,14 @@
             />
             <ElInput
               v-model.trim="searchForm.status"
-              placeholder="状态码，如 200"
+              :placeholder="$t('networkLog.filter.status')"
               clearable
               style="width: 150px"
               @keyup.enter="handleSearch"
               @clear="handleSearch"
             />
-            <ElButton type="primary" @click="handleSearch">查询</ElButton>
-            <ElButton @click="handleReset">重置</ElButton>
+            <ElButton type="primary" @click="handleSearch">{{ $t('common.search') }}</ElButton>
+            <ElButton @click="handleReset">{{ $t('common.reset') }}</ElButton>
           </ElSpace>
         </template>
       </ArtTableHeader>
@@ -42,6 +42,7 @@
         :data="data"
         :columns="columns"
         :pagination="pagination"
+        :empty-text="$t('networkLog.empty')"
         @pagination:size-change="handleSizeChange"
         @pagination:current-change="handleCurrentChange"
       >
@@ -51,11 +52,15 @@
 </template>
 
 <script setup lang="ts">
+  import { useI18n } from 'vue-i18n'
   import { useTable } from '@/hooks/core/useTable'
   import { fetchNetworkLogs } from '@/api/admin'
+  import { formatDateTime } from '@/utils/format/datetime'
   import { ElTag } from 'element-plus'
 
   defineOptions({ name: 'NetworkLog' })
+
+  const { t } = useI18n()
 
   const METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD']
 
@@ -105,44 +110,59 @@
       apiFn: fetchNetworkLogs,
       apiParams: { current: 1, size: 20 },
       columnsFactory: () => [
-        { prop: 'id', label: 'ID', width: 80 },
+        { prop: 'id', label: t('networkLog.table.id'), width: 80 },
         {
           prop: 'method',
-          label: '方法',
+          label: t('networkLog.table.method'),
           width: 100,
           formatter: (row) =>
             h(ElTag, { type: methodTagType(row.method), effect: 'light' }, () => row.method || '-')
         },
-        { prop: 'path', label: '路径', minWidth: 240, showOverflowTooltip: true },
+        {
+          prop: 'path',
+          label: t('networkLog.table.path'),
+          minWidth: 240,
+          showOverflowTooltip: true
+        },
         {
           prop: 'status',
-          label: '状态码',
+          label: t('networkLog.table.status'),
           width: 100,
           formatter: (row) =>
             h(ElTag, { type: statusTagType(row.status) }, () => String(row.status ?? '-'))
         },
         {
           prop: 'latency_ms',
-          label: '耗时(ms)',
+          label: t('networkLog.table.latency'),
           width: 110,
           formatter: (row) => (row.latency_ms != null ? `${row.latency_ms}` : '-')
         },
-        { prop: 'ip', label: 'IP', width: 150, formatter: (row) => row.ip || '-' },
+        {
+          prop: 'ip',
+          label: t('networkLog.table.ip'),
+          width: 150,
+          formatter: (row) => row.ip || '-'
+        },
         {
           prop: 'ua',
-          label: 'User-Agent',
+          label: t('networkLog.table.ua'),
           minWidth: 200,
           showOverflowTooltip: true,
           formatter: (row) => row.ua || '-'
         },
         {
           prop: 'request_id',
-          label: 'Request ID',
+          label: t('networkLog.table.requestId'),
           width: 200,
           showOverflowTooltip: true,
           formatter: (row) => row.request_id || '-'
         },
-        { prop: 'created_at', label: '时间', minWidth: 180 }
+        {
+          prop: 'created_at',
+          label: t('networkLog.table.createdAt'),
+          minWidth: 180,
+          formatter: (row) => formatDateTime(row.created_at)
+        }
       ]
     }
   })

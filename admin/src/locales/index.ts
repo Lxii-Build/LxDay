@@ -18,7 +18,7 @@
  * - en: English
  *
  * @module locales
- * @author Art Design Pro Team
+ * @author LxDay
  */
 
 import { createI18n } from 'vue-i18n'

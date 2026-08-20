@@ -2,7 +2,6 @@ import { AppRouteRecord } from '@/types/router'
 import { dashboardRoutes } from './dashboard'
 import { usersRoutes } from './users'
 import { pairsRoutes } from './pairs'
-import { todoRoutes } from './todo'
 import { contentRoutes } from './content'
 import { appVersionRoutes } from './app-version'
 import { notifyRoutes } from './notify'
@@ -18,7 +17,6 @@ export const routeModules: AppRouteRecord[] = [
   dashboardRoutes,
   usersRoutes,
   pairsRoutes,
-  todoRoutes,
   contentRoutes,
   appVersionRoutes,
   notifyRoutes,

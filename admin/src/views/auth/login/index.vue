@@ -112,7 +112,7 @@
   const formRef = ref<FormInstance>()
 
   const formData = reactive({
-    username: 'admin',
+    username: '',
     password: ''
   })
 

@@ -33,7 +33,7 @@
  * 6. 未匹配路由跳转到 404 页面
  *
  * @module router/guards/beforeEach
- * @author Art Design Pro Team
+ * @author LxDay
  */
 import type { Router, RouteLocationNormalized, NavigationGuardNext } from 'vue-router'
 import { nextTick } from 'vue'
@@ -52,7 +52,7 @@ import { useWorktabStore } from '@/store/modules/worktab'
 import { fetchGetUserInfo } from '@/api/auth'
 import { ApiStatus } from '@/utils/http/status'
 import { isHttpError } from '@/utils/http/error'
-import { RouteRegistry, MenuProcessor, IframeRouteManager, RoutePermissionValidator } from '../core'
+import { RouteRegistry, MenuProcessor, RoutePermissionValidator } from '../core'
 
 // 路由注册器实例
 let routeRegistry: RouteRegistry | null = null
@@ -286,10 +286,7 @@ async function handleDynamicRoutes(
     menuStore.setMenuList(menuList)
     menuStore.addRemoveRouteFns(routeRegistry?.getRemoveRouteFns() || [])
 
-    // 6. 保存 iframe 路由
-    IframeRouteManager.getInstance().save()
-
-    // 7. 验证工作标签页
+    // 6. 验证工作标签页
     useWorktabStore().validateWorktabs(router)
 
     // 8. 静态路由不依赖菜单权限，初始化后直接恢复目标地址。
@@ -384,7 +381,6 @@ async function fetchUserInfo(): Promise<void> {
 export function resetRouterState(delay: number): void {
   setTimeout(() => {
     routeRegistry?.unregister()
-    IframeRouteManager.getInstance().clear()
 
     const menuStore = useMenuStore()
     menuStore.removeAllDynamicRoutes()

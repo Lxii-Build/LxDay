@@ -7,15 +7,15 @@
           <ElSpace wrap>
             <ElSelect
               v-model="platform"
-              placeholder="全部平台"
+              :placeholder="$t('appVersion.filter.allPlatforms')"
               clearable
               style="width: 160px"
               @change="handleSearch"
             >
-              <ElOption label="Android" value="android" />
-              <ElOption label="iOS" value="ios" />
+              <ElOption :label="$t('appVersion.platform.android')" value="android" />
+              <ElOption :label="$t('appVersion.platform.ios')" value="ios" />
             </ElSelect>
-            <ElButton type="primary" @click="dialogVisible = true">发布新版本</ElButton>
+            <ElButton type="primary" @click="openCreate">{{ $t('appVersion.publish') }}</ElButton>
           </ElSpace>
         </template>
       </ArtTableHeader>
@@ -25,29 +25,30 @@
         :data="data"
         :columns="columns"
         :pagination="pagination"
+        :empty-text="$t('appVersion.empty')"
         @pagination:size-change="handleSizeChange"
         @pagination:current-change="handleCurrentChange"
       >
       </ArtTable>
     </ElCard>
 
-    <VersionDialog v-model="dialogVisible" @success="refreshData" />
+    <VersionDialog v-model="dialogVisible" :existing="existing" @success="refreshData" />
   </div>
 </template>
 
 <script setup lang="ts">
+  import { useI18n } from 'vue-i18n'
   import { useTable } from '@/hooks/core/useTable'
-  import {
-    fetchAppVersionList,
-    updateAppVersionStatus,
-    deleteAppVersion
-  } from '@/api/admin'
+  import { fetchAppVersionList, updateAppVersionStatus, deleteAppVersion } from '@/api/admin'
+  import { formatDateTime } from '@/utils/format/datetime'
   import VersionDialog from './modules/version-dialog.vue'
   import { ElButton, ElLink, ElMessage, ElMessageBox, ElTag } from 'element-plus'
 
   defineOptions({ name: 'AppVersion' })
 
   type AppVersionItem = Api.Admin.AppVersionItem
+
+  const { t } = useI18n()
 
   const platform = ref<string>('')
   const dialogVisible = ref(false)
@@ -68,41 +69,50 @@
       apiFn: fetchAppVersionList,
       apiParams: { current: 1, size: 20, platform: '' },
       columnsFactory: () => [
-        { prop: 'id', label: 'ID', width: 80 },
-        { prop: 'platform', label: '平台', width: 100 },
-        { prop: 'version_name', label: '版本名', width: 120 },
-        { prop: 'version_code', label: '版本号', width: 100 },
+        { prop: 'id', label: t('appVersion.table.id'), width: 80 },
+        { prop: 'platform', label: t('appVersion.table.platform'), width: 100 },
+        { prop: 'version_name', label: t('appVersion.table.versionName'), width: 120 },
+        { prop: 'version_code', label: t('appVersion.table.versionCode'), width: 110 },
         {
           prop: 'apk_url',
-          label: 'APK',
+          label: t('appVersion.table.apk'),
           minWidth: 200,
           formatter: (row) =>
             row.apk_url
-              ? h(ElLink, { type: 'primary', href: row.apk_url, target: '_blank' }, () => '下载')
+              ? h(
+                  ElLink,
+                  { type: 'primary', href: row.apk_url, target: '_blank' },
+                  () => t('appVersion.download')
+                )
               : h('span', '-')
         },
         {
           prop: 'force_update',
-          label: '强更',
-          width: 90,
+          label: t('appVersion.table.forceUpdate'),
+          width: 100,
           formatter: (row) =>
             h(ElTag, { type: row.force_update ? 'danger' : 'info' }, () =>
-              row.force_update ? '强制' : '否'
+              row.force_update ? t('appVersion.force.yes') : t('appVersion.force.no')
             )
         },
         {
           prop: 'status',
-          label: '状态',
+          label: t('appVersion.table.status'),
           width: 100,
           formatter: (row) =>
             h(ElTag, { type: row.status === 1 ? 'success' : 'info' }, () =>
-              row.status === 1 ? '已发布' : '已下架'
+              row.status === 1 ? t('appVersion.status.online') : t('appVersion.status.offline')
             )
         },
-        { prop: 'created_at', label: '发布时间', minWidth: 180 },
+        {
+          prop: 'created_at',
+          label: t('appVersion.table.createdAt'),
+          minWidth: 180,
+          formatter: (row) => formatDateTime(row.created_at)
+        },
         {
           prop: 'operation',
-          label: '操作',
+          label: t('common.operation'),
           width: 160,
           fixed: 'right',
           formatter: (row) =>
@@ -114,18 +124,31 @@
                   link: true,
                   onClick: () => toggleStatus(row)
                 },
-                () => (row.status === 1 ? '下架' : '上架')
+                () => (row.status === 1 ? t('appVersion.offline') : t('appVersion.online'))
               ),
               h(
                 ElButton,
                 { type: 'danger', link: true, onClick: () => handleDelete(row) },
-                () => '删除'
+                () => t('common.delete')
               )
             ])
         }
       ]
     }
   })
+
+  /** 当前列表已有的版本，交给弹窗做 version_code 重复提示 */
+  const existing = computed(() =>
+    (data.value || []).map((item) => ({
+      platform: item.platform,
+      version_code: item.version_code,
+      version_name: item.version_name
+    }))
+  )
+
+  const openCreate = () => {
+    dialogVisible.value = true
+  }
 
   const handleSearch = () => {
     replaceSearchParams({ platform: platform.value })
@@ -135,18 +158,22 @@
   const toggleStatus = async (row: AppVersionItem) => {
     const next = row.status === 1 ? 0 : 1
     await updateAppVersionStatus(row.id, next)
-    ElMessage.success(next === 1 ? '已上架' : '已下架')
+    ElMessage.success(next === 1 ? t('appVersion.onlineSuccess') : t('appVersion.offlineSuccess'))
     refreshData()
   }
 
   const handleDelete = (row: AppVersionItem) => {
-    ElMessageBox.confirm(`确定要删除版本「${row.version_name}」吗？`, '删除版本', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      type: 'warning'
-    }).then(async () => {
+    ElMessageBox.confirm(
+      t('appVersion.deleteConfirm', { name: row.version_name }),
+      t('appVersion.deleteTitle'),
+      {
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning'
+      }
+    ).then(async () => {
       await deleteAppVersion(row.id)
-      ElMessage.success('删除成功')
+      ElMessage.success(t('common.deleteSuccess'))
       refreshData()
     })
   }

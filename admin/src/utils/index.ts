@@ -3,7 +3,7 @@
  * 提供向后兼容性和便捷导入
  *
  * @module utils/index
- * @author Art Design Pro Team
+ * @author LxDay
  */
 
 // UI 相关
@@ -29,6 +29,3 @@ export * from './http'
 
 // 表单相关
 export * from './form'
-
-// socket 相关
-export * from './socket'

@@ -4,7 +4,7 @@
  * 负责动态加载 Vue 组件
  *
  * @module router/core/ComponentLoader
- * @author Art Design Pro Team
+ * @author LxDay
  */
 
 import { h } from 'vue'
@@ -47,13 +47,6 @@ export class ComponentLoader {
    */
   loadLayout(): () => Promise<any> {
     return () => import('@/views/index/index.vue')
-  }
-
-  /**
-   * 加载 iframe 组件
-   */
-  loadIframe(): () => Promise<any> {
-    return () => import('@/views/outside/Iframe.vue')
   }
 
   /**

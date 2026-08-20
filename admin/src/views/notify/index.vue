@@ -3,13 +3,13 @@
   <div class="notify-page art-full-height">
     <ElCard class="art-table-card" shadow="never">
       <ElTabs v-model="activeTab">
-        <ElTabPane label="下发通知" name="send">
+        <ElTabPane :label="$t('notify.tabs.send')" name="send">
           <NotifySend v-if="activeTab === 'send'" />
         </ElTabPane>
-        <ElTabPane label="模板管理" name="templates">
+        <ElTabPane :label="$t('notify.tabs.templates')" name="templates">
           <NotifyTemplates v-if="activeTab === 'templates'" />
         </ElTabPane>
-        <ElTabPane label="下发记录" name="records">
+        <ElTabPane :label="$t('notify.tabs.records')" name="records">
           <NotifyRecords v-if="activeTab === 'records'" />
         </ElTabPane>
       </ElTabs>

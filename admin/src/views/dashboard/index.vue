@@ -20,8 +20,8 @@
     <ElCard class="chart-card" shadow="never">
       <template #header>
         <div class="chart-card__header">
-          <span>近 7 天新增用户</span>
-          <ElButton text :loading="loading" @click="loadStats">刷新</ElButton>
+          <span>{{ $t('dashboard.chart.title') }}</span>
+          <ElButton text :loading="loading" @click="loadStats">{{ $t('common.refresh') }}</ElButton>
         </div>
       </template>
       <ArtLineChart
@@ -36,10 +36,13 @@
 </template>
 
 <script setup lang="ts">
+  import { useI18n } from 'vue-i18n'
   import { fetchDashboardStats } from '@/api/admin'
   import { Icon } from '@iconify/vue'
 
   defineOptions({ name: 'Dashboard' })
+
+  const { t } = useI18n()
 
   const loading = ref(false)
   const stats = ref<Api.Admin.DashboardStats>({
@@ -52,13 +55,37 @@
   })
 
   const statCards = computed(() => [
-    { key: 'users', label: '总用户数', value: stats.value.users, color: '#5D87FF', icon: 'ri:user-3-line' },
-    { key: 'pairs', label: '绑定关系', value: stats.value.pairs, color: '#FF80C8', icon: 'ri:heart-2-line' },
-    { key: 'todos', label: '进行中待办', value: stats.value.todos, color: '#FFAE1F', icon: 'ri:task-line' },
-    { key: 'diaries', label: '日记总数', value: stats.value.diaries, color: '#13DEB9', icon: 'ri:book-2-line' },
+    {
+      key: 'users',
+      label: t('dashboard.stats.users'),
+      value: stats.value.users,
+      color: '#5D87FF',
+      icon: 'ri:user-3-line'
+    },
+    {
+      key: 'pairs',
+      label: t('dashboard.stats.pairs'),
+      value: stats.value.pairs,
+      color: '#FF80C8',
+      icon: 'ri:heart-2-line'
+    },
+    {
+      key: 'todos',
+      label: t('dashboard.stats.todos'),
+      value: stats.value.todos,
+      color: '#FFAE1F',
+      icon: 'ri:task-line'
+    },
+    {
+      key: 'diaries',
+      label: t('dashboard.stats.diaries'),
+      value: stats.value.diaries,
+      color: '#13DEB9',
+      icon: 'ri:book-2-line'
+    },
     {
       key: 'new_users_7d',
-      label: '近 7 天新增',
+      label: t('dashboard.stats.newUsers7d'),
       value: stats.value.new_users_7d,
       color: '#539BFF',
       icon: 'ri:line-chart-line'
