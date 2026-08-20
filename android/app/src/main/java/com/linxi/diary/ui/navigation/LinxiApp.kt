@@ -51,7 +51,13 @@ import com.linxi.diary.service.StatusForegroundService
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.ui.liquid.miuix.FloatingBottomBar
 import com.linxi.diary.ui.liquid.miuix.FloatingBottomBarItem
+import com.linxi.diary.ui.screens.AlbumDetailScreen
+import com.linxi.diary.ui.screens.AlbumListScreen
 import com.linxi.diary.ui.screens.BindScreen
+import com.linxi.diary.ui.screens.OnThisDayScreen
+import com.linxi.diary.ui.screens.PhotoPickerScreen
+import com.linxi.diary.ui.screens.PhotoViewerScreen
+import com.linxi.diary.ui.screens.RecycleBinScreen
 import com.linxi.diary.ui.screens.AboutScreen
 import com.linxi.diary.ui.screens.AppearanceScreen
 import com.linxi.diary.ui.screens.DiscoverPlaceholderScreen

@@ -21,6 +21,8 @@ import com.linxi.diary.core.DeviceStatusHolder
 import com.linxi.diary.core.NetworkWatcher
 import com.linxi.diary.core.ScreenStateReceiver
 import com.linxi.diary.core.StatusCollector
+import com.linxi.diary.core.SyncHeartbeat
+import com.linxi.diary.sync.AppForegroundState
 import com.linxi.diary.sync.SharingRuntimePolicy
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.util.Logs

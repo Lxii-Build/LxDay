@@ -14,6 +14,7 @@ import com.linxi.diary.data.ProfileRuntime
 import com.linxi.diary.core.DeviceStatusHolder
 import com.linxi.diary.core.MusicInfo
 import com.linxi.diary.core.RingHelper
+import com.linxi.diary.service.NotificationChannels
 import com.linxi.diary.service.StatusForegroundService
 import com.linxi.diary.util.Logs
 import com.linxi.diary.util.UserPrefs
