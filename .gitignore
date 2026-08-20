@@ -8,6 +8,10 @@ skills-lock.json
 server/server
 server/uploads/
 *.exe
+# 内嵌后台产物：仓库只保留占位 index.html，真实 dist 由 Dockerfile 构建时覆盖。
+# 本地为了跑真实后台会把 admin/dist 拷进来，绝不能提交（139 个构建产物污染仓库）。
+server/webdist/*
+!server/webdist/index.html
 
 # Android / Gradle
 android/.gradle/
