@@ -28,6 +28,14 @@ config.yaml
 !.env.example
 *.jks
 *.keystore
+# 签名密钥库：默认全部忽略，只放行固定的 debug 密钥库。
+# debug 密钥按安卓惯例是公开的（口令 android），提交进仓库是为了让本地与 CI 的
+# debug APK 签名一致、可互相覆盖安装。
+# 正式密钥 lxday-release.p12 绝不入库，只走 GitHub Secret ANDROID_KEYSTORE_BASE64。
+*.p12
+!android/keystore/lxday-debug.p12
+*.p12.base64
+release-store-password.txt
 
 # 系统
 .DS_Store

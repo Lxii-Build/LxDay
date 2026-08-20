@@ -66,6 +66,26 @@ jobs:
       - name: 生成 Gradle Wrapper 9.7.0
         run: gradle wrapper --gradle-version 9.7.0 --no-daemon
 
+      # 正式签名密钥库从 Secret 解码落盘。Secret 未配置时跳过，
+      # build.gradle.kts 会自动回退固定的 debug 签名，保证 fork/无密钥也能出包。
+      - name: 解码正式签名密钥库
+        id: keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "配置缺失：未提供 ANDROID_KEYSTORE_BASE64，本次将使用固定的 debug 签名"
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/lxday-release.p12"
+          # 校验解码结果是合法 PKCS#12（base64 被换行/截断是最常见的配置事故）
+          if ! openssl pkcs12 -in "$RUNNER_TEMP/lxday-release.p12" -nokeys -passin pass:"${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" -noout 2>/dev/null; then
+            echo "::error::密钥库解码失败或口令不匹配。请确认 ANDROID_KEYSTORE_BASE64 为一整行无换行，且 ANDROID_KEYSTORE_PASSWORD 正确。"
+            exit 1
+          fi
+          echo "available=true" >> "$GITHUB_OUTPUT"
+
       - name: 运行单元测试
         run: |
           ./gradlew :app:testDebugUnitTest --no-daemon \
@@ -76,17 +96,64 @@ jobs:
             -PVERSION_CODE="$IN_VERSION_CODE"
 
       - name: 构建 APK（${{ inputs.build_type }}）
+        env:
+          KS_AVAILABLE: ${{ steps.keystore.outputs.available }}
+          KS_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KS_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          ./gradlew :app:assemble${{ inputs.build_type }} --no-daemon \
-            -PBASE_URL="$IN_BASE_URL" \
-            -PWS_URL="$IN_WS_URL" \
-            -PAPP_KEY="$IN_APP_KEY" \
-            -PVERSION_NAME="$IN_VERSION_NAME" \
+          ARGS=(
+            -PBASE_URL="$IN_BASE_URL"
+            -PWS_URL="$IN_WS_URL"
+            -PAPP_KEY="$IN_APP_KEY"
+            -PVERSION_NAME="$IN_VERSION_NAME"
             -PVERSION_CODE="$IN_VERSION_CODE"
+          )
+          if [ "$KS_AVAILABLE" = "true" ]; then
+            ARGS+=(
+              -PKEYSTORE_FILE="$RUNNER_TEMP/lxday-release.p12"
+              -PKEYSTORE_PASSWORD="$KS_PASSWORD"
+              -PKEY_ALIAS="$KS_ALIAS"
+              -PKEY_PASSWORD="$KS_KEY_PASSWORD"
+            )
+          fi
+          ./gradlew :app:assemble${{ inputs.build_type }} --no-daemon "${ARGS[@]}"
+
+      # 把签名指纹打进 Job Summary：每次构建都能肉眼核对指纹是否恒定，
+      # 让「签名统一」从口头断言变成每次构建都产出的机器证据。
+      - name: 校验并打印 APK 签名指纹
+        run: |
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -1)
+          echo "## APK 签名指纹" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          for apk in $(find app/build/outputs/apk -name '*.apk'); do
+            echo "### $apk"
+            echo "$apk" >> "$GITHUB_STEP_SUMMARY"
+            "$APKSIGNER" verify --print-certs "$apk" | grep -Ei 'SHA-256|SHA-1|DN:' | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo ""
+            echo "预期指纹（正式签名，应恒定不变）："
+            echo "SHA-256: 59:4A:B3:8F:AA:AE:A3:B6:28:E9:0A:A2:55:95:62:66:A1:0C:40:08:76:14:C2:43:E4:AA:DE:35:32:05:76:4F"
+            echo ""
+            echo "预期指纹（固定 debug 签名）："
+            echo "SHA-256: FD:FD:F9:98:CE:CF:86:BD:DB:99:49:34:14:BA:EB:96:64:EC:6C:B0:52:47:F9:65:70:0D:C3:75:5B:36:97:12"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: 上传 APK 产物
         uses: actions/upload-artifact@v4
         with:
-          name: lxday-${{ inputs.build_type }}-apk
+          name: lxday-${{ inputs.build_type }}-${{ inputs.version_name }}-${{ github.sha }}
           path: android/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
+
+      # R8 已开启混淆（isMinifyEnabled=true）。没有 mapping.txt，
+      # 以后线上崩溃堆栈无法还原成可读行号，等于拿不到有效崩溃日志。
+      - name: 上传 R8 mapping（崩溃还原用）
+        if: inputs.build_type == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lxday-mapping-${{ inputs.version_name }}-${{ github.sha }}
+          path: android/app/build/outputs/mapping/**/mapping.txt
+          if-no-files-found: warn

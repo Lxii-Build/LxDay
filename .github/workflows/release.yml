@@ -42,12 +42,42 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      # 由 tag 推导 VERSION_NAME（去掉前导 v）；VERSION_CODE 沿用 build.gradle.kts 默认值
-      - name: 解析版本名
+      # tag 已存在则中止：避免覆盖已发布版本（Release 附件被替换后无法找回旧包）
+      - name: 校验 tag 未被占用
+        env:
+          RAW_VERSION: ${{ inputs.version }}
+        run: |
+          if git rev-parse -q --verify "refs/tags/$RAW_VERSION" >/dev/null; then
+            echo "::error::tag $RAW_VERSION 已存在，请换一个版本号（不要覆盖已发布版本）"
+            exit 1
+          fi
+
+      # 由 tag 同时推导 VERSION_NAME 与 VERSION_CODE。
+      # 此前 release.yml 完全没传 VERSION_CODE → build.gradle.kts 回退默认值 1
+      # → 每个发行版的 versionCode 都是 1，安卓要求递增，用户根本装不上更新。
+      # 规则：v1.2.3 → name=1.2.3, code=1*10000+2*100+3=10203（单调递增且与版本名一一对应）
+      - name: 解析版本名与版本号
         id: ver
         env:
           RAW_VERSION: ${{ inputs.version }}
-        run: echo "name=${RAW_VERSION#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          NAME="${RAW_VERSION#v}"
+          if ! printf '%s' "$NAME" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::版本号必须形如 v1.2.3（当前：$RAW_VERSION）"
+            exit 1
+          fi
+          MAJOR=${NAME%%.*}
+          REST=${NAME#*.}
+          MINOR=${REST%%.*}
+          PATCH=${REST#*.}
+          if [ "$MINOR" -gt 99 ] || [ "$PATCH" -gt 99 ]; then
+            echo "::error::minor/patch 不得超过 99（versionCode 编码规则限制）"
+            exit 1
+          fi
+          CODE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "versionName=$NAME versionCode=$CODE"
 
       # ---------- 构建 Release APK ----------
       - name: 配置 JDK 21
@@ -65,16 +95,67 @@ jobs:
         working-directory: android
         run: gradle wrapper --gradle-version 9.7.0 --no-daemon
 
+      # 正式签名密钥库从 Secret 解码。发行版**必须**用固定签名，
+      # 否则用户装不上更新（这正是本轮要解决的核心问题），故此处密钥缺失即失败。
+      - name: 解码正式签名密钥库
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::发行版必须使用固定正式签名，但未配置 ANDROID_KEYSTORE_BASE64。请先在仓库 Secrets 中配置四个签名 Secret。"
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/lxday-release.p12"
+          if ! openssl pkcs12 -in "$RUNNER_TEMP/lxday-release.p12" -nokeys -passin pass:"$KS_PASSWORD" -noout 2>/dev/null; then
+            echo "::error::密钥库解码失败或口令不匹配。确认 base64 为一整行无换行、口令正确。"
+            exit 1
+          fi
+
       - name: 构建 APK（${{ inputs.build_type }}）
         working-directory: android
         env:
           IN_VERSION_NAME: ${{ steps.ver.outputs.name }}
+          IN_VERSION_CODE: ${{ steps.ver.outputs.code }}
+          KS_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KS_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           ./gradlew :app:assemble${{ inputs.build_type }} --no-daemon \
             -PBASE_URL="$IN_BASE_URL" \
             -PWS_URL="$IN_WS_URL" \
             -PAPP_KEY="$IN_APP_KEY" \
-            -PVERSION_NAME="$IN_VERSION_NAME"
+            -PVERSION_NAME="$IN_VERSION_NAME" \
+            -PVERSION_CODE="$IN_VERSION_CODE" \
+            -PKEYSTORE_FILE="$RUNNER_TEMP/lxday-release.p12" \
+            -PKEYSTORE_PASSWORD="$KS_PASSWORD" \
+            -PKEY_ALIAS="$KS_ALIAS" \
+            -PKEY_PASSWORD="$KS_KEY_PASSWORD"
+
+      # 发行版的签名指纹必须与既定指纹一致，不一致即中止发布——
+      # 这是「每次 APK 签名统一」这件事的自动化验收关口。
+      - name: 校验签名指纹与既定值一致
+        working-directory: android
+        run: |
+          EXPECTED="59:4A:B3:8F:AA:AE:A3:B6:28:E9:0A:A2:55:95:62:66:A1:0C:40:08:76:14:C2:43:E4:AA:DE:35:32:05:76:4F"
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -1)
+          APK=$(find app/build/outputs/apk -name '*.apk' | head -1)
+          GOT=$("$APKSIGNER" verify --print-certs "$APK" \
+            | grep -i 'SHA-256 digest' | head -1 \
+            | sed 's/.*: *//' | tr 'a-f' 'A-F' | sed 's/\(..\)/\1:/g;s/:$//')
+          echo "expected=$EXPECTED"
+          echo "got=$GOT"
+          {
+            echo "## 发行版签名指纹"
+            echo '```'
+            echo "expected: $EXPECTED"
+            echo "got     : $GOT"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$GOT" != "$EXPECTED" ]; then
+            echo "::error::签名指纹与既定值不一致！可能用错了密钥库，发布已中止。"
+            exit 1
+          fi
 
       # ---------- 构建并推送服务端镜像（tag = version）----------
       - name: 配置 Docker Buildx
@@ -115,11 +196,22 @@ jobs:
           prerelease: false
           files: |
             android/app/build/outputs/apk/**/*.apk
+            android/app/build/outputs/mapping/**/mapping.txt
             lxday-server-${{ inputs.version }}.tar.gz
           body: |
             ## 林曦日记 ${{ inputs.version }}
 
             <!-- 应用介绍与本次更新日志由维护者(AI)填写；完整更新历史见 CHANGELOG.md -->
+
+            ### 安装说明
+            APK 版本号：`versionName=${{ steps.ver.outputs.name }}` / `versionCode=${{ steps.ver.outputs.code }}`
+
+            签名指纹（正式签名，恒定不变，可用于校验安装包来源）：
+            ```
+            SHA-256: 59:4A:B3:8F:AA:AE:A3:B6:28:E9:0A:A2:55:95:62:66:A1:0C:40:08:76:14:C2:43:E4:AA:DE:35:32:05:76:4F
+            ```
+            > 若你此前安装过 **旧版本（随机 debug 签名）**，需先卸载再安装本版本；
+            > 此后所有版本签名恒定，可直接覆盖升级。
 
             ### 服务端镜像
             对应 GHCR 镜像 tag：`ghcr.io/lxii-build/lxday:${{ inputs.version }}`

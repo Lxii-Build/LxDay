@@ -36,6 +36,17 @@ jobs:
         working-directory: server
         run: go mod tidy
 
+      # 格式统一：避免不同人/不同工具产出的排版差异污染 diff
+      - name: 格式检查（gofmt）
+        working-directory: server
+        run: |
+          UNFORMATTED=$(gofmt -l .)
+          if [ -n "$UNFORMATTED" ]; then
+            echo "::error::以下文件未经 gofmt 格式化，请本地跑 gofmt -w ./server："
+            echo "$UNFORMATTED"
+            exit 1
+          fi
+
       - name: 静态检查（go vet）
         working-directory: server
         run: go vet ./...
@@ -81,6 +92,34 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+          # OCI 标签：生产上能一眼核对当前跑的镜像对应哪个 commit
+          labels: |
+            org.opencontainers.image.title=LxDay
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.created=${{ github.event.repository.updated_at }}
+
+      # 冒烟测试：镜像能不能起来、/healthz 是否 200。
+      # 此前完全没有这一步——推出去的镜像若启动即崩，只有你在生产 docker compose pull
+      # 之后才会发现。宁可在 CI 里多花 30 秒。
+      - name: 冒烟测试（容器启动 + /healthz）
+        run: |
+          IMAGE="ghcr.io/lxii-build/lxday:${GITHUB_SHA::7}"
+          docker run -d --name lxday-smoke -p 7740:7740 \
+            -e JWT_SECRET=smoke-test-only-not-a-real-secret \
+            "$IMAGE"
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:7740/healthz >/dev/null 2>&1; then
+              echo "healthz OK (第 ${i} 次尝试)"
+              docker rm -f lxday-smoke >/dev/null
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::容器在 60s 内未通过 /healthz 健康检查，镜像可能启动即崩。以下是容器日志："
+          docker logs lxday-smoke || true
+          docker rm -f lxday-smoke >/dev/null || true
+          exit 1
 
       # 仓库私有、国内直接拉取不便：额外导出镜像 tar 作为工作流产物，可下载后 `docker load` 直接导入。
       # 保存为 :latest 标签，与 docker-compose 默认 image 对齐，导入后可直接 `docker compose up -d`（无需再 pull）。
