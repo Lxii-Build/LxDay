@@ -20,11 +20,12 @@ const inviteAlphabet = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
 // inviteCodeLen 新码长度。旧库里可能仍存在 6 位纯数字的历史码，校验侧兼容（见 normalizeInviteCode）。
 const inviteCodeLen = 8
 
-// 绑定尝试限流：同一账号 10 分钟内最多 5 次失败尝试，超限直接拒绝（拉黑至窗口结束）。
-const (
-	bindAttemptWindow = 10 * time.Minute
-	bindAttemptLimit  = 5
-)
+// 绑定尝试限流：窗口与次数均后台可配（默认 10 分钟内最多 5 次失败），超限直接拒绝。
+func bindAttemptWindowNow() time.Duration {
+	return time.Duration(settingsNow().LoginRateWindowMin) * time.Minute
+}
+
+func bindAttemptLimitNow() int64 { return int64(settingsNow().BindAttemptLimit) }
 
 func bindFailKey(uid int64) string { return "bind:fail:" + strconv.FormatInt(uid, 10) }
 
@@ -77,7 +78,7 @@ func normalizeInviteCode(in string) string {
 // bindAttemptAllowed 记一次绑定尝试并判断是否放行（在校验绑定码之前调用）。
 // 计数只在「尝试」时累加、在「绑定成功」时清零，故失败次数才是实际消耗的额度。
 func bindAttemptAllowed(uid int64) bool {
-	return st.mem.incr(bindFailKey(uid), bindAttemptWindow) <= int64(bindAttemptLimit)
+	return st.mem.incr(bindFailKey(uid), bindAttemptWindowNow()) <= bindAttemptLimitNow()
 }
 
 // bindAttemptReset 绑定成功后清零计数，避免正常用户被自己此前的手误拖累。

@@ -87,10 +87,16 @@ CREATE TABLE IF NOT EXISTS photo (
   taken_at    DATETIME,
   caption     TEXT,
   status      INTEGER NOT NULL DEFAULT 1,
-  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  -- preview_path: 长边 1080 的中间尺寸，让"点开大图"秒出（三档 thumb 384/preview 1080/origin）
+  preview_path TEXT,
+  -- deleted_at: 进回收站的时刻，供「N 天后自动彻底删除」与剩余天数展示
+  deleted_at   DATETIME
 );
 CREATE INDEX IF NOT EXISTS idx_photo_pair_album_status ON photo(pair_id, album_id, status);
 CREATE INDEX IF NOT EXISTS idx_photo_pair_taken ON photo(pair_id, taken_at);
+-- 回收站定时清理按 status + deleted_at 扫描
+CREATE INDEX IF NOT EXISTS idx_photo_status_deleted ON photo(status, deleted_at);
 
 CREATE TABLE IF NOT EXISTS photo_comment (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -128,25 +134,7 @@ CREATE TABLE IF NOT EXISTS status_history (
 CREATE UNIQUE INDEX IF NOT EXISTS uk_pair_user_ts ON status_history(pair_id, user_id, ts);
 CREATE INDEX IF NOT EXISTS idx_hist_pair_user_ts ON status_history(pair_id, user_id, ts);
 
-CREATE TABLE IF NOT EXISTS diary (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  pair_id    INTEGER NOT NULL,
-  author_id  INTEGER NOT NULL,
-  title      TEXT    NOT NULL,
-  content    TEXT    NOT NULL,
-  diary_date DATE    NOT NULL,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX IF NOT EXISTS idx_diary_pair_date ON diary(pair_id, diary_date);
 
-CREATE TABLE IF NOT EXISTS diary_image (
-  id       INTEGER PRIMARY KEY AUTOINCREMENT,
-  diary_id INTEGER NOT NULL,
-  url      TEXT    NOT NULL,
-  sort_no  INTEGER NOT NULL DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS idx_diary_image ON diary_image(diary_id);
 
 CREATE TABLE IF NOT EXISTS push_token (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,

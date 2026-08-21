@@ -20,8 +20,7 @@ object WsEventRouter {
         "ring_stopped",
         "todo_new",
         "todo_completed",
-        "diary_new",
-        "low_battery",
+                "low_battery",
         "wifi_joined",
         "todo_remind",
     )

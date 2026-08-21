@@ -1,10 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- 应用主题：跟随 Compose 深浅；仅作为 Activity 启动帧与系统 UI 底色 -->
-    <style name="Theme.Linxi" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:windowBackground">@color/card_bg</item>
-        <item name="android:statusBarColor">@color/card_bg</item>
-        <item name="android:navigationBarColor">@color/card_bg</item>
+    <!--
+      应用主题：仅作为 Activity 启动帧与系统 UI 底色（Compose 接管后即不可见）。
+
+      parent 用 DeviceDefault 而非 Theme.Material（Q4=A）：
+      Material 会带上一整套 Material 视觉（按钮/文本样式/涟漪），
+      而全 App UI 已统一到 miuix —— 冷启动那一帧闪出 Material 观感是
+      管理员报的"割裂感"来源之一。DeviceDefault 只提供中性的系统默认，
+      配合下面与 miuix colorScheme.background 对齐的 windowBackground，
+      从启动帧到 Compose 首帧不再有色差跳变。
+    -->
+    <style name="Theme.Linxi" parent="android:Theme.DeviceDefault.Light.NoActionBar">
+        <item name="android:windowBackground">@color/launch_bg</item>
+        <item name="android:statusBarColor">@color/launch_bg</item>
+        <item name="android:navigationBarColor">@color/launch_bg</item>
     </style>
 
     <style name="Theme.Linxi.Translucent">

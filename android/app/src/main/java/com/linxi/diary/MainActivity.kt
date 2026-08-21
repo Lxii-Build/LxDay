@@ -8,14 +8,8 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import com.linxi.diary.data.ProfileRuntime
 import com.linxi.diary.ui.navigation.LinxiApp
@@ -59,20 +53,11 @@ class MainActivity : ComponentActivity() {
         }
         Logs.i("Main", "setContent 之前")
         setContent {
-            if (com.linxi.diary.BuildConfig.SAFE_MODE) {
-                // 极简安全模式：跳过主题/backdrop/miuix，用于闪退二分定位
-                MaterialTheme {
-                    Box(
-                        Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("林曦日记 · 安全模式\n如果这里显示说明基础启动正常")
-                    }
-                }
-            } else {
-                AppTheme {
-                    LinxiApp()
-                }
+            // SAFE_MODE 已移除（Q49=A）：那是 0813 排查启动闪退时留的二分工具，
+            // 问题早已定位修复，留着只会让人以为还有个"安全模式"可用，
+            // 而它引入的 material3 MaterialTheme/Text 也与"全 App 统一 miuix"相悖。
+            AppTheme {
+                LinxiApp()
             }
         }
     }

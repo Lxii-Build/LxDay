@@ -69,7 +69,7 @@
 ```
 
 **关键设计**
-- **双人房间**：`pair_id` 是所有业务数据（待办/日记/相册/状态历史）的隔离键，仅对房间内双方可见。
+- **双人房间**：`pair_id` 是所有业务数据（待办/相册/状态历史）的隔离键，仅对房间内双方可见。
 - **实时链路**：状态 `status_update` → WS → 服务端写**进程内存** + 落 SQLite 历史 → 转发 `partner_status` 给对方。
 - **离线补偿**：对方不在线时事件入进程内存队列 `event:queue:user:{uid}`（100 条上限 + 24h TTL），上线后补推。
 - **不接商业推送**：私人直装路线，纯 WS + 重连补拉 + 本地 AlarmManager 兜底。
@@ -167,7 +167,7 @@ graph LR
 | Channel ID | 名称 | Importance | 用途与行为 |
 |---|---|---|---|
 | `status_card` | 伴侣状态卡 | `LOW` | 常驻前台服务通知卡；静默更新、不计角标、无声无振动 |
-| `status_event` | 互动提醒 | `HIGH` | 求陪伴 / 求冷静 / 待办 / 日记，需要弹横幅引起注意 |
+| `status_event` | 互动提醒 | `HIGH` | 求陪伴 / 求冷静 / 待办，需要弹横幅引起注意 |
 | `status_ring` | 紧急响铃 | `HIGH` | 强制响铃全屏通知；**渠道本身不出声**（铃声由 `RingHelper` 的播放器控制，否则叠音） |
 | `status_quiet` | 伴侣动态（静默） | `LOW` | 对方息屏/亮屏、上线/下线；只落通知栏，不弹横幅、不响铃、不振动、不亮灯 |
 
@@ -192,7 +192,7 @@ graph TD
     end
 
     subgraph "业务层"
-        H["handlers.go / account.go<br/>认证/绑定/待办/日记/历史/互动"]
+        H["handlers.go / account.go<br/>认证/绑定/待办/历史/互动"]
         ALB["album_handlers.go<br/>album_media.go 相册 + /media 代理"]
         AVA["avatar_*.go / exif.go<br/>纯 Go 图片处理链"]
         ADM["admin.go<br/>后台 /api/admin/*"]
@@ -246,7 +246,6 @@ graph TD
 | `wifi_joined` | 双向 | 连接指定 WiFi |
 | `todo_new` / `todo_completed` | 服务端→对方 | 待办事件 |
 | `todo_remind` | 服务端→双方 | 待办到点提醒 |
-| `diary_new` / `diary_updated` | 服务端→对方 | 日记新增 / 更新 |
 | `album_new` | 服务端→对方 | 伴侣上传了新照片（普通优先级，不进高优离线补偿队列） |
 | `ring_cancel` / `ring_stopped` | 双向 | 发起方撤回响铃 / 接收方已停止的回执 |
 | `action_rejected` | 服务端→发送方 | 上行动作被拒（如超频） |
@@ -262,9 +261,9 @@ graph TD
 
 | 层 | 载体 | 存什么 | 丢了会怎样 |
 |---|---|---|---|
-| 关系数据 | **内嵌 SQLite 文件**（`db_data` 卷） | 用户/绑定/待办/日记/相册/状态历史/后台配置与日志 | 业务数据全失，必须备份 |
+| 关系数据 | **内嵌 SQLite 文件**（`db_data` 卷） | 用户/绑定/待办/相册/状态历史/后台配置与日志 | 业务数据全失，必须备份 |
 | 易失状态 | **进程内存**（`memstore.go`） | 在线态、伴侣最新状态、离线事件队列、验证码、各类限流计数、相册配额 | 重启即全丢；见下「重启后的实际表现」 |
-| 二进制 | **本地磁盘**（`uploads` 卷） | 头像、日记图片、相册原图与缩略图、后台 APK/LOGO | 图片全失，DB 里留下指向空文件的行 |
+| 二进制 | **本地磁盘**（`uploads` 卷） | 头像、相册原图/预览图/缩略图、后台 APK/LOGO | 图片全失，DB 里留下指向空文件的行 |
 
 ### SQLite
 
@@ -336,7 +335,7 @@ SetMaxOpenConns(1)
 ```
 uploadDir/                       容器内 /app/uploads（uploads 卷）
   upload/YYYY/MM/DD/
-      <随机名>.<ext>             新：日期分区（头像 / 日记图片 / 相册原图）
+      <随机名>.<ext>             新：日期分区（头像 / 相册原图+预览图+缩略图）
       <随机名>_thumb.jpg|png     相册缩略图（长边 512，等比缩放非方裁）
   <历史文件>                     旧：兼容历史头像与后台上传的 APK / LOGO
 ```
@@ -346,7 +345,7 @@ uploadDir/                       容器内 /app/uploads（uploads 卷）
   两者都**关闭目录列举**，并下发 `nosniff` + 对非图片强制 `Content-Disposition: attachment`
   （缓解上传 html/svg 造成的存储型 XSS）。
 - **两条静态路由都无鉴权**：只靠随机文件名保密。故**相册照片的真实路径绝不出服务端**——
-  对外一律 `/media/<photoId>`，走 §3.2 的鉴权代理。日记图片与头像仍走 `/upload/`
+  对外一律 `/media/<photoId>`，走 §3.2 的鉴权代理。头像仍走 `/upload/`
   （可分享性优先于保密性，且客户端要能直接喂给图片库）。
 
 ---
@@ -712,7 +711,6 @@ stateDiagram-v2
 | 双向待办 + 到点提醒 | `todo` 表 + `todo_remind` WS + 本地 Alarm 双保险 |
 | 求陪伴/求冷静 | `comfort_request` / `calm_request` WS 事件（渠道 `status_event`） |
 | 伴侣动态静默提醒 | 渠道 `status_quiet`（`IMPORTANCE_LOW` + 无声无振动） |
-| 共同日记 + 图片 | `diary` + 本地磁盘上传 + Go 自托管 `/uploads` |
 | **共同相册** | `album`/`photo`/`photo_comment`/`photo_like` 四表 + `POST /media` 上传 + `/media/<id>` 鉴权代理（见 §3.2） |
 | 推送与保活 | 纯 WS + 前台服务 + 电池白名单 + vivo/OPPO 引导 |
 | 隐私合规 | 知情授权页 + 共享总开关 + TLS 全链路 + 相册鉴权代理（真实路径不出服务端） |

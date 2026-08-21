@@ -28,6 +28,53 @@ func statusRateKey(uid int64) string {
 	return "statusrate:" + strconv.FormatInt(uid, 10)
 }
 
+// allowStatusUpdate 上行限频。
+//
+// 每条 status_update 都会写内存态并尝试落库，客户端若因 bug 死循环上报
+// （或被恶意构造），能把 SQLite 写爆。超频只丢弃本条、不断连——
+// 正常客户端偶发突发不该被踢下线。
+//
+// WS 与 REST 兜底（POST /status）共用同一个闸门，否则换条路径就能绕过限频。
+func (h *Hub) allowStatusUpdate(uid int64) bool {
+	return h.store.mem.incr(statusRateKey(uid), time.Second) <= maxStatusUpdatesPerSec
+}
+
+// applyStatusUpdate 是状态落地的**唯一实现**：写内存态 → 落历史 → 低电量提醒 → 转发对方。
+//
+// 抽出来是因为现在有两条入口（WS 的 status_update 与 REST 的 POST /status），
+// 各写一份必然分叉——比如某天只在 WS 那份里加了新逻辑，
+// 走 HTTP 兜底的用户就会得到不一样的行为，而这种 bug 极难发现。
+func (h *Hub) applyStatusUpdate(pair *Pair, from int64, st *DeviceStatus) {
+	partner := h.store.PartnerID(pair, from)
+
+	st.UserID = from
+	st.UpdatedAt = time.Now().UnixMilli()
+	h.store.SaveStatus(st)
+
+	// 落状态历史（5 分钟一条，INSERT OR IGNORE 幂等）。
+	// 注意：客户端的周期上报由 SyncHeartbeat 按前台/后台/息屏分档驱动
+	//（10s/60s/5min），并非固定 5 分钟，故这里靠 Truncate 去重而不依赖客户端节奏。
+	now := time.Now().Truncate(5 * time.Minute)
+	if err := h.store.InsertStatusHistory(pair, from, st, now); err != nil {
+		slog.Error("insert status history failed", "err", err)
+	}
+
+	// 低电量(<15%)即时高优推送：状态变更 → 对方收到提醒
+	if st.BatteryLevel > 0 && st.BatteryLevel < 15 {
+		payload := map[string]interface{}{
+			"battery": st.BatteryLevel, "ts": st.UpdatedAt,
+		}
+		if u, err := h.store.GetUserByID(from); err == nil {
+			payload["from_name"] = u.Nickname
+		}
+		h.route(partner, WsMessage{Type: MsgLowBattery, Data: payload})
+	}
+
+	// 转发给对方。用序列化后的 st 而非原始 m.Data：
+	// 这样 REST 与 WS 两条入口转发出去的载荷结构完全一致。
+	h.route(partner, WsMessage{Type: MsgPartnerStatus, Data: st})
+}
+
 // wsClient 为单个连接封装写互斥：gorilla/websocket 禁止并发写同一连接，
 // scanDueTodos 定时器、对方状态转发、后台群发可能并发写同一接收者，故所有写必须串行化。
 type wsClient struct {
@@ -152,38 +199,15 @@ func (h *Hub) handleIncoming(from int64, data []byte) {
 
 	switch m.Type {
 	case MsgStatusUpdate:
-		// 上行限频：每条 status_update 都会写内存态并尝试落库，
-		// 客户端若因 bug 死循环上报（或被恶意构造），能把 SQLite 写爆。
-		// 超频只丢弃本条，不断连——正常客户端偶发突发不该被踢下线。
-		if h.store.mem.incr(statusRateKey(from), time.Second) > maxStatusUpdatesPerSec {
+		if !h.allowStatusUpdate(from) {
 			return
 		}
-		// 状态写入内存态，原样转发对方
 		b, _ := json.Marshal(m.Data)
 		var st DeviceStatus
-		if err := json.Unmarshal(b, &st); err == nil {
-			st.UserID = from
-			st.UpdatedAt = time.Now().UnixMilli()
-			h.store.SaveStatus(&st)
-			// 落状态历史（5 分钟一条，INSERT OR IGNORE 幂等）。
-			// 注意：客户端的周期上报由 SyncHeartbeat 按前台/后台/息屏分档驱动
-			//（10s/60s/5min），并非固定 5 分钟，故这里靠 Truncate 去重而不依赖客户端节奏。
-			now := time.Now().Truncate(5 * time.Minute)
-			if err := h.store.InsertStatusHistory(pair, from, &st, now); err != nil {
-				slog.Error("insert status history failed", "err", err)
-			}
-			// 低电量(<15%)即时高优推送：状态变更 → 对方收到提醒
-			if st.BatteryLevel > 0 && st.BatteryLevel < 15 {
-				payload := map[string]interface{}{
-					"battery": st.BatteryLevel, "ts": st.UpdatedAt,
-				}
-				if u, err := h.store.GetUserByID(from); err == nil {
-					payload["from_name"] = u.Nickname
-				}
-				h.route(partner, WsMessage{Type: MsgLowBattery, Data: payload})
-			}
+		if err := json.Unmarshal(b, &st); err != nil {
+			return
 		}
-		h.route(partner, WsMessage{Type: MsgPartnerStatus, Data: m.Data})
+		h.applyStatusUpdate(pair, from, &st)
 
 	case MsgWifiJoined:
 		// 客户端检测到本机连接了「关注 WiFi」，转发给对方

@@ -16,15 +16,46 @@ const (
 	FormatJPEG
 )
 
-// decodableInPureGo 标记该容器能否被服务端的纯 Go 解码链处理。
-// HEIF/AVIF 无纯 Go 解码实现，探测阶段即拒绝并给出可操作的提示，
-// 而不是让它走到解码层返回笼统的 500。
-func (f ImageFormat) decodableInPureGo() bool {
+// decodable 标记该容器能否被服务端解码链处理。
+//
+// 0821 起 HEIC/AVIF 也真正支持了（管理员 Q9=C）：用 gen2brain 的**纯 Go**
+// wasm 解码器（github.com/gen2brain/heic + /avif，底层 wazero，**不需要 CGO**），
+// 因此不必给 alpine 镜像装 libheif，也不破坏「单容器 + 纯 Go」的既定架构。
+// 代价是二进制大了约 27MB（wasm 运行时），单容器部署可接受。
+//
+// BMP 此前是个真 bug：魔数认它、旧的 decodableInPureGo 却返回 false，
+// 于是传 BMP 会收到一句"不支持 HEIC/AVIF"的莫名其妙的错误。
+func (f ImageFormat) decodable() bool {
 	switch f {
-	case FormatJPEG, FormatPNG, FormatGIF, FormatWebP:
+	case FormatJPEG, FormatPNG, FormatGIF, FormatWebP, FormatBMP, FormatHEIF, FormatAVIF:
 		return true
 	default:
 		return false
+	}
+}
+
+// decodableInPureGo 保留旧名供既有调用点（头像链路）使用，语义与 decodable 一致。
+func (f ImageFormat) decodableInPureGo() bool { return f.decodable() }
+
+// displayName 面向用户的格式名，让拒绝文案能说清"到底是什么格式不行"。
+func (f ImageFormat) displayName() string {
+	switch f {
+	case FormatJPEG:
+		return "JPEG"
+	case FormatPNG:
+		return "PNG"
+	case FormatGIF:
+		return "GIF"
+	case FormatWebP:
+		return "WebP"
+	case FormatBMP:
+		return "BMP"
+	case FormatHEIF:
+		return "HEIC"
+	case FormatAVIF:
+		return "AVIF"
+	default:
+		return "未知"
 	}
 }
 

@@ -95,16 +95,35 @@ func TestProbeAvatarAcceptsJPEG(t *testing.T) {
 	}
 }
 
-// 纯 Go 解码链的能力边界：JPEG/PNG/GIF/WebP 可解，HEIF/AVIF/BMP 不可解。
+// 解码链的能力边界（0821 决策 Q9=C 后扩大）：
+// JPEG/PNG/GIF/WebP/BMP/HEIC/AVIF 全部可解，只有识别不出的容器才拒。
+//
+// HEIC/AVIF 走 gen2brain 的**纯 Go** wasm 解码器（底层 wazero，不需要 CGO），
+// 既真支持了这两种格式，也没破坏「单容器 + 纯 Go」的既定架构。
+// BMP 原先是个真 bug：魔数认它、decodableInPureGo 却返回 false，
+// 于是传 BMP 会收到一句"不支持 HEIC/AVIF"的莫名其妙的错误。
 func TestFormatDecodableInPureGo(t *testing.T) {
-	for _, f := range []ImageFormat{FormatJPEG, FormatPNG, FormatGIF, FormatWebP} {
+	for _, f := range []ImageFormat{
+		FormatJPEG, FormatPNG, FormatGIF, FormatWebP, FormatBMP, FormatHEIF, FormatAVIF,
+	} {
 		if !f.decodableInPureGo() {
-			t.Fatalf("format %v should be decodable", f)
+			t.Fatalf("format %s(%v) 应可解码", f.displayName(), f)
 		}
 	}
-	for _, f := range []ImageFormat{FormatHEIF, FormatAVIF, FormatBMP, FormatUnknown} {
-		if f.decodableInPureGo() {
-			t.Fatalf("format %v should not be decodable", f)
+	if FormatUnknown.decodableInPureGo() {
+		t.Fatal("FormatUnknown 不应被视为可解码")
+	}
+}
+
+// displayName 用于拒绝文案，必须能说清"到底是什么格式不行"。
+func TestFormatDisplayName(t *testing.T) {
+	want := map[ImageFormat]string{
+		FormatJPEG: "JPEG", FormatPNG: "PNG", FormatGIF: "GIF", FormatWebP: "WebP",
+		FormatBMP: "BMP", FormatHEIF: "HEIC", FormatAVIF: "AVIF", FormatUnknown: "未知",
+	}
+	for f, exp := range want {
+		if got := f.displayName(); got != exp {
+			t.Fatalf("displayName(%v)=%q want %q", f, got, exp)
 		}
 	}
 }

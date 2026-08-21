@@ -63,7 +63,18 @@ object DeviceStatusHolder {
         get() = _partner.value
         set(v) { _partner.value = v }
 
-    @Volatile var screenOn: Boolean = true
+    /**
+     * 屏幕/锁屏的**缓存值**，仅供通知栏渲染等非关键路径读取。
+     *
+     * **不要拿它当权威来源**：初值只是个占位，真实状态一律用
+     * [com.linxi.diary.core.ScreenStateProbe.current] 现读。
+     * 此前初值硬编码 `true`，进程被 AlarmManager/BootReceiver 在**息屏时**拉起，
+     * 第一次采集就上报"亮屏"——对方看到"他亮着屏"，而人在睡觉；
+     * 这个错值一直持续到下一次真实的亮/息屏广播才纠正。
+     *
+     * 初值改为 `false`：宁可先报"息屏"（随后被真实值纠正），也不要谎报"亮屏"。
+     */
+    @Volatile var screenOn: Boolean = false
     @Volatile var isLocked: Boolean = true
     @Volatile var music: MusicInfo? = null
 }

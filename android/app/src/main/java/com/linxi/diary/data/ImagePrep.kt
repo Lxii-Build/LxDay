@@ -38,8 +38,11 @@ object ImagePrep {
             val sourceMime = resolver.getType(uri)
             val targetMime = ImagePrepPolicy.targetMime(sourceMime)
 
-            // GIF 原样上传：重编码会只剩第一帧，动图就没了。
-            if (!ImagePrepPolicy.shouldRecompress(sourceMime)) {
+            // 动图原样上传：重编码只会写出第一帧，动图就没了（实打实的数据损失）。
+            // GIF 看 MIME 就够；**WebP 必须读文件头才知道是不是动图**——
+            // 此前动态 WebP 一律被压成静态 WEBP_LOSSY，动画全丢。
+            val animated = targetMime == "image/webp" && isAnimatedWebpUri(resolver, uri)
+            if (!ImagePrepPolicy.shouldRecompress(sourceMime, animated)) {
                 return@runCatching copyAsIs(context, resolver, uri, targetMime)
             }
 
@@ -49,9 +52,20 @@ object ImagePrep {
                 ?: error("无法读取所选图片")
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0) error("图片已损坏或格式不支持")
 
+            val sample = ImagePrepPolicy.sampleSize(bounds.outWidth, bounds.outHeight)
             val opts = BitmapFactory.Options().apply {
-                inSampleSize = ImagePrepPolicy.sampleSize(bounds.outWidth, bounds.outHeight)
+                inSampleSize = sample
+                // RGB_565 省一半内存，但会丢透明通道与色彩精度；只有 JPEG 目标才安全。
                 inPreferredConfig = Bitmap.Config.ARGB_8888
+                // 解码期直接缩到目标尺寸：inSampleSize 只能做 2 的幂，
+                // 4000×3000 会算出 sample=1 从而全尺寸解码 45.8MB（实测），
+                // 连续上传必 OOM。density 缩放让 native 层边解码边缩，只分配最终尺寸。
+                ImagePrepPolicy.decodeDensityScale(bounds.outWidth, bounds.outHeight, sample)
+                    ?.let { (density, target) ->
+                        inScaled = true
+                        inDensity = density
+                        inTargetDensity = target
+                    }
             }
             var bitmap = resolver.openInputStream(uri)?.use {
                 BitmapFactory.decodeStream(it, null, opts)
@@ -97,6 +111,22 @@ object ImagePrep {
             Prepared(file = out, mime = targetMime, width = w, height = h, takenAtMs = takenAtMs)
         }
     }
+
+    /**
+     * 读 WebP 文件头判断是否动图。只读前 64 字节，不解码。
+     * 读失败按"静态"处理——最坏结果是动图被压成静图，与修复前一致，不会更糟。
+     */
+    private fun isAnimatedWebpUri(
+        resolver: android.content.ContentResolver,
+        uri: android.net.Uri,
+    ): Boolean = runCatching {
+        resolver.openInputStream(uri)?.use { input ->
+            val head = ByteArray(64)
+            val n = input.read(head)
+            if (n <= 0) return@use false
+            ImagePrepPolicy.isAnimatedWebp(head.copyOf(n))
+        } ?: false
+    }.getOrElse { false }
 
     /** GIF 等不重编码的情形：原样拷进缓存目录，仅做大小校验。 */
     private fun copyAsIs(

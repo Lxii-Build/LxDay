@@ -3,7 +3,14 @@
   <head>
     <title>林曦日记 · 管理后台</title>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      viewport-fit=cover：不加它 env(safe-area-inset-*) 恒为 0，
+      一加曲面屏/iPhone 刘海屏的底部会遮住操作按钮（管理员 Q44=B）。
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
     <meta name="description" content="林曦日记 · 管理后台——用户、绑定关系、内容与版本运营管理。" />
     <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico" />
 

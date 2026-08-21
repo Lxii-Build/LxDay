@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"log/slog"
 )
 
 // ================= 推送网关适配层 =================
@@ -18,7 +19,7 @@ func NewPushGateway(provider string, s *Store) *PushGateway {
 }
 
 // Send 推送高优事件给指定用户。
-// eventType: ring_request / comfort_request / calm_request / todo_new / diary_new ...
+// eventType: ring_request / comfort_request / calm_request / todo_new ...
 func (p *PushGateway) Send(uid int64, eventType string, data interface{}) {
 	// 1. 查用户推送 token
 	rows, err := p.store.DB.Query(
@@ -31,7 +32,12 @@ func (p *PushGateway) Send(uid int64, eventType string, data interface{}) {
 	var tokens []string
 	for rows.Next() {
 		var ch, tk string
-		rows.Scan(&ch, &tk)
+		if err := rows.Scan(&ch, &tk); err != nil {
+			// 单行坏数据（如可空列为 NULL）不能静默变成零值：
+			// 忽略 Scan 错误曾导致状态历史整行零值 → 客户端撞重复 key 崩溃。
+			slog.Error("scan push_token row failed", "err", err)
+			continue
+		}
 		tokens = append(tokens, tk)
 	}
 	if len(tokens) == 0 {
@@ -76,8 +82,6 @@ func eventContent(eventType string, data interface{}) (title, body string) {
 		return from + " 给你添加了待办", "点击查看待办详情"
 	case MsgTodoCompleted:
 		return "待办已完成", from + " 完成了一项待办"
-	case MsgDiaryNew:
-		return from + " 发布了新日记", "点击查看"
 	case MsgLowBattery:
 		return from + " 电量不足 15%", "及时联系 TA 充电"
 	case MsgWifiJoined:

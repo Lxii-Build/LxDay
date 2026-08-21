@@ -207,6 +207,12 @@
     },
     "changeCredentials": {
       "title": "Change credentials"
+    },
+    "albumManage": {
+      "title": "Albums"
+    },
+    "storageStats": {
+      "title": "Storage"
     }
   },
   "table": {
@@ -302,7 +308,6 @@
   "contentAudit": {
     "tabs": {
       "todo": "Todos",
-      "diary": "Diaries",
       "photo": "Photos"
     },
     "todo": {
@@ -336,21 +341,6 @@
       },
       "deleteTitle": "Delete todo",
       "deleteConfirm": "Delete the todo \"{title}\"?"
-    },
-    "diary": {
-      "searchPlaceholder": "Search by title or author",
-      "empty": "No diaries yet",
-      "untitled": "(Untitled)",
-      "table": {
-        "id": "ID",
-        "title": "Title",
-        "author": "Author",
-        "pairId": "Pair ID",
-        "diaryDate": "Diary date",
-        "createdAt": "Created"
-      },
-      "deleteTitle": "Delete diary",
-      "deleteConfirm": "Diary #{id} will be permanently deleted and cannot be recovered. Continue?"
     },
     "photo": {
       "searchPlaceholder": "Search by caption",

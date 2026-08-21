@@ -104,6 +104,9 @@ func main() {
 	}
 	push = NewPushGateway(cfg.Push.Provider, st)
 	hub = NewHub(st, push)
+	// 先载入后台可配的运行参数（相册配额/保留期/限流/互动冷却），
+	// 再起清理任务——后者要读保留天数。未配置的键一律回退代码里的默认常量。
+	reloadRuntimeSettings()
 	startRequestLogWorker()
 
 	// 生产默认 release 模式：debug 模式会打印全部路由表与详细报错，
@@ -152,11 +155,6 @@ func main() {
 	auth.POST("/todos/:id/complete", handleCompleteTodo)
 	auth.DELETE("/todos/:id", handleDeleteTodo)
 
-	auth.POST("/diaries", handleCreateDiary)
-	auth.GET("/diaries", handleListDiaries)
-	auth.PUT("/diaries/:id", handleUpdateDiary)
-	auth.DELETE("/diaries/:id", handleDeleteDiary)
-
 	auth.POST("/interactions/comfort", handleComfort)
 	auth.POST("/interactions/calm", handleCalm)
 	auth.POST("/interactions/ring", handleRing)
@@ -164,17 +162,20 @@ func main() {
 	auth.POST("/push/register-token", handleRegisterPushToken)
 	auth.DELETE("/push/token", handleUnregisterPushToken)
 
+	// 状态上报的 REST 兜底：WS 断线时客户端走这条，避免状态完全停更。
+	auth.POST("/status", handleReportStatus)
+
 	// 状态历史
 	auth.GET("/status/history", handleHistoryTimeline)
 	auth.GET("/status/history/battery", handleBatteryCurve)
-
-	// 日记图片上传（本地磁盘）
-	auth.POST("/diaries/images", handleUploadDiaryImage)
 
 	// ---- 相册 ----
 	// 注意路由形状：gin 不允许同层同时注册静态段与通配段（会在启动时 panic），
 	// 故 /albums/summary、/photos/on-this-day、/photos/recycled 一律由通配 handler 内部分派，
 	// 对外路径不变（见 handleAlbumByID / handlePhotoByID）。
+	// 客户端配置下发：只读，不含密钥，未绑定用户也能拉（Q41=B）。
+	auth.GET("/client-config", handleClientConfig)
+
 	auth.GET("/albums", handleListAlbums)
 	auth.POST("/albums", handleCreateAlbum)
 	auth.GET("/albums/:id", handleAlbumByID) // :id=summary → 相册概要
@@ -187,8 +188,13 @@ func main() {
 
 	auth.GET("/photos/:id", handlePhotoByID) // :id=on-this-day / recycled → 见 handlePhotoByID
 	auth.PUT("/photos/:id", handleUpdatePhoto)
+	// :id=batch-delete / batch-move / purge-all → 由 handlePhotoActionByID 分派
+	// （gin 不允许同层静态段与通配段并存，故沿用既有的通配分派套路）。
+	auth.POST("/photos/:id", handlePhotoActionByID)
 	auth.DELETE("/photos/:id", handleDeletePhoto)
 	auth.POST("/photos/:id/restore", handleRestorePhoto)
+	// 彻底删除（真删磁盘，不可恢复）
+	auth.DELETE("/photos/:id/purge", handlePurgePhoto)
 	auth.POST("/photos/:id/like", handleLikePhoto)
 	auth.DELETE("/photos/:id/like", handleUnlikePhoto)
 	auth.POST("/photos/:id/comments", handleCreatePhotoComment)
@@ -201,6 +207,8 @@ func main() {
 	media := r.Group("/media", JWTAuth())
 	media.GET("/:id", handleGetMedia)
 	media.GET("/:id/thumb", handleGetMediaThumb)
+	// preview：长边 1080 的中间档，大图页先加载它再按需拉原图（三档缩略图）。
+	media.GET("/:id/preview", handleGetMediaPreview)
 
 	// ---- WebSocket ----
 	r.GET("/ws", func(c *gin.Context) {

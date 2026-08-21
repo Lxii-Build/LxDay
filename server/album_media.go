@@ -2,7 +2,9 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -16,17 +18,21 @@ import (
 // ================= 相册媒体：统一上传 + 鉴权代理读取 =================
 
 const (
-	// maxPhotoBytes 单张上限 20MB。手机直出 JPEG 通常 3~8MB，20MB 足够容纳高像素直出。
-	maxPhotoBytes = 20 * 1024 * 1024
-	// photoThumbEdge 缩略图长边。等比缩放（非方裁），见 GoImageWorker.writeFit。
-	photoThumbEdge = 512
-	// 每人每日配额。计数落在进程内存（memStore），重启归零属可接受损失：
-	// 这是防刷盘的护栏，不是计费，宁可偶尔放宽也不要为它引入外部存储。
-	maxPhotosPerDay    = 200
-	maxUploadBytesADay = 500 * 1024 * 1024
+	// photoThumbEdge 网格缩略图长边。等比缩放（非方裁），见 GoImageWorker.writeFit。
+	// 刻意不做成后台配置：改了之后历史照片的缩略图不会重新生成，只会造成新旧尺寸混杂。
+	photoThumbEdge = 384
+	// photoPreviewEdge 大图页先加载的预览尺寸。
+	// 三档（thumb 384 / preview 1080 / origin）是为了让"点开大图"秒出：
+	// 此前从 384 缩略图直接跳 2048 原图，弱网下要白屏等 3~5 秒。
+	photoPreviewEdge = 1080
 	// quotaTTL 略大于一天：键名已按日期分桶，TTL 只负责回收过期键。
 	quotaTTL = 25 * time.Hour
 )
+
+// 单张上限 / 每日配额已改为后台可配（settings.go），此处提供读取入口。
+// 计数落在进程内存（memStore），重启归零属可接受损失：
+// 这是防刷盘的护栏，不是计费，宁可偶尔放宽也不要为它引入外部存储。
+func maxPhotoBytesNow() int64 { return settingsNow().PhotoMaxBytes }
 
 var errQuotaExceeded = errors.New("上传配额已用尽")
 
@@ -38,23 +44,41 @@ func photoBytesKey(uid int64, day string) string {
 	return "media:bytes:" + day + ":" + strconv.FormatInt(uid, 10)
 }
 
-// checkUploadQuota 在落盘前判额度：张数已达上限，或加上本张后超出当日总字节数即拒绝。
-func checkUploadQuota(uid int64, size int64, now time.Time) error {
+// reserveUploadQuota 原子占额：**先记账再判断，超了立即回退**。
+//
+// 此前是"先查后写"两步（count() 判断 → 上传成功后 incr()），并发上传时形同虚设：
+// 3 路并发同时读到 199 张，3 张全部放过去。客户端这轮改成并发 3 路上传后，
+// 这个竞态从"理论问题"变成"每次上传都会踩"。
+//
+// memStore 的 incr/incrBy 是原子的，故这里用「先自增拿到新值，越界则减回去」的模式。
+// 返回的 rollback 供落盘失败时释放额度——失败的上传不该消耗用户配额。
+func reserveUploadQuota(uid int64, size int64, now time.Time) (rollback func(), err error) {
+	s := settingsNow()
 	day := now.Format("2006-01-02")
-	if st.mem.count(photoCountKey(uid, day)) >= maxPhotosPerDay {
-		return errQuotaExceeded
+	cntKey, byteKey := photoCountKey(uid, day), photoBytesKey(uid, day)
+
+	newCount := st.mem.incr(cntKey, quotaTTL)
+	if newCount > int64(s.PhotosPerDay) {
+		st.mem.incrBy(cntKey, -1, quotaTTL)
+		return nil, errQuotaExceeded
 	}
-	if st.mem.count(photoBytesKey(uid, day))+size > maxUploadBytesADay {
-		return errQuotaExceeded
+	newBytes := st.mem.incrBy(byteKey, size, quotaTTL)
+	if newBytes > s.UploadBytesPerDay {
+		st.mem.incrBy(byteKey, -size, quotaTTL)
+		st.mem.incrBy(cntKey, -1, quotaTTL)
+		return nil, errQuotaExceeded
 	}
-	return nil
+	return func() {
+		st.mem.incrBy(byteKey, -size, quotaTTL)
+		st.mem.incrBy(cntKey, -1, quotaTTL)
+	}, nil
 }
 
-// commitUploadQuota 落盘成功后才记账：失败的上传不该消耗用户额度。
-func commitUploadQuota(uid int64, size int64, now time.Time) {
-	day := now.Format("2006-01-02")
-	st.mem.incr(photoCountKey(uid, day), quotaTTL)
-	st.mem.incrBy(photoBytesKey(uid, day), size, quotaTTL)
+// quotaMessage 配额提示文案按当前配置动态生成，不再硬编码「200 张 / 500MB」。
+func quotaMessage() string {
+	s := settingsNow()
+	return fmt.Sprintf("今日上传已达上限（%d 张 / %dMB），请明天再试",
+		s.PhotosPerDay, s.UploadBytesPerDay/(1024*1024))
 }
 
 // ---------- 对外 URL（鉴权代理形态） ----------
@@ -73,6 +97,11 @@ func mediaThumbURL(photoID int64) string {
 	return mediaPathURL("/media/" + strconv.FormatInt(photoID, 10) + "/thumb")
 }
 
+// mediaPreviewURL 大图页先加载的中间尺寸（长边 1080）。
+func mediaPreviewURL(photoID int64) string {
+	return mediaPathURL("/media/" + strconv.FormatInt(photoID, 10) + "/preview")
+}
+
 // mediaPathURL 与 publicUploadURL 同构：站点地址已配置则带域名，未配置回退相对路径。
 func mediaPathURL(path string) string {
 	if base := siteBaseURL(); base != "" {
@@ -87,36 +116,67 @@ func mediaPathURL(path string) string {
 //
 // 上传即建 photo 行（album_id=0 未归类），故返回的 url 一开始就是 /media/<id> 形态，
 // 客户端全程拿不到真实路径；随后 POST /albums/:id/photos 只需把 id 挂进相册。
+// 上传失败的业务码分家（Q11=B）：客户端据此逐张显示具体原因并决定能否重试。
+// 此前全部混用 1002/1010，客户端只能甩一句「格式不支持或超过 20MB」，
+// 把 OOM、解码失败、配额用尽、网络中断全糊在一起，管理员无法反馈有效信息。
+const (
+	codeUploadTooLarge   = 1021 // 超过单张上限
+	codeUploadBadFormat  = 1022 // 魔数不认识
+	codeUploadNoDecoder  = 1023 // 认识容器但无解码器（HEIC/AVIF 且未编译 heif 支持）
+	codeUploadCorrupted  = 1024 // 能识别但解码失败（文件损坏/截断）
+	codeUploadTooManyPx  = 1025 // 像素数超上限（解压炸弹防护）
+	codeUploadQuotaFull  = 1020 // 当日配额用尽
+	codeUploadDiskFailed = 1026 // 落盘/入库失败
+	codeUploadDisabled   = 1027 // 相册功能被后台关闭
+)
+
 func handleUploadMedia(c *gin.Context) {
 	uid := currentUID(c)
 	pair, okP := mustPair(c)
 	if !okP {
 		return
 	}
+	s := settingsNow()
+	if !s.AlbumEnabled {
+		fail(c, http.StatusForbidden, codeUploadDisabled, "相册功能当前已关闭")
+		return
+	}
+	limit := s.PhotoMaxBytes
+	limitMB := limit / (1024 * 1024)
 
 	// 先限死请求体：不这么做的话，超大 body 会在 file.Size 检查之前就把内存/磁盘吃掉。
 	// slack 与头像上传一致，给 multipart 边界与表单字段留余量。
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxPhotoBytes+bytesHeaderSlack)
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit+bytesHeaderSlack)
 
 	file, err := c.FormFile("file")
 	if err != nil {
-		fail(c, http.StatusBadRequest, 1002, "文件缺失或超过 20MB")
+		fail(c, http.StatusBadRequest, codeUploadTooLarge,
+			fmt.Sprintf("文件缺失或超过 %dMB", limitMB))
 		return
 	}
-	if file.Size > maxPhotoBytes {
-		fail(c, http.StatusBadRequest, 1002, "照片不能超过 20MB")
+	if file.Size > limit {
+		fail(c, http.StatusBadRequest, codeUploadTooLarge,
+			fmt.Sprintf("照片不能超过 %dMB（这张 %.1fMB）", limitMB, float64(file.Size)/1024/1024))
 		return
 	}
 
 	now := time.Now()
-	if err := checkUploadQuota(uid, file.Size, now); errors.Is(err, errQuotaExceeded) {
-		fail(c, http.StatusTooManyRequests, 1020, "今日上传已达上限（200 张 / 500MB），请明天再试")
+	// 原子占额：并发上传下不会被击穿。失败路径全部 rollback，不白吃额度。
+	rollback, err := reserveUploadQuota(uid, file.Size, now)
+	if errors.Is(err, errQuotaExceeded) {
+		fail(c, http.StatusTooManyRequests, codeUploadQuotaFull, quotaMessage())
 		return
 	}
+	quotaCommitted := false
+	defer func() {
+		if !quotaCommitted && rollback != nil {
+			rollback()
+		}
+	}()
 
 	tmp, err := saveTempUpload(c, file)
 	if err != nil {
-		fail(c, http.StatusInternalServerError, 1010, "临时存储失败")
+		fail(c, http.StatusInternalServerError, codeUploadDiskFailed, "临时存储失败，请重试")
 		return
 	}
 	defer os.Remove(tmp)
@@ -124,21 +184,33 @@ func handleUploadMedia(c *gin.Context) {
 	// 魔数白名单：不看扩展名、不做内容嗅探。JPEG 必须支持——手机相册九成是 JPG。
 	probe, valid := probeUploadedFile(tmp)
 	if !valid {
-		fail(c, http.StatusBadRequest, 1002, "不支持的图片格式")
+		fail(c, http.StatusBadRequest, codeUploadBadFormat,
+			"这个文件不是能识别的图片格式（支持 JPG/PNG/WebP/GIF/BMP/HEIC/AVIF）")
 		return
 	}
-	if !probe.Format.decodableInPureGo() {
-		// 与头像一致：HEIC/AVIF 在纯 Go 链路无解码实现，提前给可操作提示而非笼统 500。
-		fail(c, http.StatusBadRequest, 1002, "暂不支持该图片格式（HEIC/AVIF），请改用 JPG、PNG、WebP 或 GIF")
+	if !probe.Format.decodable() {
+		fail(c, http.StatusBadRequest, codeUploadNoDecoder,
+			fmt.Sprintf("服务端暂不支持 %s 格式，请换一张或改用 JPG", probe.Format.displayName()))
 		return
 	}
 
 	photo, err := storeMediaFile(pair.ID, uid, tmp, probe, now)
 	if err != nil {
-		fail(c, http.StatusInternalServerError, 1010, "照片处理失败，请重试")
+		// 分辨"图坏了"与"盘/库出问题"：前者用户换张图就行，后者是服务端故障。
+		switch {
+		case errors.Is(err, ErrAvatarTooLarge):
+			fail(c, http.StatusBadRequest, codeUploadTooManyPx,
+				"这张图的像素数过大，服务端无法处理，请换一张")
+		case errors.Is(err, errImageDecode):
+			fail(c, http.StatusBadRequest, codeUploadCorrupted,
+				fmt.Sprintf("这张 %s 图片已损坏或被截断，无法解码", probe.Format.displayName()))
+		default:
+			slog.Error("store media failed", "err", err, "uid", uid, "pair_id", pair.ID)
+			fail(c, http.StatusInternalServerError, codeUploadDiskFailed, "照片保存失败，请重试")
+		}
 		return
 	}
-	commitUploadQuota(uid, photo.SizeBytes, now)
+	quotaCommitted = true
 	ok(c, photo)
 }
 
@@ -169,31 +241,60 @@ func storeMediaFile(pairID, uid int64, tmp string, probe AvatarProbe, now time.T
 		return nil, err
 	}
 
-	// 缩略图等比缩放（长边 512）。JPEG 源出 JPEG，其余出 PNG 以保住透明通道。
-	asJPEG := probe.Format == FormatJPEG
-	thumbExt := ".png"
+	// 三档产物（Q23=B）：thumb 384（网格）/ preview 1080（大图页先显示）/ origin（双指放大才拉）。
+	//
+	// 输出格式选择：JPEG 源出 JPEG（体积小一个数量级）；
+	// **GIF 也出 JPEG**——缩略图只取首帧、不需要透明通道，PNG 会大好几倍（Q50=A）；
+	// PNG/WebP/HEIC/AVIF 出 PNG，因为它们可能真有透明通道，转 JPEG 会把透明区压成黑块。
+	asJPEG := probe.Format == FormatJPEG || probe.Format == FormatGIF
+	derivExt := ".png"
 	if asJPEG {
-		thumbExt = ".jpg"
+		derivExt = ".jpg"
 	}
-	thumbRel := datePath + "/" + base + "_thumb" + thumbExt
+
+	thumbRel := datePath + "/" + base + "_thumb" + derivExt
 	thumbFull := filepath.Join(uploadDir, filepath.FromSlash(thumbRel))
 	if err := worker.writeFit(src, thumbFull, photoThumbEdge, asJPEG); err != nil {
 		_ = os.Remove(full)
 		return nil, err
 	}
 
+	// 预览图：源图长边本来就 <= 1080 时不必生成（writeFit 不放大，等于白占一份盘）。
+	previewRel := ""
+	previewFull := ""
+	if maxOf(meta.Width, meta.Height) > photoPreviewEdge {
+		previewRel = datePath + "/" + base + "_preview" + derivExt
+		previewFull = filepath.Join(uploadDir, filepath.FromSlash(previewRel))
+		if err := worker.writeFit(src, previewFull, photoPreviewEdge, asJPEG); err != nil {
+			// 预览图失败不该让整张上传失败：它只是加速手段，缺了回退原图即可。
+			slog.Warn("write preview failed, fallback to origin", "err", err, "rel", previewRel)
+			_ = os.Remove(previewFull)
+			previewRel, previewFull = "", ""
+		}
+	}
+
 	// EXIF 拍摄时间：只读文件头部，解析失败留空（拍摄时间是锦上添花，不该阻断上传）。
 	takenAt := readTakenAt(full)
 
-	photo, err := st.CreatePhoto(pairID, uid, 0, rel, thumbRel,
+	photo, err := st.CreatePhoto(pairID, uid, 0, rel, thumbRel, previewRel,
 		meta.Width, meta.Height, size, mime, takenAt)
 	if err != nil {
 		// 入库失败就把盘上产物清掉，避免刷出无主文件占满磁盘。
 		_ = os.Remove(full)
 		_ = os.Remove(thumbFull)
+		if previewFull != "" {
+			_ = os.Remove(previewFull)
+		}
 		return nil, err
 	}
 	return photo, nil
+}
+
+func maxOf(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // mediaExtMime 由探测到的容器格式决定落盘扩展名与 mime，不信客户端给的文件名。
@@ -264,15 +365,29 @@ func readTakenAt(path string) *time.Time {
 // 这是相册隐私的唯一闸门。直接暴露 /upload 静态路径的后果：
 // 谁拿到 URL 谁就能看图（无需登录、无需是伴侣、无需 App）——
 // 对一个存放情侣私密照片的功能，这是最致命的隐私面。
+// mediaVariant 三档产物的选择。缺失的档位一律回退原图，
+// 客户端拿到的 URL 永远可用（历史照片没有 preview 也不会 404）。
+type mediaVariant int
+
+const (
+	variantOrigin mediaVariant = iota
+	variantThumb
+	variantPreview
+)
+
 func handleGetMedia(c *gin.Context) {
-	serveMedia(c, false)
+	serveMedia(c, variantOrigin)
 }
 
 func handleGetMediaThumb(c *gin.Context) {
-	serveMedia(c, true)
+	serveMedia(c, variantThumb)
 }
 
-func serveMedia(c *gin.Context, thumb bool) {
+func handleGetMediaPreview(c *gin.Context) {
+	serveMedia(c, variantPreview)
+}
+
+func serveMedia(c *gin.Context, variant mediaVariant) {
 	pair, okP := mustPair(c)
 	if !okP {
 		return
@@ -288,9 +403,20 @@ func serveMedia(c *gin.Context, thumb bool) {
 		fail(c, http.StatusForbidden, 1017, "无权访问该照片")
 		return
 	}
+	// 档位选择，缺失一律回退原图：历史照片没有 preview，不能因此 404。
 	rel := photo.diskPath
-	if thumb && photo.diskThumb != "" {
-		rel = photo.diskThumb
+	switch variant {
+	case variantThumb:
+		if photo.diskThumb != "" {
+			rel = photo.diskThumb
+		}
+	case variantPreview:
+		if photo.diskPreview != "" {
+			rel = photo.diskPreview
+		} else if photo.diskThumb != "" && photo.Status == 2 {
+			// 回收站里的照片只给缩略图，避免误点开时又把原图整张拉下来。
+			rel = photo.diskThumb
+		}
 	}
 	full, okPath := safeUploadPath(rel)
 	if !okPath {
@@ -304,10 +430,16 @@ func serveMedia(c *gin.Context, thumb bool) {
 	}
 	h := c.Writer.Header()
 	// private：这是私密内容，只允许终端浏览器/客户端自己缓存，禁止中间代理与 CDN 留副本。
-	h.Set("Cache-Control", "private, max-age=86400")
+	//
+	// max-age 从 1 天提到 30 天 + immutable（Q50=A）：/media/<id> 的内容天然不可变
+	// （编辑描述不改图片本体，换图必然是新 id），一天就过期纯属让客户端反复重下。
+	h.Set("Cache-Control", "private, max-age=2592000, immutable")
+	// ETag 让客户端在缓存过期后也能用 304 省下整张图的流量。
+	// 用 id+档位+文件大小+修改时间：任一变化都会得到新的 ETag。
+	h.Set("ETag", fmt.Sprintf(`"p%d-v%d-%d-%d"`, photo.ID, variant, fi.Size(), fi.ModTime().Unix()))
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Content-Disposition", "inline")
-	if photo.Mime != "" && !thumb {
+	if photo.Mime != "" && variant == variantOrigin {
 		h.Set("Content-Type", photo.Mime)
 	}
 	c.File(full)

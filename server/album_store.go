@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -12,7 +13,25 @@ import (
 // ================= 相册存储层 =================
 
 // photoCols 统一列序，GetPhoto / ListAlbumPhotos / on-this-day 共用同一个 scanPhoto。
-const photoCols = `id,album_id,pair_id,uploader_id,url,thumb_url,width,height,size_bytes,mime,taken_at,caption,status,created_at`
+const photoCols = `id,album_id,pair_id,uploader_id,url,thumb_url,preview_path,width,height,size_bytes,mime,taken_at,caption,status,created_at,deleted_at`
+
+// photoColumns 是 photoCols 的别名，供 album_purge.go 使用（语义更直白）。
+const photoColumns = photoCols
+
+// scanPhotoRows 供 *sql.Rows 直接复用 scanPhoto（两者都满足 rowScanner）。
+func scanPhotoRows(rs rowScanner) (*Photo, error) { return scanPhoto(rs) }
+
+// negDaysModifier 生成 SQLite datetime() 的「-N days」修饰串。
+// datetime modifier 不支持占位符，故 days 必须是受信整数，调用方先做范围收敛。
+func negDaysModifier(days int) string {
+	if days < 1 {
+		days = 1
+	}
+	if days > 3650 {
+		days = 3650
+	}
+	return fmt.Sprintf("-%d days", days)
+}
 
 type rowScanner interface {
 	Scan(dest ...interface{}) error
@@ -28,13 +47,14 @@ type rowScanner interface {
 // 一旦不认，scanPhoto 直接报错，列表/详情/这一天全部 500。自己解析则形态无关。
 func scanPhoto(rs rowScanner) (*Photo, error) {
 	p := &Photo{}
-	var thumb, mime, caption, taken, created sql.NullString
-	err := rs.Scan(&p.ID, &p.AlbumID, &p.PairID, &p.UploaderID, &p.diskPath, &thumb,
-		&p.Width, &p.Height, &p.SizeBytes, &mime, &taken, &caption, &p.Status, &created)
+	var thumb, preview, mime, caption, taken, created, deleted sql.NullString
+	err := rs.Scan(&p.ID, &p.AlbumID, &p.PairID, &p.UploaderID, &p.diskPath, &thumb, &preview,
+		&p.Width, &p.Height, &p.SizeBytes, &mime, &taken, &caption, &p.Status, &created, &deleted)
 	if err != nil {
 		return nil, err
 	}
 	p.diskThumb = thumb.String
+	p.diskPreview = preview.String
 	p.Mime = mime.String
 	p.Caption = caption.String
 	if taken.Valid {
@@ -49,8 +69,19 @@ func scanPhoto(rs rowScanner) (*Photo, error) {
 			p.CreatedAt = t
 		}
 	}
+	if deleted.Valid {
+		if t, okT := parseSQLiteUTCTime(deleted.String); okT {
+			p.deletedAt = sql.NullTime{Time: t, Valid: true}
+		}
+	}
 	p.URL = mediaURL(p.ID)
 	p.ThumbURL = mediaThumbURL(p.ID)
+	// 预览图缺失（0821 之前上传的历史照片）时回退原图，客户端无需分支处理。
+	if p.diskPreview != "" {
+		p.PreviewURL = mediaPreviewURL(p.ID)
+	} else {
+		p.PreviewURL = p.URL
+	}
 	return p, nil
 }
 
@@ -119,17 +150,29 @@ func takenAtValue(t *time.Time) interface{} {
 }
 
 // CreatePhoto 落库一张已处理完的照片。url/thumbURL 传 uploadDir 相对路径（如 upload/2026/08/20/x.jpg）。
-func (s *Store) CreatePhoto(pairID, uploaderID, albumID int64, url, thumbURL string,
+// CreatePhoto 落库一张已处理完的照片。
+// url/thumbURL/previewURL 传的都是 uploadDir 相对路径（如 upload/2026/08/21/x.jpg），
+// 对外 URL 由 scanPhoto 换成 /media/<id> 形态，真实路径不出服务端。
+func (s *Store) CreatePhoto(pairID, uploaderID, albumID int64, url, thumbURL, previewURL string,
 	width, height int, sizeBytes int64, mime string, takenAt *time.Time) (*Photo, error) {
 	res, err := s.DB.Exec(
-		`INSERT INTO photo(album_id,pair_id,uploader_id,url,thumb_url,width,height,size_bytes,mime,taken_at,status)
-		 VALUES(?,?,?,?,?,?,?,?,?,?,1)`,
-		albumID, pairID, uploaderID, url, thumbURL, width, height, sizeBytes, mime, takenAtValue(takenAt))
+		`INSERT INTO photo(album_id,pair_id,uploader_id,url,thumb_url,preview_path,width,height,size_bytes,mime,taken_at,status)
+		 VALUES(?,?,?,?,?,?,?,?,?,?,?,1)`,
+		albumID, pairID, uploaderID, url, thumbURL, nullIfEmpty(previewURL),
+		width, height, sizeBytes, mime, takenAtValue(takenAt))
 	if err != nil {
 		return nil, err
 	}
 	id, _ := res.LastInsertId()
 	return s.GetPhoto(id)
+}
+
+// nullIfEmpty 空串写 NULL，避免 preview_path 出现 "" 这种既非空也非有效路径的中间态。
+func nullIfEmpty(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 func (s *Store) GetPhoto(id int64) (*Photo, error) {
@@ -189,9 +232,55 @@ func (s *Store) ListRecycledPhotos(pairID int64, limit, offset int) ([]Photo, in
 }
 
 // SetPhotoStatus 软删/恢复。带 pair_id 条件：越权改他人照片状态必须在 SQL 层也拦一道。
+//
+// 进回收站时记 deleted_at，供「N 天后自动彻底删除」与剩余天数展示使用；
+// 恢复时必须清空它，否则刚恢复的照片会被清理任务按旧时间立刻再删一次。
 func (s *Store) SetPhotoStatus(id, pairID int64, status int) error {
-	_, err := s.DB.Exec(`UPDATE photo SET status=? WHERE id=? AND pair_id=?`, status, id, pairID)
-	return err
+	var res sql.Result
+	var err error
+	if status == 2 {
+		res, err = s.DB.Exec(
+			`UPDATE photo SET status=?, deleted_at=CURRENT_TIMESTAMP WHERE id=? AND pair_id=?`,
+			status, id, pairID)
+	} else {
+		res, err = s.DB.Exec(
+			`UPDATE photo SET status=?, deleted_at=NULL WHERE id=? AND pair_id=?`,
+			status, id, pairID)
+	}
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// SetPhotosStatus 批量改状态（网格多选删除用）。返回实际影响行数。
+func (s *Store) SetPhotosStatus(pairID int64, photoIDs []int64, status int) (int64, error) {
+	if len(photoIDs) == 0 {
+		return 0, nil
+	}
+	holders := make([]string, len(photoIDs))
+	args := make([]interface{}, 0, len(photoIDs)+2)
+	args = append(args, status)
+	for i, id := range photoIDs {
+		holders[i] = "?"
+		args = append(args, id)
+	}
+	args = append(args, pairID)
+	stamp := "deleted_at=NULL"
+	if status == 2 {
+		stamp = "deleted_at=CURRENT_TIMESTAMP"
+	}
+	res, err := s.DB.Exec(
+		`UPDATE photo SET status=?, `+stamp+
+			` WHERE id IN (`+strings.Join(holders, ",")+`) AND pair_id=?`, args...)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
 
 func (s *Store) UpdatePhotoCaption(id, pairID int64, caption string) error {
@@ -377,11 +466,93 @@ func (s *Store) AlbumSummary(pairID int64) (gin.H, error) {
 	if latestID > 0 {
 		latestThumb = mediaThumbURL(latestID)
 	}
+
+	// 未归类张数由服务端直接算（album_id=0 且未删）。
+	//
+	// 此前是客户端做减法：`总数 − 各相册张数之和`（AlbumListScreen.kt:77）。
+	// 两边统计口径只要有一点不一致（软删照片算不算、相册软删后照片是否退回未归类）
+	// 就会算出负数或错数，客户端只能用 coerceAtLeast(0) 兜住，显示仍然不准。
+	var unclassified int
+	if err := s.DB.QueryRow(
+		`SELECT COUNT(*) FROM photo WHERE pair_id=? AND status=1 AND album_id=0`,
+		pairID).Scan(&unclassified); err != nil {
+		return nil, err
+	}
+
+	// 回收站张数：客户端据此决定「回收站」入口要不要显示角标。
+	var recycled int
+	if err := s.DB.QueryRow(
+		`SELECT COUNT(*) FROM photo WHERE pair_id=? AND status=2`, pairID).Scan(&recycled); err != nil {
+		return nil, err
+	}
+
 	return gin.H{
-		"photo_count":      photoCount,
-		"album_count":      albumCount,
-		"latest_thumb_url": latestThumb,
+		"photo_count":        photoCount,
+		"album_count":        albumCount,
+		"latest_thumb_url":   latestThumb,
+		"unclassified_count": unclassified,
+		"recycled_count":     recycled,
+		// 「未归类」的显示名可被改（管理员 Q22 附言：未归类也要能更改名字）。
+		"unclassified_name": s.UnclassifiedName(pairID),
 	}, nil
+}
+
+// defaultUnclassifiedName 「未归类」虚拟相册的缺省显示名。
+const defaultUnclassifiedName = "未归类"
+
+// UnclassifiedName 取「未归类」的显示名，未自定义时返回缺省值。
+//
+// 它存在 pair 表上而不是 album 表：未归类不是一条真实的相册行（album_id=0 是个哨兵值），
+// 为它插一行真实相册会让"删相册时照片退回未归类"这条逻辑变成自我引用。
+func (s *Store) UnclassifiedName(pairID int64) string {
+	var name sql.NullString
+	if err := s.DB.QueryRow(
+		`SELECT unclassified_name FROM pair WHERE id=?`, pairID).Scan(&name); err != nil {
+		return defaultUnclassifiedName
+	}
+	if !name.Valid || strings.TrimSpace(name.String) == "" {
+		return defaultUnclassifiedName
+	}
+	return name.String
+}
+
+// SetUnclassifiedName 改「未归类」的显示名。传空串恢复缺省。
+func (s *Store) SetUnclassifiedName(pairID int64, name string) error {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" || trimmed == defaultUnclassifiedName {
+		_, err := s.DB.Exec(`UPDATE pair SET unclassified_name=NULL WHERE id=?`, pairID)
+		return err
+	}
+	_, err := s.DB.Exec(`UPDATE pair SET unclassified_name=? WHERE id=?`, trimmed, pairID)
+	return err
+}
+
+// presetAlbumNames 绑定成功时自动建的默认分组（管理员 Q22=A+B）。
+//
+// 目的是让用户一进相册就有地方放照片，而不是必须先想个名字建相册。
+// 都是普通相册行，可改名可删除——不喜欢就删掉，不会再自动长回来。
+var presetAlbumNames = []string{"我们", "日常", "旅行"}
+
+// CreatePresetAlbums 为新绑定的 pair 建默认分组。
+// 已经有任何相册的 pair 跳过（避免解绑重绑后又冒出来一堆重复相册）。
+func (s *Store) CreatePresetAlbums(pairID, creatorID int64) error {
+	var n int
+	if err := s.DB.QueryRow(
+		`SELECT COUNT(*) FROM album WHERE pair_id=?`, pairID).Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	for _, name := range presetAlbumNames {
+		if _, err := s.DB.Exec(
+			`INSERT INTO album(pair_id,created_by,name,status) VALUES(?,?,?,1)`,
+			pairID, creatorID, name); err != nil {
+			// 单个失败不阻断其余：默认分组是便利功能，不该让绑定流程失败。
+			slog.Warn("create preset album failed", "pair_id", pairID, "name", name, "err", err)
+		}
+	}
+	return nil
 }
 
 // ---------- 「这一天」 ----------

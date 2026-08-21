@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- 深色主题（KernelSU 同款：values-night 用深色父主题） -->
-    <style name="Theme.Linxi" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowBackground">@color/card_bg</item>
-        <item name="android:statusBarColor">@color/card_bg</item>
-        <item name="android:navigationBarColor">@color/card_bg</item>
+    <style name="Theme.Linxi" parent="android:Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">@color/launch_bg</item>
+        <item name="android:statusBarColor">@color/launch_bg</item>
+        <item name="android:navigationBarColor">@color/launch_bg</item>
     </style>
 
     <style name="Theme.Linxi.Translucent">

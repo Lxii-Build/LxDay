@@ -285,6 +285,18 @@ object ApiClient {
     suspend fun recycledPhotos(): org.json.JSONArray =
         get("/photos/recycled").optJSONArray("list") ?: org.json.JSONArray()
 
+    /**
+     * 回收站列表 + 保留天数。
+     * 返回 (照片列表, keepDays)；keepDays<=0 表示永久保留。
+     * 每张照片带 recycleRemainingDays，供 UI 显示「还剩 N 天自动删除」。
+     */
+    suspend fun recycledPhotosFull(): Pair<List<PhotoItem>, Int> {
+        val obj = get("/photos/recycled")
+        val arr = obj.optJSONArray("list") ?: org.json.JSONArray()
+        val list = (0 until arr.length()).map { PhotoItem.fromJson(arr.getJSONObject(it)) }
+        return list to obj.optInt("keep_days", -1)
+    }
+
     suspend fun restorePhoto(photoId: Long): JSONObject =
         postJson("/photos/$photoId/restore", JSONObject())
 
@@ -298,9 +310,52 @@ object ApiClient {
     /** 删相册（软删）。其中照片不跟着删，会退回「未归类」。 */
     suspend fun deleteAlbum(albumId: Long): JSONObject = delete("/albums/$albumId")
 
+    /**
+     * 改「未归类」的显示名。
+     * 走同一个 PUT /albums/{id}（id=0），服务端识别 0 为虚拟相册单独处理，
+     * 客户端不必为此分叉出第二套改名逻辑。传空串恢复缺省。
+     */
+    suspend fun renameUnclassified(name: String): JSONObject =
+        putJson("/albums/0", JSONObject().put("name", name))
+
+    /** 批量软删照片（网格多选删除）。 */
+    suspend fun batchDeletePhotos(photoIds: List<Long>): JSONObject {
+        val arr = org.json.JSONArray()
+        photoIds.forEach { arr.put(it) }
+        return postJson("/photos/batch-delete", JSONObject().put("photo_ids", arr))
+    }
+
+    /** 批量移动到相册。albumId=0 表示移出相册、退回「未归类」。 */
+    suspend fun batchMovePhotos(photoIds: List<Long>, albumId: Long): JSONObject {
+        val arr = org.json.JSONArray()
+        photoIds.forEach { arr.put(it) }
+        return postJson(
+            "/photos/batch-move",
+            JSONObject().put("photo_ids", arr).put("album_id", albumId),
+        )
+    }
+
+    /** 彻底删除一张回收站里的照片（**真删磁盘文件，不可恢复**）。 */
+    suspend fun purgePhoto(photoId: Long): JSONObject = delete("/photos/$photoId/purge")
+
+    /** 清空回收站（**真删磁盘文件，不可恢复**）。 */
+    suspend fun purgeRecycleBin(): JSONObject = postJson("/photos/purge-all", JSONObject())
+
+    /** 相册概要（含服务端算好的未归类张数、回收站张数、未归类显示名）。 */
+    suspend fun albumSummaryFull(): AlbumSummary = AlbumSummary.fromJson(get("/albums/summary"))
+
+    /** 客户端配置（上限值/功能开关/保留天数）。失败时调用方用内置默认值。 */
+    suspend fun clientConfig(): JSONObject = get("/client-config")
+
     /** 删评论。服务端只允许删自己的。 */
     suspend fun deletePhotoComment(photoId: Long, commentId: Long): JSONObject =
         delete("/photos/$photoId/comments/$commentId")
+
+    /**
+     * 状态上报的 REST 兜底。WS 断线时用（见 StatusSyncManager.pushNow）。
+     * 服务端与 WS 共用同一套落地逻辑，故两条路径行为一致。
+     */
+    suspend fun reportStatus(status: JSONObject): JSONObject = postJson("/status", status)
 
     /** 状态历史时间线 */
     suspend fun historyTimeline(date: String?, limit: Int, offset: Int): org.json.JSONArray {
@@ -324,13 +379,6 @@ object ApiClient {
     suspend fun completeTodo(id: Long): JSONObject = postJson("/todos/$id/complete", JSONObject())
 
     suspend fun deleteTodo(id: Long): JSONObject = delete("/todos/$id")
-
-    suspend fun diaries(date: String? = null): org.json.JSONArray {
-        return getArray(if (date.isNullOrBlank()) "/diaries" else "/diaries?date=$date")
-    }
-
-    /** 日记篇数（发现页卡片副标题用）。服务端无专门计数接口，直接取列表长度。 */
-    suspend fun diaryCount(): Int = diaries().length()
 
     // ---------- 相册 ----------
 
@@ -372,5 +420,4 @@ object ApiClient {
         get("/photos/on-this-day?month=$month&day=$day")
             .optJSONArray("list") ?: org.json.JSONArray()
 
-    suspend fun createDiary(body: JSONObject): JSONObject = postJson("/diaries", body)
 }

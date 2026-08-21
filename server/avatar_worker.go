@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"image"
 	"image/gif"
@@ -10,9 +11,20 @@ import (
 	"path/filepath"
 	"time"
 
+	// HEIC/AVIF 纯 Go 解码（wasm + wazero，无 CGO）。管理员 Q9=C：服务端要真支持这两种格式。
+	// 一加 15 开「高效格式」直出就是 HEIC，客户端虽会转 JPEG，但转换失败/别的客户端直传时
+	// 服务端也得能吃下来，否则又是一句笼统的"格式不支持"。
+	"github.com/gen2brain/avif"
+	"github.com/gen2brain/heic"
+	"golang.org/x/image/bmp"
 	"golang.org/x/image/draw"
 	"golang.org/x/image/webp"
 )
+
+// errImageDecode 表示"容器认得、但内容解不开"（文件损坏/截断）。
+// 与 ErrAvatarTooLarge（像素过大）分开，让 handler 能给出不同的业务码与文案：
+// 前者让用户换张图，后者提示像素超限，都不该是笼统的 500。
+var errImageDecode = errors.New("image decode failed")
 
 // GoImageWorker 用纯 Go 标准库 + golang.org/x/image 完成解码、居中方裁与缩放。
 //
@@ -72,13 +84,16 @@ func (w GoImageWorker) decode(path string) (image.Image, AvatarMeta, error) {
 	defer f.Close()
 
 	// 先只读配置校验像素规模，避免直接解码超大图打爆内存。
+	//
+	// heic/avif 的 DecodeConfig 由各自包的 init 注册进 image 的注册表，
+	// 所以这里能直接认出来，与 jpeg/png/webp/bmp 同一条路径。
 	cfg, format, err := image.DecodeConfig(f)
 	if err != nil {
-		// WebP 的 DecodeConfig 由 x/image/webp 通过 init 注册；此处失败即真的不认识。
-		return nil, AvatarMeta{}, fmt.Errorf("decode config: %w", err)
+		return nil, AvatarMeta{}, fmt.Errorf("%w: decode config: %v", errImageDecode, err)
 	}
 	if cfg.Width <= 0 || cfg.Height <= 0 {
-		return nil, AvatarMeta{}, fmt.Errorf("invalid image dimensions")
+		return nil, AvatarMeta{}, fmt.Errorf("%w: invalid dimensions %dx%d",
+			errImageDecode, cfg.Width, cfg.Height)
 	}
 	if cfg.Width*cfg.Height > w.MaxPixels {
 		return nil, AvatarMeta{}, ErrAvatarTooLarge
@@ -90,6 +105,15 @@ func (w GoImageWorker) decode(path string) (image.Image, AvatarMeta, error) {
 	meta := AvatarMeta{Width: cfg.Width, Height: cfg.Height, Frames: 1}
 
 	switch format {
+	case "heic", "heif":
+		img, err := heic.Decode(f)
+		return img, meta, wrapDecode(err, "heic")
+	case "avif":
+		img, err := avif.Decode(f)
+		return img, meta, wrapDecode(err, "avif")
+	case "bmp":
+		img, err := bmp.Decode(f)
+		return img, meta, wrapDecode(err, "bmp")
 	case "gif":
 		g, err := gif.DecodeAll(f)
 		if err != nil || len(g.Image) == 0 {
@@ -112,20 +136,23 @@ func (w GoImageWorker) decode(path string) (image.Image, AvatarMeta, error) {
 		img, err := webp.Decode(f)
 		return img, meta, wrapDecode(err, "webp")
 	default:
-		// bmp 等由 image.Decode 的注册表兜底（bmp 未注册则在此返回不支持）。
+		// 其余格式交给 image.Decode 的注册表兜底。
 		img, _, err := image.Decode(f)
 		if err != nil {
-			return nil, AvatarMeta{}, fmt.Errorf("unsupported format %q: %w", format, err)
+			return nil, AvatarMeta{}, fmt.Errorf("%w: unsupported format %q: %v",
+				errImageDecode, format, err)
 		}
 		return img, meta, nil
 	}
 }
 
+// wrapDecode 统一把解码失败包成 errImageDecode，供 handler 用 errors.Is 分辨
+// 「图坏了（用户换张图）」与「服务端故障（该报 500）」。
 func wrapDecode(err error, kind string) error {
 	if err == nil {
 		return nil
 	}
-	return fmt.Errorf("decode %s: %w", kind, err)
+	return fmt.Errorf("%w: %s: %v", errImageDecode, kind, err)
 }
 
 // writeSquare 居中方裁后缩放到 dim×dim 并写出 PNG。

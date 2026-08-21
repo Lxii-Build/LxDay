@@ -25,6 +25,12 @@ import com.linxi.diary.core.SyncHeartbeat
 import com.linxi.diary.sync.AppForegroundState
 import com.linxi.diary.sync.SharingRuntimePolicy
 import com.linxi.diary.sync.StatusSyncManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.linxi.diary.util.Logs
 import com.linxi.diary.util.TimeUtil
 import com.linxi.diary.util.UserPrefs
@@ -119,6 +125,12 @@ class StatusForegroundService : Service() {
 
     private var screenReceiver: ScreenStateReceiver? = null
     private var wifiReceiver: BroadcastReceiver? = null
+    /**
+     * 采集用的协程作用域。
+     * SupervisorJob：某次采集抛异常不该让后续采集全部停摆。
+     */
+    private val collectScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     private var lastBatteryNotified = -1 // 低电量去重
     private var lastNotificationState: NotificationRenderState? = null
 
@@ -190,28 +202,39 @@ class StatusForegroundService : Service() {
     /**
      * 采集本机状态 + 上报 + 刷新卡片（卡片显示伴侣状态）。
      * 共享总开关关闭时：停止采集、清空本机状态，不推送。
+     *
+     * **采集必须在 IO 线程**（0821 修）。此前整段跑在主线程，而
+     * `StatusCollector.collectAll` 里有 `queryEvents`（旧实现遍历 24 小时全部事件，
+     * 重度使用能有上万条）与 `queryAndAggregateUsageStats` 两个重活，
+     * 而前台档位是**每 10 秒**采集一次 —— 这是实打实的 ANR 风险，也会让 UI 掉帧。
+     *
+     * 通知栏更新留在主线程：`startForeground` 与 RemoteViews 由系统在主线程校验。
      */
     private fun refreshNow() {
-        try {
-            if (!SharingRuntimePolicy.canRunNow()) {
-                DeviceStatusHolder.current = null
-                DeviceStatusHolder.partner = null
-                updateCardIfChanged(null)
-                return
+        if (!SharingRuntimePolicy.canRunNow()) {
+            DeviceStatusHolder.current = null
+            DeviceStatusHolder.partner = null
+            updateCardIfChanged(null)
+            return
+        }
+        collectScope.launch {
+            try {
+                val s = StatusCollector.collectAll(this@StatusForegroundService)
+                DeviceStatusHolder.current = s
+                StatusSyncManager.pushNow()
+                // 低电量(<15%)即时事件：从 >=20 降到低电量时触发一次，防止重复刷屏
+                if (s.batteryLevel in 1..14 && lastBatteryNotified != s.batteryLevel) {
+                    lastBatteryNotified = s.batteryLevel
+                    StatusSyncManager.sendEvent("low_battery")
+                } else if (s.batteryLevel >= 20) {
+                    lastBatteryNotified = -1
+                }
+                withContext(Dispatchers.Main) {
+                    updateCardIfChanged(DeviceStatusHolder.partner)
+                }
+            } catch (t: Throwable) {
+                Logs.e("Service", "refreshNow 异常", t)
             }
-            val s = StatusCollector.collectAll(this)
-            DeviceStatusHolder.current = s
-            StatusSyncManager.pushNow()
-            // 低电量(<15%)即时事件：从 >=20 降到低电量时触发一次，防止重复刷屏
-            if (s.batteryLevel in 1..14 && lastBatteryNotified != s.batteryLevel) {
-                lastBatteryNotified = s.batteryLevel
-                StatusSyncManager.sendEvent("low_battery")
-            } else if (s.batteryLevel >= 20) {
-                lastBatteryNotified = -1
-            }
-            updateCardIfChanged(DeviceStatusHolder.partner)
-        } catch (t: Throwable) {
-            Logs.e("Service", "refreshNow 异常", t)
         }
     }
 
@@ -299,6 +322,8 @@ class StatusForegroundService : Service() {
         wifiReceiver?.let { runCatching { unregisterReceiver(it) } }
         screenReceiver = null
         wifiReceiver = null
+        // 取消在飞的采集：服务已销毁，再回写 DeviceStatusHolder 或更新通知都没有意义。
+        runCatching { collectScope.cancel() }
         super.onDestroy()
     }
 

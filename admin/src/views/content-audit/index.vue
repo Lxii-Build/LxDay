@@ -6,9 +6,6 @@
         <ElTabPane :label="$t('contentAudit.tabs.todo')" name="todo">
           <TodoTable v-if="activeTab === 'todo'" />
         </ElTabPane>
-        <ElTabPane :label="$t('contentAudit.tabs.diary')" name="diary">
-          <DiaryTable v-if="activeTab === 'diary'" />
-        </ElTabPane>
         <ElTabPane v-if="isSuper" :label="$t('contentAudit.tabs.photo')" name="photo">
           <PhotoTable v-if="activeTab === 'photo'" />
         </ElTabPane>
@@ -20,8 +17,7 @@
 <script setup lang="ts">
   import { useUserStore } from '@/store/modules/user'
   import TodoTable from './modules/todo-table.vue'
-  import DiaryTable from './modules/diary-table.vue'
-  import PhotoTable from './modules/photo-table.vue'
+    import PhotoTable from './modules/photo-table.vue'
 
   defineOptions({ name: 'ContentAudit' })
 

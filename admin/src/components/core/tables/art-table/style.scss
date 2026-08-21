@@ -97,3 +97,87 @@
     justify-content: center;
   }
 }
+
+/*
+ * 窄屏卡片化（管理员 Q44=B）。
+ *
+ * ≤768px 时 art-table 不渲染 el-table 而渲染卡片列表：
+ * 每行一张卡、字段纵向「标签 : 值」排列、操作按钮固定在卡底。
+ * 这样手机上不必左右横滑就能看全一行数据 —— 横滑看表格用两次就会让人放弃。
+ *
+ * 安全区（env(safe-area-inset-*)）：一加曲面屏与 iPhone 刘海屏的底部
+ * 会遮住最后一张卡的操作按钮，必须留出内边距。
+ */
+.art-table {
+  .art-table__cards {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .art-table__card {
+    padding: 14px 16px;
+    background: var(--art-main-bg-color);
+    border: 1px solid var(--art-border-color);
+    border-radius: 12px;
+  }
+
+  .art-table__cell {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: 5px 0;
+    font-size: 13px;
+    line-height: 1.5;
+
+    /* 字段之间加细分隔线，长卡片里更容易扫读 */
+    & + .art-table__cell {
+      border-top: 1px dashed var(--art-border-dashed-color, var(--art-border-color));
+    }
+  }
+
+  .art-table__cell-label {
+    flex: 0 0 auto;
+    max-width: 40%;
+    color: var(--art-text-gray-600);
+    white-space: nowrap;
+  }
+
+  .art-table__cell-value {
+    flex: 1 1 auto;
+    color: var(--art-text-gray-800);
+    text-align: right;
+    /* 长文本（URL、UA）必须能换行，否则会把卡片撑破导致整页横向溢出 */
+    word-break: break-all;
+  }
+
+  .art-table__card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+    padding-top: 10px;
+    margin-top: 10px;
+    border-top: 1px solid var(--art-border-color);
+  }
+}
+
+/*
+ * 无法卡片化的表格（用 <ElTableColumn> 子元素写法、拿不到列元信息的页面）
+ * 在窄屏退回"可横向滚动"：宁可让用户横滑，也不能把整页撑出溢出。
+ */
+.art-table {
+  .art-table--scroll-x {
+    .el-table__inner-wrapper {
+      overflow-x: auto;
+    }
+
+    /* 给一个最小宽度，避免列被压成一团反而更难读 */
+    .el-table__body,
+    .el-table__header {
+      min-width: 640px;
+    }
+  }
+}

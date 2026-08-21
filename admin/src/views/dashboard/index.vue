@@ -49,7 +49,6 @@
     users: 0,
     pairs: 0,
     todos: 0,
-    diaries: 0,
     new_users_7d: 0,
     daily_new: []
   })
@@ -75,13 +74,6 @@
       value: stats.value.todos,
       color: '#FFAE1F',
       icon: 'ri:task-line'
-    },
-    {
-      key: 'diaries',
-      label: t('dashboard.stats.diaries'),
-      value: stats.value.diaries,
-      color: '#13DEB9',
-      icon: 'ri:book-2-line'
     },
     {
       key: 'new_users_7d',

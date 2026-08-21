@@ -21,6 +21,9 @@ import java.util.concurrent.TimeUnit
  *
  * 缓存策略：相册网格一次要铺几十张缩略图，磁盘缓存必须给足，
  * 否则每次进页面都重新下载（此前自撸的 NetworkAvatar 就是零缓存 + 主线程解码）。
+ *
+ * **自己上传的照片不走网络**：LocalPhotoIndex 记着「照片 id → 本机原图 uri」，
+ * 显示时优先读本机文件，本机被删才回退云端。对方的照片才需要下载+缓存。
  */
 object AppImageLoader {
 
@@ -52,7 +55,9 @@ object AppImageLoader {
             .diskCache {
                 DiskCache.Builder()
                     .directory(appContext.cacheDir.resolve("image_cache"))
-                    .maxSizeBytes(256L * 1024 * 1024)
+                    // 128MB（Q24=A）：约能存 1500~2500 张缩略图，日常翻相册几乎不重复下载。
+                    // 此前 256MB 对手机存储是不必要的占用；设置页另有「清除图片缓存」入口。
+                    .maxSizeBytes(128L * 1024 * 1024)
                     .build()
             }
             .crossfade(true)

@@ -6,10 +6,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"log/slog"
 	"math/big"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -144,7 +145,33 @@ func ok(c *gin.Context, data interface{}) {
 }
 
 func fail(c *gin.Context, httpCode, bizCode int, msg string) {
+	drainRequestBody(c)
 	c.JSON(httpCode, gin.H{"code": bizCode, "message": msg})
+}
+
+// drainRequestBody 在返回错误前把未读完的请求体丢弃掉。
+//
+// **这是生产 502 的根因修复。** Go 的 http server 在 handler 返回时只会自动排空
+// 最多 256KB 的未读 body，超过就直接关闭连接。于是任何「大 body + 提前拒绝」的组合
+// （AppKeyGuard 403 / JWTAuth 401 / 配额 429 / 超过单张上限 400）都会让 Nginx
+// 在还没写完 body 时撞上 RST，对外表现为 **502 Bad Gateway**，
+// 而不是我们精心写的中文错误——客户端只能显示"服务器开小差了"，
+// 用户完全不知道真实原因是格式还是配额。
+//
+// 实测（生产 love.lxii.cc）：body ≤1MB 正常回 403；≥2MB 一律 502；60MB 才是 Nginx 的 413。
+//
+// 上限 32MB：比最大允许上传留出余量即可。再大的 body 本该被 Nginx 的
+// client_max_body_size 拦掉，没必要为攻击者的超大请求花时间读完。
+func drainRequestBody(c *gin.Context) {
+	if c.Request == nil || c.Request.Body == nil {
+		return
+	}
+	// GET/DELETE 之类通常无 body，ContentLength==0 时直接跳过，省掉一次系统调用。
+	if c.Request.ContentLength == 0 {
+		return
+	}
+	const maxDrain = 32 << 20
+	_, _ = io.CopyN(io.Discard, c.Request.Body, maxDrain)
 }
 
 // hashPassword 使用 bcrypt 生成加盐哈希（每次不同）；校验用 checkPassword。
@@ -306,7 +333,10 @@ func AppKeyGuard() gin.HandlerFunc {
 
 // ================= 绑定 =================
 
-const inviteTTL = time.Hour // 邀请码 1 小时有效
+// inviteTTLNow 邀请码有效期，读后台配置（默认 60 分钟）。
+func inviteTTLNow() time.Duration {
+	return time.Duration(settingsNow().InviteTTLMinutes) * time.Minute
+}
 
 func handleCreateInvite(c *gin.Context) {
 	uid := currentUID(c)
@@ -320,8 +350,8 @@ func handleCreateInvite(c *gin.Context) {
 	if err := st.DB.QueryRow(
 		`SELECT invite_code, created_at FROM pair WHERE user_a_id=? AND user_b_id=0 AND status=1 LIMIT 1`,
 		uid).Scan(&existCode, &existCreated); err == nil && existCode != "" {
-		if time.Since(existCreated) < inviteTTL {
-			ok(c, gin.H{"invite_code": existCode, "expires_in": int(inviteTTL.Seconds() - time.Since(existCreated).Seconds())})
+		if time.Since(existCreated) < inviteTTLNow() {
+			ok(c, gin.H{"invite_code": existCode, "expires_in": int(inviteTTLNow().Seconds() - time.Since(existCreated).Seconds())})
 			return
 		}
 		// 过期：作废旧码重新生成
@@ -338,7 +368,7 @@ func handleCreateInvite(c *gin.Context) {
 			`INSERT INTO pair(user_a_id,user_b_id,invite_code,status) VALUES(?,0,?,1)`,
 			uid, code)
 		if err == nil {
-			ok(c, gin.H{"invite_code": code, "expires_in": int(inviteTTL.Seconds())})
+			ok(c, gin.H{"invite_code": code, "expires_in": int(inviteTTLNow().Seconds())})
 			return
 		}
 	}
@@ -377,7 +407,7 @@ func handleBind(c *gin.Context) {
 		fail(c, 400, 1009, "邀请码无效或已失效")
 		return
 	}
-	if time.Since(created) > inviteTTL {
+	if time.Since(created) > inviteTTLNow() {
 		fail(c, 400, 1009, "邀请码已过期，请让对方重新生成")
 		return
 	}
@@ -388,6 +418,13 @@ func handleBind(c *gin.Context) {
 	bindAttemptReset(uid)
 	// 返回伴侣信息
 	pair, _ := st.GetPairByUserID(uid)
+	// 建默认分组（Q22=A+B）：让用户一进相册就有地方放照片，不必先想名字建相册。
+	// 失败不阻断绑定——这只是便利功能。
+	if pair != nil {
+		if err := st.CreatePresetAlbums(pair.ID, uid); err != nil {
+			slog.Warn("create preset albums failed", "pair_id", pair.ID, "err", err)
+		}
+	}
 	partner := st.PartnerID(pair, uid)
 	pu, _ := st.GetUserByID(partner)
 	// 通知邀请方（另一方）：绑定成功，据此从"等待绑定"进入主界面。
@@ -822,90 +859,6 @@ func handleDeleteTodo(c *gin.Context) {
 
 // ================= 日记 =================
 
-func handleCreateDiary(c *gin.Context) {
-	pair, okP := mustPair(c)
-	if !okP {
-		return
-	}
-	uid := currentUID(c)
-	var req struct {
-		Title   string   `json:"title" binding:"required"`
-		Content string   `json:"content" binding:"required"`
-		Date    string   `json:"date" binding:"required"`
-		Images  []string `json:"images"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		fail(c, 400, 1002, "参数错误")
-		return
-	}
-	d, err := st.CreateDiary(pair.ID, uid, req.Title, req.Content, req.Date)
-	if err != nil {
-		fail(c, 500, 1010, "创建失败")
-		return
-	}
-	if len(req.Images) > 0 {
-		st.AddDiaryImages(d.ID, req.Images)
-		d.Images = req.Images
-	}
-	u, _ := st.GetUserByID(uid)
-	d.AuthorName = u.Nickname
-	hub.Notify(pair, uid, WsMessage{Type: MsgDiaryNew, Data: d})
-	ok(c, d)
-}
-
-func handleListDiaries(c *gin.Context) {
-	pair, okP := mustPair(c)
-	if !okP {
-		return
-	}
-	date := c.Query("date")
-	diaries, err := st.ListDiaries(pair.ID, date)
-	if err != nil {
-		fail(c, 500, 1010, "查询失败")
-		return
-	}
-	ok(c, diaries)
-}
-
-func handleUpdateDiary(c *gin.Context) {
-	pair, okP := mustPair(c)
-	if !okP {
-		return
-	}
-	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
-	if pid, err := st.DiaryPairID(id); err != nil || pid != pair.ID {
-		fail(c, 403, 1017, "无权操作该日记")
-		return
-	}
-	var req struct {
-		Title   *string `json:"title"`
-		Content *string `json:"content"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		fail(c, 400, 1002, "参数错误")
-		return
-	}
-	if err := st.UpdateDiary(id, req.Title, req.Content); err != nil {
-		fail(c, 500, 1010, "更新失败")
-		return
-	}
-	ok(c, gin.H{"updated": id})
-}
-
-func handleDeleteDiary(c *gin.Context) {
-	pair, okP := mustPair(c)
-	if !okP {
-		return
-	}
-	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
-	if pid, err := st.DiaryPairID(id); err != nil || pid != pair.ID {
-		fail(c, 403, 1017, "无权操作该日记")
-		return
-	}
-	st.DeleteDiary(id)
-	ok(c, gin.H{"deleted": id})
-}
-
 // ================= 情绪交互 =================
 
 func handleComfort(c *gin.Context) {
@@ -967,21 +920,75 @@ func handleUnregisterPushToken(c *gin.Context) {
 	ok(c, gin.H{"unregistered": true})
 }
 
+// handleReportStatus 是 WS 上报的 **REST 兜底**（Q36=B）。
+//
+// 此前服务端只能通过 WS 收状态（/status/* 全是读接口），
+// 而客户端 pushNow() 在 WS 未连接时直接 return 把这次采集扔掉。
+// 结果：地铁、电梯、切飞行模式期间状态完全停更，
+// 对方看到的是一个"看起来很正常"的旧值（客户端当时也不显示时效）。
+//
+// 与 WS 路径共用 hub.applyStatusUpdate，避免两条链路行为分叉。
+func handleReportStatus(c *gin.Context) {
+	uid := currentUID(c)
+	pair, okP := mustPair(c)
+	if !okP {
+		return
+	}
+	var incoming DeviceStatus
+	if err := c.ShouldBindJSON(&incoming); err != nil {
+		fail(c, http.StatusBadRequest, 1002, "参数错误")
+		return
+	}
+	// 限频与 WS 共用同一个闸门，否则换条路径就能绕过。
+	if !hub.allowStatusUpdate(uid) {
+		fail(c, http.StatusTooManyRequests, 1012, "上报过于频繁")
+		return
+	}
+	hub.applyStatusUpdate(pair, uid, &incoming)
+	ok(c, gin.H{"accepted": true})
+}
+
 // ================= 状态历史 =================
+
+// historySubjectUID 解析 ?who=me|partner，返回要查谁的历史。
+//
+// 此前固定用 currentUID —— 而页面标题是「伴侣状态历史」，
+// 于是用户看到的一直是自己的记录。默认 partner 以匹配页面语义，
+// 同时允许显式查 me（"我昨晚几点睡的"也有价值）。
+func historySubjectUID(c *gin.Context, pair *Pair) (int64, bool) {
+	uid := currentUID(c)
+	switch c.DefaultQuery("who", "partner") {
+	case "me":
+		return uid, true
+	case "partner":
+		partner := pair.PartnerOf(uid)
+		if partner <= 0 {
+			fail(c, 200, 1001, "未绑定伴侣")
+			return 0, false
+		}
+		return partner, true
+	default:
+		fail(c, http.StatusBadRequest, 1002, "参数 who 只能是 me 或 partner")
+		return 0, false
+	}
+}
 
 func handleHistoryTimeline(c *gin.Context) {
 	pair, okP := mustPair(c)
 	if !okP {
 		return
 	}
-	uid := currentUID(c)
+	subject, okW := historySubjectUID(c, pair)
+	if !okW {
+		return
+	}
 	date := c.Query("date")
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
 	if limit < 1 || limit > 200 {
 		limit = 50
 	}
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
-	list, err := st.HistoryTimeline(pair.ID, uid, date, limit, offset)
+	list, err := st.HistoryTimeline(pair.ID, subject, date, limit, offset)
 	if err != nil {
 		fail(c, 500, 1010, "查询失败")
 		return
@@ -1001,7 +1008,7 @@ func handleHistoryTimeline(c *gin.Context) {
 	for _, h := range list {
 		out = append(out, entry{
 			Battery: h.BatteryLevel, Charging: h.IsCharging, ScreenOn: h.ScreenOn,
-			Locked: h.IsLocked, ForegroundApp: h.ForegroundApp, SSID: h.SSID,
+			Locked: h.IsLocked, ForegroundApp: h.ForegroundAppName(), SSID: h.SSIDValue(),
 			Network: h.NetworkType, Ts: h.Ts.UnixMilli(),
 		})
 	}
@@ -1013,12 +1020,15 @@ func handleBatteryCurve(c *gin.Context) {
 	if !okP {
 		return
 	}
-	uid := currentUID(c)
+	subject, okW := historySubjectUID(c, pair)
+	if !okW {
+		return
+	}
 	date := c.Query("date")
 	if date == "" {
 		date = time.Now().Format("2006-01-02")
 	}
-	list, err := st.BatteryCurve(pair.ID, uid, date)
+	list, err := st.BatteryCurve(pair.ID, subject, date)
 	if err != nil {
 		fail(c, 500, 1010, "查询失败")
 		return
@@ -1039,42 +1049,6 @@ func handleBatteryCurve(c *gin.Context) {
 // ================= 日记图片上传（本地磁盘） =================
 // 存储：uploadDir/upload/年/月/日/<随机名><扩展名>；Go 自托管 /upload/ 静态服务。
 // URL 带不可猜测随机名，纯自用场景免鉴权；公开 URL 形态见 publicUploadURL。
-
-func handleUploadDiaryImage(c *gin.Context) {
-	if _, okP := mustPair(c); !okP {
-		return
-	}
-	file, err := c.FormFile("file")
-	if err != nil {
-		fail(c, 400, 1002, "缺少文件字段 file")
-		return
-	}
-	// 限 10MB，仅图片
-	if file.Size > 10*1024*1024 {
-		fail(c, 400, 1002, "图片不能超过 10MB")
-		return
-	}
-	ext := strings.ToLower(filepath.Ext(file.Filename))
-	switch ext {
-	case ".jpg", ".jpeg", ".png", ".webp", ".gif":
-	default:
-		fail(c, 400, 1002, "仅支持 jpg/png/webp/gif")
-		return
-	}
-	// 日期分区相对路径：upload/年/月/日/<随机名><扩展名>
-	rel := uploadDatePath(time.Now()) + "/" + randomCode(24) + ext
-	dst := filepath.Join(uploadDir, filepath.FromSlash(rel))
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		fail(c, 500, 1010, "存储目录创建失败")
-		return
-	}
-	if err := c.SaveUploadedFile(file, dst); err != nil {
-		fail(c, 500, 1010, "保存失败")
-		return
-	}
-	url := publicUploadURL(rel)
-	ok(c, gin.H{"url": url})
-}
 
 // ================= 待办到点提醒定时扫描 =================
 // 每分钟检查一次「到点未完成」的待办，通知 assignee（在线 WS / 离线入队）。

@@ -100,7 +100,16 @@ fun KernelScreen(
                     ),
                     overscrollEffect = null,
                 ) {
-                    if (loading) {
+                    // **首屏加载圈与下拉刷新圈互斥**（管理员 Q1=D 报的"两个加载并存"）。
+                    //
+                    // 复现路径：进页面时 loading=true → 渲染 LoadingRow；
+                    // 此时用户下拉，refreshing 也变 true → PullToRefresh 自己那个指示器
+                    // 同时出现，于是屏幕上**两个圈一起转**。
+                    // 各页的 `if (pull) refreshing = true else loading = true` 只保证了
+                    // 单次调用不会同时置真，但拦不住"初次加载还没结束就下拉"。
+                    //
+                    // 下拉刷新已经有自己的指示器与四态文案，此时不该再叠一个。
+                    if (loading && !isRefreshing) {
                         item(key = "__kernel_loading__") { LoadingRow() }
                     }
                     content()
@@ -153,8 +162,9 @@ fun LoadingRow() {
 @Composable
 fun BackAction(onBack: () -> Unit) {
     top.yukonga.miuix.kmp.basic.IconButton(onClick = onBack) {
-        androidx.compose.material3.Icon(
-            MiuixIcons.Back,
+        // 用 miuix 的 Icon 而非 material3 的：全 App 统一 miuix 组件（管理员要求）。
+        top.yukonga.miuix.kmp.basic.Icon(
+            imageVector = MiuixIcons.Back,
             contentDescription = "返回",
             tint = MiuixTheme.colorScheme.onBackground
         )

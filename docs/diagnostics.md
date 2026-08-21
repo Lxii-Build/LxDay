@@ -35,7 +35,7 @@
 
 实现：`util/LogSanitizer.kt`；单元测试：`src/test/.../LogSanitizerTest.kt`。
 
-日志和导出包不得暴露 token、邀请码、SSID、认证 URL 查询参数、日记正文或其他私密正文。导出前会对已写入的键值模式再次脱敏。
+日志和导出包不得暴露 token、邀请码、SSID、认证 URL 查询参数、照片描述或其他私密正文。导出前会对已写入的键值模式再次脱敏。
 
 ## 崩溃日志
 

@@ -4,11 +4,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import com.linxi.diary.ui.theme.LocalLinxiDarkTheme
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material3.Icon
 import androidx.compose.runtime.*
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
@@ -25,6 +20,7 @@ import com.linxi.diary.data.ProfileRuntime
 import com.linxi.diary.data.RelationshipDays
 import com.linxi.diary.sync.InteractionEvents
 import com.linxi.diary.sync.StatusSyncManager
+import com.linxi.diary.sync.StatusFreshness
 import com.linxi.diary.ui.components.KernelScreen
 import com.linxi.diary.ui.components.WarningCard
 import com.linxi.diary.ui.components.WarningLevel
@@ -32,6 +28,11 @@ import com.linxi.diary.ui.theme.BrandBlue
 import com.linxi.diary.util.UserPrefs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.FavoritesFill
+import top.yukonga.miuix.kmp.icon.extended.Messages
+import top.yukonga.miuix.kmp.icon.extended.Ok
+import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Text
@@ -144,7 +145,7 @@ fun NowScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         ActionCard(
-                            "求陪伴", Icons.Filled.Favorite, Modifier.weight(1f),
+                            "求陪伴", MiuixIcons.FavoritesFill, Modifier.weight(1f),
                             active = comfortActive, activeTitle = "已发送…"
                         ) {
                             InteractionEvents.clearRejection()
@@ -157,7 +158,7 @@ fun NowScreen(
                             }
                         }
                         ActionCard(
-                            "求冷静", Icons.Filled.CheckCircle, Modifier.weight(1f),
+                            "求冷静", MiuixIcons.Ok, Modifier.weight(1f),
                             active = calmActive, activeTitle = "已发送…"
                         ) {
                             InteractionEvents.clearRejection()
@@ -171,7 +172,7 @@ fun NowScreen(
                     // 响铃：进行中显示"响铃中"并提供【撤回】，对方关闭后显示"对方已知悉"。
                     val ringAcked = pendingRing?.acknowledged == true
                     ActionCard(
-                        "响铃提醒（紧急找人）", Icons.Filled.Notifications, Modifier.fillMaxWidth(),
+                        "响铃提醒（紧急找人）", MiuixIcons.Messages, Modifier.fillMaxWidth(),
                         active = ringActive,
                         activeTitle = if (ringAcked) "对方已知悉" else "响铃中…（点击撤回）",
                         allowClickWhenActive = true, // 否则撤回点不到
@@ -221,7 +222,7 @@ private fun RelationshipDaysCard(days: Long, anniversary: java.time.LocalDate, p
                 contentAlignment = Alignment.BottomEnd
             ) {
                 Icon(
-                    imageVector = Icons.Filled.Favorite,
+                    imageVector = MiuixIcons.FavoritesFill,
                     contentDescription = null,
                     tint = if (isDynamicColor) colorScheme.primary.copy(alpha = 0.8f) else Color(0xFFF06AA8),
                     modifier = Modifier.size(110.dp)
@@ -258,6 +259,24 @@ private fun RelationshipDaysCard(days: Long, anniversary: java.time.LocalDate, p
     }
 }
 
+/**
+ * 每 30 秒推进一次的"当前时间"。
+ *
+ * 时效文案（"3 分钟前"）必须会自己变，否则用户盯着屏幕时它一直停在"刚刚"，
+ * 反而更容易误信。30 秒粒度足够（文案本身就是分钟级），也不会白耗电。
+ */
+@Composable
+private fun rememberNowTick(): Long {
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(30_000)
+            now = System.currentTimeMillis()
+        }
+    }
+    return now
+}
+
 /** 伴侣状态卡（照抄 KernelSU StatusCard：大图标叠层 Box offset 27,31 + 110dp） */
 @Composable
 private fun PartnerStatusCard(partner: DeviceStatus?, partnerName: String) {
@@ -280,7 +299,7 @@ private fun PartnerStatusCard(partner: DeviceStatus?, partnerName: String) {
                 contentAlignment = Alignment.BottomEnd
             ) {
                 Icon(
-                    imageVector = Icons.Filled.CheckCircle,
+                    imageVector = MiuixIcons.Ok,
                     contentDescription = null,
                     tint = iconTint,
                     modifier = Modifier.size(110.dp)
@@ -292,33 +311,56 @@ private fun PartnerStatusCard(partner: DeviceStatus?, partnerName: String) {
                 contentAlignment = Alignment.TopStart
             ) {
                 Column {
+                    // 状态时效（Q36=D）。
+                    //
+                    // 此前完全不看 ts：2 小时前的状态和 2 秒前的长得一模一样，
+                    // WS 一断（地铁/电梯/飞行模式）对方看到的就是一个"自信满满的错误信息"。
+                    // 过期时置灰 + 明说，比让用户误信旧值好得多；
+                    // 也让下一轮排查有依据（管理员能说"显示 3 分钟前"而不是笼统的"不准"）。
+                    val nowTick = rememberNowTick()
+                    val level = StatusFreshness.levelOf(partner?.ts ?: 0L, nowTick)
+                    val stale = level != StatusFreshness.Level.Fresh
+                    val mainColor =
+                        if (stale) colorScheme.onBackground.copy(alpha = 0.45f)
+                        else colorScheme.onBackground
+
                     Text(
                         when {
                             partner == null -> "等待 $partnerName 同步"
+                            // 失联太久就不该再把旧值当现状展示。
+                            level == StatusFreshness.Level.Offline -> "$partnerName 状态未知"
                             else -> partner.foregroundApp?.second?.let { "正在使用 $it" } ?: "息屏/无前台"
                         },
                         fontSize = 22.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = colorScheme.onBackground
+                        color = mainColor
                     )
                     Spacer(Modifier.height(1.dp))
-                    if (partner != null) {
+                    if (partner != null && level != StatusFreshness.Level.Offline) {
                         Text(
                             "电量 ${partner.batteryLevel}%${if (partner.isCharging) " · 充电中" else ""} · " +
                                     "${if (partner.screenOn) "亮屏${if (partner.isLocked) "·锁定" else "·解锁"}" else "灭屏"}" +
                                     " · ${partner.ssid?.takeIf { it.isNotBlank() }?.let { "WiFi: $it" } ?: "移动网络"}",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Medium,
-                            color = colorScheme.onBackground
+                            color = mainColor
                         )
                         partner.music?.let {
                             if (it.playing) {
                                 Spacer(Modifier.height(1.dp))
                                 Text("♪ ${it.title} - ${it.artist}", fontSize = 14.sp,
-                                    color = colorScheme.onBackground)
+                                    color = mainColor)
                             }
                         }
                     }
+                    // 时效行：始终显示，让用户随时知道该不该相信上面的数据。
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        StatusFreshness.hintText(partner?.ts ?: 0L, nowTick),
+                        fontSize = 12.sp,
+                        color = if (stale) com.linxi.diary.ui.theme.BrandRed.copy(alpha = 0.85f)
+                        else colorScheme.onBackground.copy(alpha = 0.6f),
+                    )
                 }
             }
         }

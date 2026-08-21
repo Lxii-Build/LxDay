@@ -290,3 +290,84 @@
     -webkit-tap-highlight-color: transparent;
   }
 }
+
+/*
+ * ============ 移动端适配（0821 · 管理员 Q44=B）============
+ *
+ * 此前后台只有「≤800px 侧边栏抽屉化」这一层基础响应式，页面层几乎没做：
+ * 搜索区一行塞 3~4 个输入框、表格挤成一团、按钮被曲面屏边缘遮住。
+ * 这里补齐"页面层"的通用规则，各页无需逐个改。
+ */
+@media (width <= 768px) {
+  /*
+   * 搜索/筛选区：窄屏一律纵向堆叠，一行一个控件。
+   *
+   * 各页实际用的是 ElSpace + 行内 `style="width: 240px"`（不是 el-form--inline），
+   * 所以必须直接覆盖 el-space 的内部布局，并用 !important 压掉行内宽度——
+   * 240px 的输入框在 360px 屏上会把整行挤出屏幕，正是横向溢出的主要来源。
+   */
+  .art-table-header,
+  .search-bar,
+  .table-search {
+    .el-space {
+      display: flex !important;
+      flex-direction: column;
+      align-items: stretch;
+      width: 100%;
+
+      .el-space__item {
+        width: 100%;
+        margin-right: 0 !important;
+      }
+
+      /* 行内宽度一律作废，改为撑满 */
+      .el-input,
+      .el-select,
+      .el-date-editor,
+      .el-input-number {
+        width: 100% !important;
+      }
+
+      .el-button {
+        width: 100%;
+      }
+    }
+
+    /* el-form 版本的搜索区（若有）同样处理 */
+    .el-form--inline {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+
+      .el-form-item {
+        width: 100%;
+        margin-right: 0;
+        margin-bottom: 10px;
+      }
+
+      .el-input,
+      .el-select,
+      .el-date-editor {
+        width: 100% !important;
+      }
+    }
+  }
+
+  /* 弹窗：窄屏几乎全宽，留出安全区 */
+  .el-dialog {
+    width: calc(100% - 24px) !important;
+    margin-top: 12px !important;
+    margin-bottom: calc(12px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  /* 卡片/面板内边距收一点，把空间留给内容 */
+  .art-custom-card,
+  .el-card__body {
+    padding: 12px !important;
+  }
+
+  /* 底部安全区：曲面屏与刘海屏的手势区会盖住最后一行内容 */
+  #app-main {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}

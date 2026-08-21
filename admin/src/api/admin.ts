@@ -40,14 +40,6 @@ export function deleteTodo(id: number) {
   return request.del<{ ok: boolean }>({ url: `/api/admin/todos/${id}` })
 }
 
-export function fetchDiaryList(params: Api.Admin.DiarySearchParams) {
-  return request.get<Api.Admin.DiaryList>({ url: '/api/admin/diaries', params })
-}
-
-export function deleteDiary(id: number) {
-  return request.del<{ ok: boolean }>({ url: `/api/admin/diaries/${id}` })
-}
-
 /**
  * 相册照片列表（仅超级管理员可用）
  *
@@ -172,4 +164,33 @@ export function resetAdminPassword(id: number, password: string) {
 
 export function deleteAdmin(id: number) {
   return request.del<{ ok: boolean }>({ url: `/api/admin/admins/${id}` })
+}
+
+/* ==================== 相册管理与磁盘统计（0821 新增，仅超管） ==================== */
+
+/** 相册列表（按 pair 聚合，含张数与占用空间） */
+export function fetchAlbumList(params: Api.Admin.AlbumSearchParams) {
+  return request.get<Api.Admin.AlbumList>({ url: '/api/admin/albums', params })
+}
+
+/** 删相册（软删，其中照片退回「未归类」） */
+export function deleteAlbum(id: number) {
+  return request.del<{ ok: boolean }>({ url: `/api/admin/albums/${id}` })
+}
+
+/** 磁盘占用统计：各 pair 的照片数/字节数 + 全站合计 + 真实磁盘占用 */
+export function fetchStorageStats() {
+  return request.get<Api.Admin.StorageStats>({ url: '/api/admin/storage-stats' })
+}
+
+/** 清空某对情侣的回收站（**真删磁盘文件，不可恢复**） */
+export function purgeRecycleBin(pairId: number) {
+  return request.post<{ purged: number; freed_bytes: number }>({
+    url: `/api/admin/pairs/${pairId}/purge-recycle-bin`
+  })
+}
+
+/** 运行参数（相册配额/保留期/限流/互动冷却）。不含密钥，普通管理员可读 */
+export function fetchRuntimeSettings() {
+  return request.get<Api.Admin.RuntimeSettingsResp>({ url: '/api/admin/runtime-settings' })
 }

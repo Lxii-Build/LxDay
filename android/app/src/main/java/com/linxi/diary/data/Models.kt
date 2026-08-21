@@ -74,32 +74,6 @@ data class TodoItem(
     }
 }
 
-data class DiaryItem(
-    val id: Long,
-    val authorId: Long,
-    val authorName: String,
-    val title: String,
-    val content: String,
-    val diaryDate: String,   // YYYY-MM-DD
-    val images: List<String>,
-    val createdAtMs: Long
-) {
-    companion object {
-        fun fromJson(j: JSONObject) = DiaryItem(
-            id = j.optLong("id"),
-            authorId = j.optLong("author_id"),
-            authorName = j.optString("author_name"),
-            title = j.optString("title"),
-            content = j.optString("content"),
-            diaryDate = j.optString("diary_date"),
-            images = j.optJSONArray("images")?.let {
-                (0 until it.length()).map { i -> it.optString(i) }
-            } ?: emptyList(),
-            createdAtMs = optTimeMs(j, "created_at")
-        )
-    }
-}
-
 /** 历史时间线条目 */
 data class HistoryEntry(
     val battery: Int,

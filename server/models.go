@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"time"
 )
 
@@ -37,6 +38,19 @@ type Pair struct {
 	AnniversaryDate *time.Time `json:"anniversary_date"`
 }
 
+// PartnerOf 返回 uid 的伴侣 id；uid 不属于该 pair 时返回 0。
+// 供「伴侣状态历史」等需要按对方视角查询的接口使用。
+func (p *Pair) PartnerOf(uid int64) int64 {
+	switch uid {
+	case p.UserAID:
+		return p.UserBID
+	case p.UserBID:
+		return p.UserAID
+	default:
+		return 0
+	}
+}
+
 type AppInfo struct {
 	Pkg  string `json:"pkg"`
 	Name string `json:"name"`
@@ -61,20 +75,32 @@ type DeviceStatus struct {
 	UpdatedAt     int64      `json:"ts"`
 }
 
-// 状态历史记录（5 分钟聚合，永久保留）
+// 状态历史记录（5 分钟聚合，保留天数见 settings 的 retention.status_history_days）
+//
+// **foreground_pkg / foreground_name / ssid 三列在库里可为 NULL**，
+// 客户端未授「使用情况访问」或息屏无前台应用时 pkgOf()/nameOf() 就返回 nil。
+// 这三个字段曾经是 `string`，`rows.Scan` 会直接报
+// `converting NULL to string is unsupported`；而调用方忽略了 Scan 的返回值，
+// 于是整行保持零值 → Ts 变成 0001-01-01 → 序列化出的 ts 是 -62135596800000（每行都一样）
+// → 客户端 LazyColumn 的 `key = { it.ts }` 撞重复 key → IllegalArgumentException 崩溃。
+// 这就是「进伴侣状态历史 APP 崩掉」的根因，故这三列必须用可空类型接。
 type StatusHistory struct {
-	PairID        int64     `json:"-"`
-	UserID        int64     `json:"user_id"`
-	BatteryLevel  int       `json:"battery"`
-	IsCharging    bool      `json:"charging"`
-	ScreenOn      bool      `json:"screen_on"`
-	IsLocked      bool      `json:"locked"`
-	ForegroundPkg string    `json:"-"`
-	ForegroundApp string    `json:"foreground_app,omitempty"`
-	SSID          string    `json:"ssid,omitempty"`
-	NetworkType   string    `json:"network"`
-	Ts            time.Time `json:"ts"`
+	PairID        int64          `json:"-"`
+	UserID        int64          `json:"user_id"`
+	BatteryLevel  int            `json:"battery"`
+	IsCharging    bool           `json:"charging"`
+	ScreenOn      bool           `json:"screen_on"`
+	IsLocked      bool           `json:"locked"`
+	ForegroundPkg sql.NullString `json:"-"`
+	ForegroundApp sql.NullString `json:"-"`
+	SSID          sql.NullString `json:"-"`
+	NetworkType   string         `json:"network"`
+	Ts            time.Time      `json:"ts"`
 }
+
+// ForegroundAppName / SSIDValue 供 handler 输出 JSON 时取值（NULL → 空串）。
+func (h StatusHistory) ForegroundAppName() string { return h.ForegroundApp.String }
+func (h StatusHistory) SSIDValue() string         { return h.SSID.String }
 
 type Todo struct {
 	ID            int64      `json:"id"`
@@ -90,19 +116,6 @@ type Todo struct {
 	RemindEnabled bool       `json:"remind_enabled"` // 提醒开关，缺省 true；关闭后扫描跳过
 	Status        int        `json:"status"`         // 0待办 1已完成 2已删除
 	CompletedAt   *time.Time `json:"completed_at,omitempty"`
-}
-
-type Diary struct {
-	ID         int64     `json:"id"`
-	PairID     int64     `json:"pair_id"`
-	AuthorID   int64     `json:"author_id"`
-	AuthorName string    `json:"author_name"`
-	Title      string    `json:"title"`
-	Content    string    `json:"content"`
-	DiaryDate  string    `json:"diary_date"` // YYYY-MM-DD
-	Images     []string  `json:"images,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // ================= 相册 =================
@@ -143,8 +156,18 @@ type Photo struct {
 	Status     int        `json:"status"` // 1正常 2回收站
 	CreatedAt  time.Time  `json:"created_at"`
 
-	diskPath  string // uploadDir 相对路径，仅服务端内部使用
-	diskThumb string
+	// PreviewURL 大图页先加载的中等尺寸（长边 1080）。
+	// 三档（thumb 384 / preview 1080 / origin 2048）是为了让"点开大图"秒出：
+	// 此前从缩略图直接跳原图，弱网下要白屏等 3~5 秒。
+	PreviewURL string `json:"preview_url,omitempty"`
+	// RecycleRemainingDays 仅回收站列表返回：还剩几天被自动彻底删除。
+	// -1=永久保留，0=已到期。让用户知道回收站不是永久保险箱。
+	RecycleRemainingDays *int `json:"recycle_remaining_days,omitempty"`
+
+	diskPath    string // uploadDir 相对路径，仅服务端内部使用
+	diskThumb   string
+	diskPreview string
+	deletedAt   sql.NullTime // 进回收站的时刻，用于计算保留期
 }
 
 // PhotoComment 照片评论。
@@ -197,8 +220,6 @@ const (
 	MsgActionRejected = "action_rejected" // 服务端拒绝了一次上行动作（如超频），回给发送方
 	MsgTodoNew        = "todo_new"        // 新待办
 	MsgTodoCompleted  = "todo_completed"  // 待办完成
-	MsgDiaryNew       = "diary_new"       // 新日记
-	MsgDiaryUpdated   = "diary_updated"   // 日记更新
 	MsgLowBattery     = "low_battery"     // 对方电量 <15%
 	MsgWifiJoined     = "wifi_joined"     // 对方连接指定 WiFi
 	MsgTodoRemind     = "todo_remind"     // 待办到点提醒
@@ -227,7 +248,6 @@ var highPriorityEvents = map[string]bool{
 	MsgCalmRequest:    true,
 	MsgTodoNew:        true,
 	MsgTodoCompleted:  true,
-	MsgDiaryNew:       true,
 	MsgLowBattery:     true,
 	MsgWifiJoined:     true,
 	MsgTodoRemind:     true,

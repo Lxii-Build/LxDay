@@ -9,9 +9,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material3.Icon
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,6 +35,9 @@ import coil3.compose.AsyncImage
 import com.linxi.diary.data.AppImageLoader
 import com.linxi.diary.util.Logs
 import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Contacts
+import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
@@ -49,7 +49,15 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
  * 纪念日（情侣共用，/pair/anniversary，仅已绑定时显示）。
  */
 @Composable
-fun ProfileEditScreen(onBack: () -> Unit) {
+fun ProfileEditScreen(
+    onBack: () -> Unit,
+    /** 触发选图（导航层跳到 PhotoPicker 单选模式 → 裁剪页）。 */
+    onPickAvatar: () -> Unit = {},
+    /** 裁剪完成后回传的文件；为 null 表示本次没有待上传的头像。 */
+    croppedAvatar: java.io.File? = null,
+    /** 消费掉 croppedAvatar，避免重组时重复上传。 */
+    onCroppedConsumed: () -> Unit = {},
+) {
     BackHandler { onBack() }
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
@@ -107,43 +115,38 @@ fun ProfileEditScreen(onBack: () -> Unit) {
     var avatarError by remember { mutableStateOf<String?>(null) }
 
     /**
-     * 头像选择改用系统 Photo Picker（`PickVisualMedia`）。
+     * 头像上传：接收已裁剪好的文件，直接传。
      *
-     * 原先是 `OpenDocument()`——SAF **文件浏览器**，得在文件树里翻找图片，
-     * 是全 App 观感最差的一处。这里不用自研的 miuix 网格选择器：
-     * 头像是单选，系统 Photo Picker 更轻且**完全不需要读取权限**；
-     * 相册的多选场景才走自研网格（PhotoPickerScreen）。
+     * 选图与裁剪由 [com.linxi.diary.ui.screens.PhotoPickerScreen] +
+     * [AvatarCropScreen] 负责（管理员 Q13=C：头像也用和相册一样的选图器，并加圆形裁剪）。
+     * 此前用系统 Photo Picker，与全 App 的 miuix 观感不一致；
+     * 更早还用过 SAF 文件浏览器，是观感最差的一处。
      */
-    val avatarPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        if (uri != null) {
-            avatarUploading = true
-            avatarError = null
-            scope.launch {
-                // 统一走 ImagePrep：EXIF 旋正 + 长边压到 2048 + HEIC 转 JPEG。
-                // 服务端解码链是纯 Go（镜像无 libvips），不转 HEIC 会被直接拒；
-                // 且此前原样上传未旋正，竖拍头像会躺倒。
-                val prepared = ImagePrep.prepare(context, uri).getOrNull()
-                if (prepared == null) {
-                    avatarError = "这张图片无法处理，换一张试试"
-                    avatarUploading = false
-                    return@launch
+    fun uploadAvatarFile(file: java.io.File) {
+        avatarUploading = true
+        avatarError = null
+        scope.launch {
+            runCatching {
+                ApiClient.uploadAvatar(file)
+                MyProfile.fromJson(ApiClient.getMyProfile())
+            }.onSuccess { applyProfile(it); avatarVersion++ }
+                .onFailure {
+                    // 失败必须有反馈：此前只写日志，UI 上「上传中…」消失、头像没变，
+                    // 用户完全不知道发生了什么。
+                    avatarError = it.message?.takeIf { m -> m.isNotBlank() } ?: "头像上传失败，请重试"
+                    Logs.w("Profile", "upload avatar failed", it)
                 }
-                runCatching {
-                    ApiClient.uploadAvatar(prepared.file)
-                    MyProfile.fromJson(ApiClient.getMyProfile())
-                }.onSuccess { applyProfile(it); avatarVersion++ }
-                    .onFailure {
-                        // 失败必须有反馈：此前只写日志，UI 上「上传中…」消失、头像没变，
-                        // 用户完全不知道发生了什么。
-                        avatarError = it.message?.takeIf { m -> m.isNotBlank() } ?: "头像上传失败，请重试"
-                        Logs.w("Profile", "upload avatar failed", it)
-                    }
-                prepared.file.delete()
-                avatarUploading = false
-            }
+            file.delete()
+            avatarUploading = false
         }
+    }
+
+    // 裁剪页回来后自动上传。用 key 保证同一个文件只上传一次
+    // （重组会重跑 LaunchedEffect 体，若不消费掉就会重复上传）。
+    LaunchedEffect(croppedAvatar) {
+        val file = croppedAvatar ?: return@LaunchedEffect
+        onCroppedConsumed()
+        uploadAvatarFile(file)
     }
 
     ProfileEditContent(
@@ -157,13 +160,7 @@ fun ProfileEditScreen(onBack: () -> Unit) {
         onAnnYear = { annYear = it }, onAnnMonth = { annMonth = it }, onAnnDay = { annDay = it },
         avatarUrl = profile?.avatarUrl, avatarVersion = avatarVersion,
         avatarUploading = avatarUploading,
-        onPickAvatar = {
-            // PickVisualMedia 的入参是 PickVisualMediaRequest（不再是 MIME 数组）。
-            // 不必再列 heic/heif：ImagePrep 会把一切非 JPEG/PNG/WebP/GIF 转成 JPEG。
-            if (!avatarUploading) avatarPicker.launch(
-                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-            )
-        },
+        onPickAvatar = { if (!avatarUploading) onPickAvatar() },
         // 头像上传失败的原因优先于表单错误展示（用户刚做的动作最相关）。
         error = avatarError ?: error,
         saving = saving,
@@ -333,7 +330,7 @@ private fun NetworkAvatar(url: String?, version: Int, fallback: String, size: Dp
         } else if (fallback.isNotBlank()) {
             Text(fallback.take(1), color = BrandBlue, fontSize = 32.sp, fontWeight = FontWeight.SemiBold)
         } else {
-            Icon(Icons.Rounded.Person, contentDescription = "头像", tint = BrandBlue, modifier = Modifier.size(40.dp))
+            Icon(MiuixIcons.Contacts, contentDescription = "头像", tint = BrandBlue, modifier = Modifier.size(40.dp))
         }
     }
 }

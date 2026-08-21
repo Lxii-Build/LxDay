@@ -10,6 +10,7 @@ import androidx.core.app.NotificationCompat
 import com.linxi.diary.BuildConfig
 import com.linxi.diary.MainActivity
 import com.linxi.diary.core.DeviceStatus
+import com.linxi.diary.data.ApiClient
 import com.linxi.diary.data.ProfileRuntime
 import com.linxi.diary.core.DeviceStatusHolder
 import com.linxi.diary.core.MusicInfo
@@ -148,16 +149,34 @@ object StatusSyncManager {
         }
     }
 
-    /** 上报本机全量状态。共享开关关闭时不推送。关键变更调用 pushNow() 即时推送 */
+    /**
+     * 上报本机全量状态。共享开关关闭时不推送。关键变更调用 pushNow() 即时推送。
+     *
+     * **WS 断线时改走 HTTP 兜底**（Q36=B）。
+     * 此前这里是 `val w = ws ?: return`——WS 没连上就把这次采集**直接扔掉**，
+     * 而服务端当时也没有任何 REST 状态写入端点。于是地铁、电梯、切飞行模式期间
+     * 状态完全停更，对方看到的是一个"看起来很正常"的旧值（UI 又不显示时效）。
+     * 现在 WS 优先（省一次 HTTP 往返 + 服务端能即时转发给对方），失败才用 `POST /status`。
+     */
     fun pushNow() {
         try {
             if (!SharingRuntimePolicy.canRunNow()) return
-            val w = ws ?: return
             val s = DeviceStatusHolder.current ?: return
-            w.send(JSONObject().apply {
+            val payload = JSONObject().apply {
                 put("type", "status_update")
                 put("data", s.toJson())
-            }.toString())
+            }.toString()
+
+            val w = ws
+            if (w != null && runCatching { w.send(payload) }.getOrDefault(false)) {
+                return // WS 已送达
+            }
+            // WS 不可用或发送失败 → HTTP 兜底。
+            // 起独立协程而非阻塞：pushNow 会在采集线程里被调用，不能在这里等网络。
+            scope.launch {
+                runCatching { ApiClient.reportStatus(s.toJson()) }
+                    .onFailure { Logs.w("Sync", "REST 兜底上报失败", it) }
+            }
         } catch (t: Throwable) {
             Logs.w("Sync", "pushNow 失败", t)
         }
@@ -260,10 +279,6 @@ object StatusSyncManager {
             "todo_completed" -> {
                 val title = m.optJSONObject("data")?.optString("title") ?: ""
                 notifyEvent("待办已完成", "对方 完成了：$title")
-            }
-            "diary_new" -> {
-                val title = m.optJSONObject("data")?.optString("title") ?: "新日记"
-                notifyEvent("对方 发布了新日记", title)
             }
             "low_battery" -> {
                 val level = m.optJSONObject("data")?.optInt("battery") ?: 0

@@ -4,7 +4,70 @@
 <!-- 获取 ref：默认暴露了 elTableRef 外部通过 ref.value.elTableRef 可以调用 el-table 方法 -->
 <template>
   <div class="art-table" :class="{ 'is-empty': isEmpty }" :style="containerHeight">
-    <ElTable ref="elTableRef" v-loading="!!loading" v-bind="mergedTableProps">
+    <!--
+      窄屏卡片化（管理员 Q44=B）。
+
+      此前 el-table 在移动端**除了分页器布局切换之外零处理**：
+      没有横向滚动容器、没有卡片化、没有按断点隐藏列，
+      11 个用表格的页面里 9 个还没设列宽 —— 手机上列被挤成一团或整体溢出，
+      这就是管理员说的「后台手机上不能用」。
+
+      收敛在这个共享组件里做，11 个页面零改动即全部受益；
+      逐页去调不仅工作量大，日后新增页面还会漏。
+
+      卡片复用与表格**完全相同的列配置与插槽**（同名 slot、同一份 scope），
+      所以各页的自定义渲染（状态标签、操作按钮）在卡片里照常工作。
+    -->
+    <div v-if="isMobileLayout && canRenderCards" v-loading="!!loading" class="art-table__cards">
+      <ElEmpty v-if="isEmpty && !loading" :description="emptyText" :image-size="100" />
+      <div v-for="(row, rowIndex) in mobileRows" :key="rowIndex" class="art-table__card">
+        <div v-for="col in mobileFieldColumns" :key="col.prop || col.label" class="art-table__cell">
+          <span class="art-table__cell-label">{{ col.label }}</span>
+          <span class="art-table__cell-value">
+            <slot
+              v-if="col.useSlot && col.prop"
+              :name="col.slotName || col.prop"
+              v-bind="{
+                row,
+                $index: rowIndex,
+                column: col,
+                prop: col.prop,
+                value: row[col.prop]
+              }"
+            />
+            <template v-else>{{ formatCellText(row, col) }}</template>
+          </span>
+        </div>
+        <!-- 操作列单独放卡底：手机上按钮要足够大、位置固定，不该混在字段里 -->
+        <div v-if="mobileActionColumns.length" class="art-table__card-actions">
+          <template v-for="col in mobileActionColumns" :key="col.prop || col.label">
+            <slot
+              :name="col.slotName || col.prop || 'operation'"
+              v-bind="{
+                row,
+                $index: rowIndex,
+                column: col,
+                prop: col.prop,
+                value: col.prop ? row[col.prop] : undefined
+              }"
+            />
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <!--
+      表格模式。窄屏走不到这里，除非该页用的是 <ElTableColumn> 子元素写法
+      而不是 :columns 配置（如 admin-manage）——那种页面拿不到列元信息，
+      无法卡片化，只能退回"可横向滚动的表格"，由 .art-table--scroll-x 保证不撑破布局。
+    -->
+    <ElTable
+      v-else
+      ref="elTableRef"
+      v-loading="!!loading"
+      :class="{ 'art-table--scroll-x': isMobileLayout }"
+      v-bind="mergedTableProps"
+    >
       <template v-for="col in columns" :key="col.prop || col.type">
         <!-- 渲染全局序号列 -->
         <ElTableColumn v-if="col.type === 'globalIndex'" v-bind="{ ...col }">
@@ -165,6 +228,77 @@
       return LAYOUT.DESKTOP
     }
   })
+
+  /**
+   * 卡片化断点。768px 与 Tailwind 的 md 一致，也正好是"平板竖屏 / 手机"的分界。
+   * 一加 15 的视口约 412px、iPhone 约 390px，都会走卡片；平板 768 起仍是表格。
+   */
+  const MOBILE_TABLE_BREAKPOINT = 768
+  const isMobileLayout = computed(() => width.value < MOBILE_TABLE_BREAKPOINT)
+
+  /**
+   * 能否卡片化。
+   *
+   * 卡片渲染依赖 `:columns` 配置（要拿到 label/prop/slot 元信息）。
+   * 有些页面（如 admin-manage）直接写 `<ElTableColumn>` 子元素，
+   * columns 是空的 —— 那种页面无法卡片化，退回可横向滚动的表格，
+   * 至少不会把整页撑出横向溢出。
+   */
+  const canRenderCards = computed(() => (props.columns?.length ?? 0) > 0)
+
+  /** 卡片模式的数据源。与表格共用 data，不额外请求。 */
+  const mobileRows = computed<Record<string, any>[]>(() => {
+    const data = (attrs.data ?? (props as any).data) as Record<string, any>[] | undefined
+    return Array.isArray(data) ? data : []
+  })
+
+  /**
+   * 卡片里要展示的字段列。
+   *
+   * 排除掉在卡片语境下没有意义或会造成困扰的列：
+   *  - selection / expand / index：卡片没有表头，勾选与展开无处安放
+   *  - 操作列：单独渲染到卡底（见 mobileActionColumns）
+   */
+  const mobileFieldColumns = computed(() =>
+    (props.columns || []).filter((col) => {
+      if (col.type && ['selection', 'expand', 'index', 'globalIndex'].includes(col.type)) return false
+      if (isActionColumn(col)) return false
+      return !!(col.prop || col.label)
+    })
+  )
+
+  /** 操作列（按 prop/label 识别，兼容各页的不同写法）。 */
+  const mobileActionColumns = computed(() => (props.columns || []).filter(isActionColumn))
+
+  function isActionColumn(col: ColumnOption): boolean {
+    const prop = String(col.prop ?? '')
+    const label = String(col.label ?? '')
+    return (
+      prop === 'operation' ||
+      prop === 'actions' ||
+      prop === 'action' ||
+      label === '操作' ||
+      label === 'Operation' ||
+      label === 'Actions'
+    )
+  }
+
+  /**
+   * 卡片单元格的兜底文本。
+   * 优先用列自带的 formatter（各页用它做时间格式化、枚举翻译），
+   * 否则直接取值；空值统一显示 "-" 而不是空白，避免看起来像渲染失败。
+   */
+  function formatCellText(row: Record<string, any>, col: ColumnOption): string {
+    if (typeof col.formatter === 'function' && col.prop) {
+      const out = (col.formatter as any)(row, col, row[col.prop], 0)
+      // formatter 可能返回 VNode（那种列一般也配了 useSlot），此处只接受可直接显示的值
+      if (typeof out === 'string' || typeof out === 'number') return String(out)
+    }
+    if (!col.prop) return '-'
+    const v = row[col.prop]
+    if (v === null || v === undefined || v === '') return '-'
+    return String(v)
+  }
 
   // 默认分页常量
   const DEFAULT_PAGINATION_OPTIONS: PaginationOptions = {

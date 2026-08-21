@@ -17,11 +17,6 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Favorite
-import androidx.compose.material.icons.rounded.FavoriteBorder
-import androidx.compose.material3.Icon
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,15 +32,23 @@ import com.linxi.diary.data.ApiClient
 import com.linxi.diary.data.AppImageLoader
 import com.linxi.diary.data.PhotoCommentItem
 import com.linxi.diary.data.PhotoItem
+import com.linxi.diary.data.PhotoLoadSource
 import com.linxi.diary.ui.components.BackAction
+import com.linxi.diary.ui.theme.BrandRed
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Album
+import top.yukonga.miuix.kmp.icon.extended.Delete
+import top.yukonga.miuix.kmp.icon.extended.Favorites
+import top.yukonga.miuix.kmp.icon.extended.FavoritesFill
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -84,8 +87,58 @@ fun PhotoViewerScreen(
     var caption by remember { mutableStateOf("") }
     var captionDraft by remember { mutableStateOf("") }
     var editingCaption by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    // 一次性提示（设封面成功/失败）。用文字条而非 Toast，避免与 miuix 观感割裂。
+    var hintText by remember { mutableStateOf<String?>(null) }
 
     val current = photos[pagerState.currentPage.coerceIn(0, photos.lastIndex)]
+
+    // 提示 2 秒后自动消失
+    LaunchedEffect(hintText) {
+        if (hintText != null) {
+            kotlinx.coroutines.delay(2000)
+            hintText = null
+        }
+    }
+
+    // 预加载相邻两张的预览图：此前左右滑动每次都白屏等下载。
+    // 只预热 Coil 缓存、不渲染，命中后翻页即刻出图。
+    LaunchedEffect(pagerState.currentPage) {
+        val loader = AppImageLoader.get(context)
+        listOf(pagerState.currentPage - 1, pagerState.currentPage + 1)
+            .filter { it in photos.indices }
+            .forEach { idx ->
+                runCatching {
+                    loader.enqueue(
+                        coil3.request.ImageRequest.Builder(context)
+                            .data(photos[idx].viewerUrl)
+                            .build()
+                    )
+                }
+            }
+    }
+
+    if (confirmDelete) {
+        com.linxi.diary.ui.components.LxConfirmDialog(
+            show = true,
+            title = "删除照片",
+            message = "这张照片会移到回收站，可以在回收站里恢复。",
+            confirmText = "移到回收站",
+            destructive = true,
+            busy = busy,
+            busyText = "删除中…",
+            onConfirm = {
+                busy = true
+                scope.launch {
+                    runCatching { ApiClient.deletePhoto(current.id) }
+                        .onSuccess { confirmDelete = false; onDeleted() }
+                        .onFailure { confirmDelete = false; hintText = "删除失败，请重试" }
+                    busy = false
+                }
+            },
+            onDismiss = { if (!busy) confirmDelete = false },
+        )
+    }
 
     // 翻页即刷新该张的点赞/评论。
     LaunchedEffect(current.id) {
@@ -110,19 +163,32 @@ fun PhotoViewerScreen(
                 title = "${pagerState.currentPage + 1} / ${photos.size}",
                 navigationIcon = { BackAction(onBack) },
                 actions = {
-                    IconButton(onClick = {
-                        if (busy) return@IconButton
-                        busy = true
-                        scope.launch {
-                            runCatching { ApiClient.deletePhoto(current.id) }
-                                .onSuccess { onDeleted() }
-                            busy = false
+                    // 设为相册封面：接口早就有（PUT /albums/:id 的 cover_photo_id），
+                    // 但一直没有任何 UI 入口，等于白写。未归类（album_id=0）没有封面概念。
+                    if (current.albumId != 0L) {
+                        IconButton(onClick = {
+                            if (busy) return@IconButton
+                            busy = true
+                            scope.launch {
+                                runCatching { ApiClient.setAlbumCover(current.albumId, current.id) }
+                                    .onSuccess { hintText = "已设为相册封面" }
+                                    .onFailure { hintText = "设置封面失败" }
+                                busy = false
+                            }
+                        }) {
+                            Icon(
+                                imageVector = MiuixIcons.Album,
+                                contentDescription = "设为相册封面",
+                                tint = MiuixTheme.colorScheme.onBackground,
+                            )
                         }
-                    }) {
+                    }
+                    // 删除必须二次确认：照片是不可再生数据，此前点一下就删、零确认，误触零成本。
+                    IconButton(onClick = { if (!busy) confirmDelete = true }) {
                         Icon(
-                            Icons.Rounded.Delete,
+                            imageVector = MiuixIcons.Delete,
                             contentDescription = "删除这张照片",
-                            tint = MiuixTheme.colorScheme.onBackground,
+                            tint = BrandRed,
                         )
                     }
                 },
@@ -130,11 +196,29 @@ fun PhotoViewerScreen(
         },
     ) { inner ->
         Column(Modifier.fillMaxSize().padding(top = inner.calculateTopPadding())) {
+            // 一次性提示条（设封面成功/删除失败等），2 秒自动消失。
+            hintText?.let { hint ->
+                Text(
+                    hint,
+                    fontSize = 13.sp,
+                    color = MiuixTheme.colorScheme.onSurface,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MiuixTheme.colorScheme.surfaceVariant)
+                        .padding(vertical = 8.dp, horizontal = 16.dp),
+                )
+            }
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier.weight(1f).background(Color.Black),
             ) { page ->
-                ZoomableImage(url = photos[page].url, description = photos[page].caption)
+                // 本机有原图就直接读本机（自己传的照片），否则走云端 preview→origin 两档。
+                ZoomableImage(
+                    previewModel = PhotoLoadSource.viewerModel(context, photos[page]),
+                    originModel = PhotoLoadSource.originModel(context, photos[page]),
+                    cacheKey = photos[page].id,
+                    description = photos[page].caption,
+                )
             }
 
             Row(
@@ -165,7 +249,7 @@ fun PhotoViewerScreen(
                     }
                 }) {
                     Icon(
-                        if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                        if (liked) MiuixIcons.FavoritesFill else MiuixIcons.Favorites,
                         contentDescription = if (liked) "取消赞" else "点赞",
                         tint = if (liked) MiuixTheme.colorScheme.primary
                         else MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -314,21 +398,35 @@ fun PhotoViewerScreen(
     }
 }
 
-/** 双指缩放 + 拖动。缩放钳制在 1x~4x，避免缩到看不见或放大到失真。 */
+/**
+ * 双指缩放 + 拖动。缩放钳制在 1x~4x，避免缩到看不见或放大到失真。
+ *
+ * **两档加载**：首屏用 preview（长边 1080，秒出），一旦用户放大就切原图。
+ * 此前直接加载 2048 长边原图，弱网下点开要白屏等 3~5 秒；
+ * 而 1080 在手机屏幕上未放大时与原图肉眼无差。
+ */
 @Composable
-private fun ZoomableImage(url: String, description: String) {
+private fun ZoomableImage(
+    previewModel: Any,
+    originModel: Any,
+    cacheKey: Long,
+    description: String,
+) {
     val context = LocalContext.current
-    var scale by remember(url) { mutableStateOf(1f) }
-    var offsetX by remember(url) { mutableStateOf(0f) }
-    var offsetY by remember(url) { mutableStateOf(0f) }
+    var scale by remember(cacheKey) { mutableStateOf(1f) }
+    var offsetX by remember(cacheKey) { mutableStateOf(0f) }
+    var offsetY by remember(cacheKey) { mutableStateOf(0f) }
+    // 放大过就一直用原图：来回切会让画质忽好忽坏，比一直清晰更难受。
+    var wantOrigin by remember(cacheKey) { mutableStateOf(false) }
 
     Box(
         Modifier
             .fillMaxSize()
-            .pointerInput(url) {
+            .pointerInput(cacheKey) {
                 detectTransformGestures { _, pan, zoom, _ ->
                     scale = (scale * zoom).coerceIn(1f, 4f)
                     if (scale > 1f) {
+                        wantOrigin = true
                         offsetX += pan.x
                         offsetY += pan.y
                     } else {
@@ -340,7 +438,7 @@ private fun ZoomableImage(url: String, description: String) {
         contentAlignment = Alignment.Center,
     ) {
         AsyncImage(
-            model = url,
+            model = if (wantOrigin) originModel else previewModel,
             imageLoader = AppImageLoader.get(context),
             contentDescription = description.ifBlank { "照片" },
             contentScale = ContentScale.Fit,

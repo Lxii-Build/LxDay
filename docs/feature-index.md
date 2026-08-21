@@ -6,7 +6,6 @@
 | 知情授权 | 根级 Miuix `OverlayDialog` / `screens/PrivacyConsentScreen.kt` | `UserPrefs.privacyConsented`、`sync/SharingRuntimePolicy.kt` | 同意后才开启真实共享；DemoMode 保持关闭 |
 | 主页 | `screens/NowScreen.kt` | `core/DeviceStatusHolder.kt` | 状态同步 WS；DemoMode 禁用远程互动 |
 | 待办 | `screens/TodoScreen.kt` / 主层 FAB | `core/TodoAlarmReceiver.kt`、`debug/DemoContent.kt` | REST + WS + AlarmManager；示例无副作用 |
-| 日记 | `screens/DiaryScreen.kt` / 主层 FAB | `data/ApiClient.kt`、`debug/DemoContent.kt` | REST `/diaries`；示例无上传/发布 |
 | 相册列表 | 发现页 → `Screen.DiscoverAlbum` / `screens/AlbumListScreen.kt` | `data/ApiClient.kt` | REST `/albums`、`/albums/summary`；见 [ALBUM.md](ALBUM.md) |
 | 相册详情（网格） | `screens/AlbumDetailScreen.kt` | Coil 3 加载 `/media/<id>/thumb` | REST `/albums/:id/photos` |
 | 大图查看 | `screens/PhotoViewerScreen.kt` | Pager + 双指缩放；Coil 3 加载 `/media/<id>` | REST `/photos/:id`、点赞/评论接口 |

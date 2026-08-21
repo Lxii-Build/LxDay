@@ -36,30 +36,87 @@ object StatusCollector {
         }
     }
 
-    /** 前台 APP（包名, 应用名）。无授权或异常返回 null */
-    fun foregroundApp(c: Context): Pair<String, String>? {
-        if (!hasUsageAccess(c)) return null
+    /** 上一次成功取到的前台应用，配合 [ForegroundAppPolicy.CACHE_TTL_MS] 使用。 */
+    @Volatile
+    private var cachedForeground: Pair<String, String>? = null
+
+    @Volatile
+    private var cachedForegroundAt: Long = 0L
+
+    /**
+     * 前台 APP（包名, 应用名）。无授权、息屏或异常返回 null。
+     *
+     * 三处修复（详见 [ForegroundAppPolicy] 的说明）：
+     *   ① 查询窗口从 24 小时缩到 60 秒（逐级回退），遍历量从上万条降到几十条；
+     *   ② 认 PAUSED/STOPPED —— 回桌面后不再显示上一个应用；
+     *   ③ 息屏/AOD 时根本不查，直接返回 null。
+     */
+    fun foregroundApp(c: Context, screenState: ScreenState = ScreenState.On): Pair<String, String>? {
+        if (!ForegroundAppPolicy.shouldQuery(screenState, hasUsageAccess(c))) {
+            // 息屏时清掉缓存：否则一旦亮屏，可能先闪一下几分钟前的旧应用。
+            if (screenState != ScreenState.On) {
+                cachedForeground = null
+                cachedForegroundAt = 0L
+            }
+            return null
+        }
         return try {
             val usm = c.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-            val end = System.currentTimeMillis()
-            val events = usm.queryEvents(end - 86_400_000L, end)
-            val e = UsageEvents.Event()
-            var pkg: String? = null
-            var lastTs = 0L
-            while (events.hasNextEvent()) {
-                events.getNextEvent(e)
-                if (e.timeStamp > lastTs &&
-                    (e.eventType == UsageEvents.Event.ACTIVITY_RESUMED ||
-                     e.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND)) {
-                    pkg = e.packageName
-                    lastTs = e.timeStamp
+            val now = System.currentTimeMillis()
+
+            // 逐级放大窗口：60s → 5min → 30min → 6h。
+            // 用户连续停在同一个应用里时，短窗口内一条事件都没有，必须回退才能判对。
+            for (window in ForegroundAppPolicy.windowSequence()) {
+                val collected = readEvents(usm, now - window, now)
+                if (collected.isEmpty()) continue
+                val pkg = ForegroundAppPolicy.resolve(collected)
+                if (pkg != null) {
+                    val result = pkg to appName(c, pkg)
+                    cachedForeground = result
+                    cachedForegroundAt = now
+                    return result
                 }
+                // 明确判定为"在桌面"（最后一个事件是 PAUSED/STOPPED）：
+                // 这是有效结论，不该再放大窗口去翻更早的记录。
+                cachedForeground = null
+                cachedForegroundAt = now
+                return null
             }
-            pkg?.let { it to appName(c, it) }
+            // 所有窗口都没有事件：用缓存兜一下，避免状态在"有/无"之间闪。
+            if (ForegroundAppPolicy.cacheUsable(cachedForegroundAt, now)) cachedForeground else null
         } catch (t: Throwable) {
             Logs.w(TAG, "foregroundApp 读取异常", t)
             null
         }
+    }
+
+    /** 读一段时间窗内的相关事件，转成与 Android 无关的精简结构。 */
+    private fun readEvents(
+        usm: UsageStatsManager,
+        beginMs: Long,
+        endMs: Long,
+    ): List<ForegroundAppPolicy.Event> {
+        val out = ArrayList<ForegroundAppPolicy.Event>(32)
+        val events = usm.queryEvents(beginMs, endMs)
+        val e = UsageEvents.Event()
+        while (events.hasNextEvent()) {
+            events.getNextEvent(e)
+            val type = when (e.eventType) {
+                UsageEvents.Event.ACTIVITY_RESUMED,
+                @Suppress("DEPRECATION") UsageEvents.Event.MOVE_TO_FOREGROUND,
+                -> ForegroundAppPolicy.Type.Resumed
+
+                UsageEvents.Event.ACTIVITY_PAUSED,
+                @Suppress("DEPRECATION") UsageEvents.Event.MOVE_TO_BACKGROUND,
+                -> ForegroundAppPolicy.Type.Paused
+
+                UsageEvents.Event.ACTIVITY_STOPPED -> ForegroundAppPolicy.Type.Stopped
+                else -> null
+            } ?: continue
+            val pkg = e.packageName ?: continue
+            out += ForegroundAppPolicy.Event(pkg, e.timeStamp, type)
+        }
+        return out
     }
 
     /** 当日各应用使用时长（分钟）。无授权或异常返回空列表 */
@@ -121,25 +178,29 @@ object StatusCollector {
             c.packageManager.getApplicationInfo(pkg, 0)).toString()
     } catch (_: PackageManager.NameNotFoundException) { pkg }
 
-    /** 当前是否锁屏（KeyguardManager 属 android.app 包）；服务不可用视为锁屏 */
-    private fun isDeviceLocked(c: Context): Boolean = try {
-        val km = c.getSystemService(android.app.KeyguardManager::class.java)
-        km?.isKeyguardLocked ?: true
-    } catch (t: Throwable) {
-        Logs.w(TAG, "isDeviceLocked 读取异常", t)
-        true
-    }
-
-    /** 聚合完整状态快照。任一部分失败不影响整体（分布 try/catch） */
+    /**
+     * 聚合完整状态快照。任一部分失败不影响整体（分布 try/catch）。
+     *
+     * **屏幕状态与锁屏一律现读现取**（[ScreenStateProbe]），不再读
+     * `DeviceStatusHolder.screenOn` 那个初值硬编码为 `true` 的字段——
+     * 进程被闹钟/开机在息屏时拉起，旧实现的第一次上报必然是错的"亮屏"。
+     *
+     * **前台应用只在亮屏时查**：息屏时报 null，不再挂着息屏前那个应用。
+     */
     fun collectAll(c: Context): DeviceStatus {
         val (level, charging) = battery(c)
         val (ssid, net) = network(c)
+        val screen = ScreenStateProbe.current(c)
+        // 顺手同步给 Holder：通知栏与 UI 里仍有读它的地方，保持一致避免两处显示不同。
+        DeviceStatusHolder.screenOn = screen.reportAsOn
+        val locked = ScreenStateProbe.isLocked(c)
+        DeviceStatusHolder.isLocked = locked
         return DeviceStatus(
             batteryLevel = level,
             isCharging = charging,
-            screenOn = DeviceStatusHolder.screenOn,
-            isLocked = isDeviceLocked(c),
-            foregroundApp = foregroundApp(c),
+            screenOn = screen.reportAsOn,
+            isLocked = locked,
+            foregroundApp = foregroundApp(c, screen),
             music = DeviceStatusHolder.music,
             ssid = ssid,
             network = net,

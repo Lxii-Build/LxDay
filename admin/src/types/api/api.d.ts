@@ -74,7 +74,6 @@ declare namespace Api {
       users: number
       pairs: number
       todos: number
-      diaries: number
       new_users_7d: number
       daily_new: { date: string; count: number }[]
     }
@@ -130,18 +129,69 @@ declare namespace Api {
     type TodoList = Api.Common.PaginatedResponse<TodoItem>
     type TodoSearchParams = Partial<Api.Common.CommonSearchParams & { keyword: string }>
 
-    /** 日记列表项 */
-    interface DiaryItem {
+    /** 相册列表项（后台管理用） */
+    interface AlbumItem {
       id: number
       pair_id: number
-      author_id: number
-      author_name: string
-      title: string
-      diary_date: string
+      name: string
       created_at: string
+      /** "昵称A & 昵称B" */
+      couple: string
+      photo_count: number
+      size_bytes: number
     }
-    type DiaryList = Api.Common.PaginatedResponse<DiaryItem>
-    type DiarySearchParams = Partial<Api.Common.CommonSearchParams & { keyword: string }>
+    type AlbumList = Api.Common.PaginatedResponse<AlbumItem>
+    type AlbumSearchParams = Partial<
+      Api.Common.CommonSearchParams & { keyword: string; pair_id: number }
+    >
+
+    /** 某对情侣的磁盘占用 */
+    interface StorageUsageItem {
+      pair_id: number
+      couple: string
+      photo_count: number
+      size_bytes: number
+      recycled_count: number
+      recycled_bytes: number
+    }
+
+    /** 磁盘占用统计 */
+    interface StorageStats {
+      pairs: StorageUsageItem[]
+      total: {
+        photo_count: number
+        size_bytes: number
+        recycled_count: number
+        recycled_bytes: number
+        /** uploads 目录真实占用（含缩略图与预览图） */
+        disk_bytes: number
+        disk_file_count: number
+      }
+      retention: {
+        recycle_bin_days: number
+        status_history_days: number
+        network_log_days: number
+      }
+    }
+
+    /** 运行参数的一项元信息 */
+    interface RuntimeSettingMeta {
+      key: string
+      group: string
+      /** int | int64 | bool | bytes */
+      kind: string
+      min: number
+      max: number
+      label: string
+    }
+
+    /** GET /runtime-settings 的响应 */
+    interface RuntimeSettingsResp {
+      values: Record<string, string>
+      /** 默认值，供「一键恢复默认」填回 */
+      defaults: Record<string, string>
+      meta: RuntimeSettingMeta[]
+    }
 
     /**
      * 相册照片列表项（后台审核用）

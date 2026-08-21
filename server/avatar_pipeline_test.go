@@ -69,18 +69,35 @@ func TestProcessAvatarRejectsWorkerProbeExceedingFrameOrDuration(t *testing.T) {
 	}
 }
 
-// 纯 Go 解码链不支持的容器（静态 HEIF/AVIF/BMP）必须在进 worker 前就被拒，
-// 且给出专门的错误而不是笼统的“处理失败”。
+// 识别不出的容器必须在进 worker 前就被拒，且给出专门的错误而不是笼统的"处理失败"。
+//
+// HEIF/AVIF/BMP 自 0821 起可解（Q9=C，走纯 Go wasm 解码器），
+// 故不再属于被拒之列——它们改由下面的 TestProcessAvatarAcceptsNewFormats 覆盖。
 func TestProcessAvatarRejectsFormatsPureGoCannotDecode(t *testing.T) {
 	limits := baseLimits()
+	_, err := processAvatar(AvatarInput{
+		SizeBytes: 1024,
+		Probe:     stillProbe(FormatUnknown),
+		Crop:      unitCrop(),
+	}, limits, stubWorker{})
+	if !errors.Is(err, ErrFormatNotDecodable) {
+		t.Fatalf("FormatUnknown err=%v want ErrFormatNotDecodable", err)
+	}
+}
+
+// HEIC/AVIF/BMP 现在必须能一路走通到 worker。
+// 一加 15 开「高效格式」直出就是 HEIC，客户端虽会转 JPEG，
+// 但转换失败或别的客户端直传时服务端也得能吃下来。
+func TestProcessAvatarAcceptsNewFormats(t *testing.T) {
+	limits := baseLimits()
 	for _, f := range []ImageFormat{FormatHEIF, FormatAVIF, FormatBMP} {
-		_, err := processAvatar(AvatarInput{
+		worker := stubWorker{meta: AvatarMeta{Frames: 1, Width: 800, Height: 600}}
+		if _, err := processAvatar(AvatarInput{
 			SizeBytes: 1024,
 			Probe:     stillProbe(f),
 			Crop:      unitCrop(),
-		}, limits, stubWorker{})
-		if !errors.Is(err, ErrFormatNotDecodable) {
-			t.Fatalf("format=%v err=%v want ErrFormatNotDecodable", f, err)
+		}, limits, worker); err != nil {
+			t.Fatalf("format=%s 应被接受，实际报 %v", f.displayName(), err)
 		}
 	}
 }

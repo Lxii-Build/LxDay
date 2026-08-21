@@ -10,12 +10,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,8 +25,6 @@ import com.linxi.diary.core.TodoAlarmScheduler
 import com.linxi.diary.data.ApiClient
 import com.linxi.diary.data.ProfileRuntime
 import com.linxi.diary.data.TodoItem
-import com.linxi.diary.debug.DemoContent
-import com.linxi.diary.debug.DemoMode
 import com.linxi.diary.ui.components.KernelScreen
 import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
@@ -42,6 +34,10 @@ import com.linxi.diary.util.UserPrefs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import top.yukonga.miuix.kmp.icon.basic.Check
+import top.yukonga.miuix.kmp.icon.basic.Search
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Switch
@@ -72,8 +68,7 @@ fun TodoScreen() {
     var searchFocused by remember { mutableStateOf(false) }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
 
-    val demo = DemoMode.shouldUseDemo(UserPrefs.demoMode)
-    val profile = if (demo) null else ProfileRuntime.repository.profile.collectAsState().value
+    val profile = ProfileRuntime.repository.profile.collectAsState().value
     val meId = profile?.me?.id ?: UserPrefs.myUserId
     val meName = (profile?.me?.nickname ?: "").ifBlank { "我" }
     val partnerId = profile?.partner?.id ?: 0L
@@ -126,14 +121,7 @@ fun TodoScreen() {
                 lastIndex = index; lastOffset = offset
             }
     }
-    LaunchedEffect(demo) {
-        if (demo) {
-            todos = DemoContent.todos
-            loading = false
-        } else {
-            refresh()
-        }
-    }
+    LaunchedEffect(Unit) { refresh() }
 
     val filtered = remember(todos, query, meId, partnerId) {
         if (query.isBlank()) todos
@@ -147,7 +135,7 @@ fun TodoScreen() {
         title = "待办",
         listState = listState,
         isRefreshing = refreshing,
-        onRefresh = if (demo) null else ({ refresh(pull = true) }),
+        onRefresh = { refresh(pull = true) },
         header = {
             SearchRow(
                 query = rawQuery,
@@ -186,7 +174,6 @@ fun TodoScreen() {
             else -> items(filtered, key = { it.id }) { t ->
                 TodoCard(
                     todo = t,
-                    demo = demo,
                     creatorName = nameOf(t.creatorId),
                     assigneeName = nameOf(t.assigneeId),
                     onToggleRemind = { enabled ->
@@ -272,7 +259,7 @@ private fun SearchRow(
             singleLine = true,
             leadingIcon = {
                 Icon(
-                    Icons.Rounded.Search,
+                    MiuixIcons.Basic.Search,
                     contentDescription = "搜索",
                     tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.padding(start = 12.dp),
@@ -296,7 +283,6 @@ private fun SearchRow(
 @Composable
 private fun TodoCard(
     todo: TodoItem,
-    demo: Boolean,
     creatorName: String,
     assigneeName: String,
     onToggleRemind: (Boolean) -> Unit,
@@ -313,7 +299,7 @@ private fun TodoCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        if (demo) "${todo.title} · 示例" else todo.title,
+                        todo.title,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = MiuixTheme.colorScheme.onSurface,
@@ -335,9 +321,7 @@ private fun TodoCard(
                         )
                     }
                 }
-                if (!demo) {
                     Switch(checked = todo.remindEnabled, onCheckedChange = onToggleRemind)
-                }
             }
             if (hasNote) {
                 Spacer(Modifier.height(6.dp))
@@ -349,8 +333,7 @@ private fun TodoCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (!demo) {
-                HorizontalDivider(
+                top.yukonga.miuix.kmp.basic.HorizontalDivider(
                     Modifier.padding(vertical = 8.dp),
                     thickness = 0.5.dp,
                     color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.12f),
@@ -358,13 +341,12 @@ private fun TodoCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Spacer(Modifier.weight(1f))
                     IconButton(onClick = onComplete) {
-                        Icon(Icons.Filled.Check, contentDescription = "完成", tint = MiuixTheme.colorScheme.primary)
+                        Icon(MiuixIcons.Basic.Check, contentDescription = "完成", tint = MiuixTheme.colorScheme.primary)
                     }
                     IconButton(onClick = onDelete) {
                         Icon(MiuixIcons.Delete, contentDescription = "删除", tint = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.7f))
                     }
                 }
-            }
         }
     }
 }

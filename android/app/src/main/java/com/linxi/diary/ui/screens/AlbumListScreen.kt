@@ -2,6 +2,7 @@ package com.linxi.diary.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
@@ -26,22 +28,35 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.linxi.diary.data.AlbumItem
+import com.linxi.diary.data.AlbumSummary
 import com.linxi.diary.data.ApiClient
 import com.linxi.diary.data.AppImageLoader
 import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.components.KernelScreen
+import com.linxi.diary.ui.components.LxButton
+import com.linxi.diary.ui.components.LxButtonVariant
+import com.linxi.diary.ui.components.LxConfirmDialog
+import com.linxi.diary.ui.components.LxFormDialog
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.More
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * 相册列表：2 列封面网格。
+ * 相册列表。
  *
  * 「未归类」是一个虚拟相册（album_id=0）：直接上传而不指定相册的照片都在那儿，
  * 否则用户必须先建相册才能传第一张照片，多一道无谓的门槛。
+ * 它的**显示名可以改**（管理员要求），但不能删——删了那些照片就没有容身之处了。
+ *
+ * 管理动作的入口是卡片右侧的「⋯」按钮（Q19=A）。
+ * 此前只能长按，界面上零提示，用户根本发现不了——管理员就因此以为「分组删不掉」。
+ * 长按同时保留，作为熟练用户的快捷方式。
  */
 @Composable
 fun AlbumListScreen(
@@ -51,16 +66,15 @@ fun AlbumListScreen(
     onOpenRecycleBin: () -> Unit,
 ) {
     BackHandler(onBack = onBack)
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     var albums by remember { mutableStateOf<List<AlbumItem>>(emptyList()) }
-    var unclassified by remember { mutableStateOf(0) }
+    var summary by remember { mutableStateOf<AlbumSummary?>(null) }
     var loading by remember { mutableStateOf(true) }
     var refreshing by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var showCreate by remember { mutableStateOf(false) }
-    // 长按相册卡弹出管理（改名/删除）。删除是软删，照片会退回「未归类」而不是一起删掉。
+    // 管理弹窗的目标。null=未打开；id=0 表示在管理「未归类」（只能改名）。
     var manageTarget by remember { mutableStateOf<AlbumItem?>(null) }
 
     fun load(pull: Boolean = false) {
@@ -72,9 +86,10 @@ fun AlbumListScreen(
                 (0 until arr.length()).map { AlbumItem.fromJson(arr.getJSONObject(it)) }
             }.onSuccess { albums = it }
                 .onFailure { error = albumFriendlyError(it) }
-            // 未归类张数：概要接口的 photo_count 减去各相册张数
-            runCatching { ApiClient.albumSummary() }
-                .onSuccess { total -> unclassified = (total - albums.sumOf { it.photoCount }).coerceAtLeast(0) }
+            // 未归类张数、回收站张数、未归类显示名一律由服务端给，客户端不再做减法。
+            runCatching { ApiClient.albumSummaryFull() }
+                .onSuccess { summary = it }
+                .onFailure { /* 概要失败不影响相册列表本身 */ }
             loading = false
             refreshing = false
         }
@@ -98,11 +113,16 @@ fun AlbumListScreen(
     manageTarget?.let { target ->
         ManageAlbumDialog(
             album = target,
+            isUnclassified = target.id == 0L,
             onDismiss = { manageTarget = null },
             onRename = { newName ->
                 scope.launch {
-                    runCatching { ApiClient.renameAlbum(target.id, newName) }
-                        .onSuccess { manageTarget = null; load() }
+                    val call = if (target.id == 0L) {
+                        runCatching { ApiClient.renameUnclassified(newName) }
+                    } else {
+                        runCatching { ApiClient.renameAlbum(target.id, newName) }
+                    }
+                    call.onSuccess { manageTarget = null; load() }
                         .onFailure { error = albumFriendlyError(it) }
                 }
             },
@@ -116,6 +136,10 @@ fun AlbumListScreen(
         )
     }
 
+    val unclassifiedName = summary?.unclassifiedName ?: "未归类"
+    val unclassifiedCount = summary?.unclassifiedCount ?: 0
+    val recycledCount = summary?.recycledCount ?: 0
+
     KernelScreen(
         title = "相册",
         navigationIcon = { BackAction(onBack) },
@@ -128,15 +152,25 @@ fun AlbumListScreen(
                 Modifier.fillMaxWidth().padding(top = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Button(onClick = { showCreate = true }, modifier = Modifier.weight(1f)) {
-                    Text("新建相册", fontSize = 14.sp)
-                }
-                Button(onClick = onOpenOnThisDay, modifier = Modifier.weight(1f)) {
-                    Text("这一天", fontSize = 14.sp)
-                }
-                Button(onClick = onOpenRecycleBin, modifier = Modifier.weight(1f)) {
-                    Text("回收站", fontSize = 14.sp)
-                }
+                LxButton(
+                    text = "新建相册",
+                    onClick = { showCreate = true },
+                    variant = LxButtonVariant.Positive,
+                    modifier = Modifier.weight(1f),
+                )
+                LxButton(
+                    text = "这一天",
+                    onClick = onOpenOnThisDay,
+                    variant = LxButtonVariant.Neutral,
+                    modifier = Modifier.weight(1f),
+                )
+                LxButton(
+                    // 带角标：让用户知道回收站里还有东西（也知道它不是空的摆设）。
+                    text = if (recycledCount > 0) "回收站 $recycledCount" else "回收站",
+                    onClick = onOpenRecycleBin,
+                    variant = LxButtonVariant.Neutral,
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
         error?.let { msg ->
@@ -145,7 +179,11 @@ fun AlbumListScreen(
                     Column(Modifier.padding(16.dp)) {
                         Text(msg, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         Spacer(Modifier.height(12.dp))
-                        Button(onClick = { load() }, modifier = Modifier.fillMaxWidth()) { Text("重试") }
+                        LxButton(
+                            text = "重试",
+                            onClick = { load() },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                 }
             }
@@ -153,10 +191,14 @@ fun AlbumListScreen(
         // 未归类始终在最前：直接上传的照片都落在这里。
         item {
             AlbumCard(
-                name = "未归类",
-                count = unclassified,
-                coverUrl = "",
-                onClick = { onOpenAlbum(0L, "未归类") },
+                name = unclassifiedName,
+                count = unclassifiedCount,
+                coverUrl = summary?.latestThumbUrl.orEmpty(),
+                onClick = { onOpenAlbum(0L, unclassifiedName) },
+                // 未归类也能进管理（但弹窗里只有改名，没有删除）。
+                onManage = {
+                    manageTarget = AlbumItem(0L, unclassifiedName, unclassifiedCount, "")
+                },
             )
         }
         items(albums, key = { it.id }) { a ->
@@ -165,10 +207,10 @@ fun AlbumListScreen(
                 count = a.photoCount,
                 coverUrl = a.coverThumbUrl,
                 onClick = { onOpenAlbum(a.id, a.name) },
-                onLongClick = { manageTarget = a },
+                onManage = { manageTarget = a },
             )
         }
-        if (!loading && error == null && albums.isEmpty() && unclassified == 0) {
+        if (!loading && error == null && albums.isEmpty() && unclassifiedCount == 0) {
             item {
                 Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
                     Column(Modifier.padding(20.dp)) {
@@ -192,14 +234,15 @@ private fun AlbumCard(
     count: Int,
     coverUrl: String,
     onClick: () -> Unit,
-    onLongClick: (() -> Unit)? = null,
+    onManage: () -> Unit,
 ) {
     val context = LocalContext.current
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 12.dp)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+            // 长按保留为快捷方式；显式入口是右侧的「⋯」。
+            .combinedClickable(onClick = onClick, onLongClick = onManage),
     ) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
@@ -228,6 +271,15 @@ private fun AlbumCard(
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
             }
+            // 显式管理入口：一眼就知道这里能操作，不必猜「要长按」。
+            IconButton(onClick = onManage) {
+                Icon(
+                    imageVector = MiuixIcons.More,
+                    contentDescription = "管理",
+                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
         }
     }
 }
@@ -236,36 +288,36 @@ private fun AlbumCard(
 private fun CreateAlbumDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit) {
     var name by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
-    top.yukonga.miuix.kmp.overlay.OverlayDialog(
+    LxFormDialog(
         show = true,
         title = "新建相册",
-        onDismissRequest = onDismiss,
-        renderInRootScaffold = true,
+        confirmText = "创建",
+        confirmEnabled = name.isNotBlank(),
+        busy = busy,
+        busyText = "创建中…",
+        onConfirm = { busy = true; onCreate(name.trim()) },
+        onDismiss = onDismiss,
     ) {
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            TextField(
-                value = name,
-                onValueChange = { if (it.length <= 30) name = it },
-                label = "相册名称",
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("取消") }
-                Button(
-                    onClick = { busy = true; onCreate(name.trim()) },
-                    enabled = !busy && name.isNotBlank(),
-                    modifier = Modifier.weight(1f),
-                ) { Text(if (busy) "创建中…" else "创建") }
-            }
-        }
+        TextField(
+            value = name,
+            onValueChange = { if (it.length <= 30) name = it },
+            label = "相册名称",
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 
-/** 相册管理：改名 / 删除。删除是软删，照片退回「未归类」而非一起删掉。 */
+/**
+ * 相册管理：改名 / 删除。
+ *
+ * 「未归类」传 isUnclassified=true：只给改名，不给删除——
+ * 它是虚拟相册，删了那些照片就没有容身之处了。
+ */
 @Composable
 private fun ManageAlbumDialog(
     album: AlbumItem,
+    isUnclassified: Boolean,
     onDismiss: () -> Unit,
     onRename: (String) -> Unit,
     onDelete: () -> Unit,
@@ -274,50 +326,59 @@ private fun ManageAlbumDialog(
     var confirmDelete by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
 
-    top.yukonga.miuix.kmp.overlay.OverlayDialog(
-        show = true,
-        title = "管理相册",
-        onDismissRequest = { if (!busy) onDismiss() },
-        renderInRootScaffold = true,
-    ) {
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            TextField(
-                value = name,
-                onValueChange = { if (it.length <= 30) name = it },
-                label = "相册名称",
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Button(
-                onClick = { busy = true; onRename(name.trim()) },
-                enabled = !busy && name.isNotBlank() && name.trim() != album.name,
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("保存名称") }
+    // 删除确认单独走 LxConfirmDialog：确认按钮自动是红色 + 1 秒冷静期，
+    // 与「保存名称」的蓝色形成明确区分（此前两者完全同色，是管理员点名的问题）。
+    if (confirmDelete) {
+        LxConfirmDialog(
+            show = true,
+            title = "删除相册",
+            message = "删除后相册消失，但其中 ${album.photoCount} 张照片不会被删除，" +
+                "会退回「未归类」，你随时可以再建一个相册把它们放回去。",
+            confirmText = "确认删除",
+            destructive = true,
+            busy = busy,
+            busyText = "删除中…",
+            onConfirm = { busy = true; onDelete() },
+            onDismiss = { if (!busy) confirmDelete = false },
+        )
+        return
+    }
 
-            if (!confirmDelete) {
-                Button(
-                    onClick = { confirmDelete = true },
-                    enabled = !busy,
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("删除相册") }
-            } else {
-                Text(
-                    "删除后相册消失，但其中 ${album.photoCount} 张照片不会被删除，会退回「未归类」。",
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = { confirmDelete = false },
-                        enabled = !busy,
-                        modifier = Modifier.weight(1f),
-                    ) { Text("取消") }
-                    Button(
-                        onClick = { busy = true; onDelete() },
-                        enabled = !busy,
-                        modifier = Modifier.weight(1f),
-                    ) { Text(if (busy) "删除中…" else "确认删除") }
-                }
-            }
+    LxFormDialog(
+        show = true,
+        title = if (isUnclassified) "重命名" else "管理相册",
+        confirmText = "保存名称",
+        confirmEnabled = name.isNotBlank() && name.trim() != album.name,
+        busy = busy,
+        busyText = "保存中…",
+        onConfirm = { busy = true; onRename(name.trim()) },
+        onDismiss = onDismiss,
+    ) {
+        TextField(
+            value = name,
+            onValueChange = { if (it.length <= 30) name = it },
+            label = "相册名称",
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        if (isUnclassified) {
+            Text(
+                "「未归类」是系统分组，存放没有指定相册的照片，因此不能删除。",
+                fontSize = 13.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+        } else {
+            // 危险动作与常规动作在视觉上分开：红字条目 + 二次确认。
+            Text(
+                "删除相册",
+                fontSize = 15.sp,
+                color = com.linxi.diary.ui.theme.BrandRed,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable(enabled = !busy) { confirmDelete = true }
+                    .padding(vertical = 12.dp),
+            )
         }
     }
 }

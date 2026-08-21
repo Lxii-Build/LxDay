@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -107,52 +108,117 @@ func Test缩略图格式随源图(t *testing.T) {
 }
 
 // 上传配额：张数与字节数各自独立生效，且按天分桶。
+// 配额已改为「原子占额 + 失败回退」（reserveUploadQuota），此测试随之改写。
 func Test上传配额计数(t *testing.T) {
 	prev := st
 	st = &Store{mem: newMemStore()}
 	defer func() { st = prev }()
 
+	limits := settingsNow()
 	const uid = int64(7)
 	now := time.Date(2026, 8, 20, 10, 0, 0, 0, time.Local)
 
-	// 张数：第 200 张仍放行，第 201 张拒绝。
-	for i := 0; i < maxPhotosPerDay; i++ {
-		if err := checkUploadQuota(uid, 1024, now); err != nil {
+	// 张数：第 N 张仍放行，第 N+1 张拒绝。
+	for i := 0; i < limits.PhotosPerDay; i++ {
+		if _, err := reserveUploadQuota(uid, 1024, now); err != nil {
 			t.Fatalf("第 %d 张应放行，却报 %v", i+1, err)
 		}
-		commitUploadQuota(uid, 1024, now)
 	}
-	if err := checkUploadQuota(uid, 1024, now); err == nil {
-		t.Fatal("超过每日 200 张应被拒绝")
+	if _, err := reserveUploadQuota(uid, 1024, now); err == nil {
+		t.Fatalf("超过每日 %d 张应被拒绝", limits.PhotosPerDay)
 	}
 	// 次日归零（键按日期分桶）。
-	if err := checkUploadQuota(uid, 1024, now.AddDate(0, 0, 1)); err != nil {
+	if _, err := reserveUploadQuota(uid, 1024, now.AddDate(0, 0, 1)); err != nil {
 		t.Fatalf("次日应重新放行，却报 %v", err)
 	}
 
-	// 字节数：单独一个用户，累计逼近 500MB 上限。
+	// 字节数：单独一个用户，累计逼近上限。
 	const other = int64(8)
-	half := int64(maxUploadBytesADay / 2)
-	if err := checkUploadQuota(other, half, now); err != nil {
+	half := limits.UploadBytesPerDay / 2
+	if _, err := reserveUploadQuota(other, half, now); err != nil {
 		t.Fatalf("首次应放行：%v", err)
 	}
-	commitUploadQuota(other, half, now)
-	if err := checkUploadQuota(other, half, now); err != nil {
+	if _, err := reserveUploadQuota(other, half, now); err != nil {
 		t.Fatalf("刚好用满不应被拒：%v", err)
 	}
-	commitUploadQuota(other, half, now)
-	if err := checkUploadQuota(other, 1, now); err == nil {
-		t.Fatal("超过每日 500MB 应被拒绝")
+	if _, err := reserveUploadQuota(other, 1, now); err == nil {
+		t.Fatal("超过每日字节上限应被拒绝")
 	}
-	// 失败的上传不记账：check 被拒后计数不应变化。
-	before := st.mem.count(photoBytesKey(other, now.Format("2006-01-02")))
-	_ = checkUploadQuota(other, 1, now)
-	if after := st.mem.count(photoBytesKey(other, now.Format("2006-01-02"))); after != before {
-		t.Fatalf("check 不应记账：%d → %d", before, after)
+	// 被拒时必须回退，不能白吃额度（否则拒一次就永久少一格）。
+	day := now.Format("2006-01-02")
+	if got := st.mem.count(photoBytesKey(other, day)); got != limits.UploadBytesPerDay {
+		t.Fatalf("被拒后字节计数应回退到 %d，实际 %d", limits.UploadBytesPerDay, got)
 	}
 	// 两个用户互不影响。
-	if err := checkUploadQuota(int64(9), 1024, now); err != nil {
+	if _, err := reserveUploadQuota(int64(9), 1024, now); err != nil {
 		t.Fatalf("其他用户不应受影响：%v", err)
+	}
+}
+
+// 落盘失败要 rollback，额度必须还回去。
+func Test上传配额失败回退(t *testing.T) {
+	prev := st
+	st = &Store{mem: newMemStore()}
+	defer func() { st = prev }()
+
+	const uid = int64(11)
+	now := time.Now()
+	day := now.Format("2006-01-02")
+
+	rollback, err := reserveUploadQuota(uid, 5000, now)
+	if err != nil {
+		t.Fatalf("首次占额应成功：%v", err)
+	}
+	if got := st.mem.count(photoCountKey(uid, day)); got != 1 {
+		t.Fatalf("占额后张数应为 1，实际 %d", got)
+	}
+	rollback()
+	if got := st.mem.count(photoCountKey(uid, day)); got != 0 {
+		t.Fatalf("回退后张数应为 0，实际 %d", got)
+	}
+	if got := st.mem.count(photoBytesKey(uid, day)); got != 0 {
+		t.Fatalf("回退后字节应为 0，实际 %d", got)
+	}
+}
+
+// 并发占额不能击穿配额：这是把客户端改成并发 3 路上传后必然会踩的竞态。
+// 旧的「先 count 判断、后 incr 记账」两步实现下，N 路并发会同时读到同一个旧值。
+func Test上传配额并发不击穿(t *testing.T) {
+	prev := st
+	st = &Store{mem: newMemStore()}
+	defer func() { st = prev }()
+
+	const uid = int64(12)
+	now := time.Now()
+	day := now.Format("2006-01-02")
+	limit := settingsNow().PhotosPerDay
+
+	// 并发发起 limit*3 次占额，只应有 limit 次成功。
+	total := limit * 3
+	results := make(chan error, total)
+	var wg sync.WaitGroup
+	for i := 0; i < total; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := reserveUploadQuota(uid, 1, now)
+			results <- err
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	granted := 0
+	for err := range results {
+		if err == nil {
+			granted++
+		}
+	}
+	if granted != limit {
+		t.Fatalf("并发下应恰好放行 %d 次，实际 %d 次（配额被击穿）", limit, granted)
+	}
+	if got := st.mem.count(photoCountKey(uid, day)); got != int64(limit) {
+		t.Fatalf("计数应为 %d，实际 %d", limit, got)
 	}
 }
 

@@ -1,6 +1,10 @@
 package main
 
 import (
+	"database/sql"
+	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -114,6 +118,12 @@ func handleUpdateAlbum(c *gin.Context) {
 		return
 	}
 	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	// id=0 是虚拟的「未归类」：它不是真实相册行，走单独分支只改显示名
+	//（管理员 Q22 附言：「未归类也要能更改名字」）。封面/删除对它无意义。
+	if id == 0 {
+		handleRenameUnclassified(c, pair)
+		return
+	}
 	if _, owned := getOwnedAlbum(pair, id); !owned {
 		fail(c, http.StatusForbidden, 1017, "无权操作该相册")
 		return
@@ -283,6 +293,46 @@ func getOwnedPhoto(pair *Pair, id int64) (*Photo, bool) {
 }
 
 // handlePhotoByID 分派 GET /photos/:id；on-this-day 与 recycled 是保留字，原因同 handleAlbumByID。
+// handleRenameUnclassified 改「未归类」的显示名（PUT /albums/0）。
+//
+// 复用同一个接口而不是新开一条，客户端就不必为"这是虚拟相册"分叉出第二套改名逻辑。
+// 传空串或与缺省同名 → 恢复缺省「未归类」。
+func handleRenameUnclassified(c *gin.Context, pair *Pair) {
+	var req struct {
+		Name *string `json:"name"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.Name == nil {
+		fail(c, http.StatusBadRequest, 1002, "参数错误")
+		return
+	}
+	name := strings.TrimSpace(*req.Name)
+	if len([]rune(name)) > maxAlbumNameLen {
+		fail(c, http.StatusBadRequest, 1002,
+			fmt.Sprintf("名称最长 %d 个字", maxAlbumNameLen))
+		return
+	}
+	if err := st.SetUnclassifiedName(pair.ID, name); err != nil {
+		fail(c, http.StatusInternalServerError, 1010, "更新失败")
+		return
+	}
+	ok(c, gin.H{"id": 0, "name": st.UnclassifiedName(pair.ID)})
+}
+
+// handlePhotoActionByID 把 POST /photos/<保留字> 分派到批量操作。
+// gin 不允许同层同时注册静态段与通配段，故沿用既有的通配分派套路。
+func handlePhotoActionByID(c *gin.Context) {
+	switch c.Param("id") {
+	case "batch-delete":
+		handleBatchDeletePhotos(c)
+	case "batch-move":
+		handleBatchMovePhotos(c)
+	case "purge-all":
+		handlePurgeRecycleBin(c)
+	default:
+		fail(c, http.StatusNotFound, 1002, "接口不存在")
+	}
+}
+
 func handlePhotoByID(c *gin.Context) {
 	switch c.Param("id") {
 	case "on-this-day":
@@ -406,7 +456,115 @@ func handleListRecycledPhotos(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, 1010, "查询失败")
 		return
 	}
-	ok(c, gin.H{"list": list, "total": total, "page": page, "size": size})
+	// 带上「还剩几天被自动彻底删除」（Q21=C）：
+	// 不告知的话用户会把回收站当永久保险箱，照片自己没了会来找我。
+	keep := settingsNow().RecycleBinDays
+	for _, p := range list {
+		d := recycleRemainingDays(p.deletedAt, p.CreatedAt, keep)
+		p.RecycleRemainingDays = &d
+	}
+	ok(c, gin.H{
+		"list": list, "total": total, "page": page, "size": size,
+		"keep_days": keep,
+	})
+}
+
+// handlePurgePhoto 彻底删除一张回收站里的照片（真删磁盘文件，不可恢复）。
+func handlePurgePhoto(c *gin.Context) {
+	pair, okP := mustPair(c)
+	if !okP {
+		return
+	}
+	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	freed, err := st.PurgePhoto(id, pair.ID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// 不在回收站 / 不属于本 pair / 不存在 —— 一律同一个响应，
+			// 区别对待等于给出「该 id 存在」的探测信号。
+			fail(c, http.StatusForbidden, 1017, "该照片不在回收站中")
+			return
+		}
+		slog.Error("purge photo failed", "photo_id", id, "err", err)
+		fail(c, http.StatusInternalServerError, 1010, "彻底删除失败")
+		return
+	}
+	ok(c, gin.H{"purged": id, "freed_bytes": freed})
+}
+
+// handlePurgeRecycleBin 清空回收站（真删磁盘文件，不可恢复）。
+func handlePurgeRecycleBin(c *gin.Context) {
+	pair, okP := mustPair(c)
+	if !okP {
+		return
+	}
+	count, freed, err := st.PurgeRecycleBin(pair.ID)
+	if err != nil {
+		slog.Error("purge recycle bin failed", "pair_id", pair.ID, "err", err)
+		fail(c, http.StatusInternalServerError, 1010, "清空回收站失败")
+		return
+	}
+	ok(c, gin.H{"purged": count, "freed_bytes": freed})
+}
+
+// handleBatchDeletePhotos 批量软删（网格多选删除）。
+func handleBatchDeletePhotos(c *gin.Context) {
+	pair, okP := mustPair(c)
+	if !okP {
+		return
+	}
+	var req struct {
+		PhotoIDs []int64 `json:"photo_ids"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || len(req.PhotoIDs) == 0 {
+		fail(c, http.StatusBadRequest, 1002, "请选择要删除的照片")
+		return
+	}
+	if len(req.PhotoIDs) > maxAttachPerCall {
+		fail(c, http.StatusBadRequest, 1002,
+			fmt.Sprintf("单次最多操作 %d 张", maxAttachPerCall))
+		return
+	}
+	n, err := st.SetPhotosStatus(pair.ID, req.PhotoIDs, 2)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, 1010, "删除失败")
+		return
+	}
+	ok(c, gin.H{"deleted": n})
+}
+
+// handleBatchMovePhotos 批量移动到相册（多选「移动到」）。
+// albumID=0 表示移出相册、退回「未归类」。
+func handleBatchMovePhotos(c *gin.Context) {
+	pair, okP := mustPair(c)
+	if !okP {
+		return
+	}
+	var req struct {
+		PhotoIDs []int64 `json:"photo_ids"`
+		AlbumID  int64   `json:"album_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || len(req.PhotoIDs) == 0 {
+		fail(c, http.StatusBadRequest, 1002, "请选择要移动的照片")
+		return
+	}
+	if len(req.PhotoIDs) > maxAttachPerCall {
+		fail(c, http.StatusBadRequest, 1002,
+			fmt.Sprintf("单次最多操作 %d 张", maxAttachPerCall))
+		return
+	}
+	// 目标相册必须属于本 pair（album_id=0 是虚拟的「未归类」，无需校验）。
+	if req.AlbumID != 0 {
+		if _, owned := getOwnedAlbum(pair, req.AlbumID); !owned {
+			fail(c, http.StatusForbidden, 1017, "无权操作该相册")
+			return
+		}
+	}
+	n, err := st.MovePhotosToAlbum(pair.ID, req.AlbumID, req.PhotoIDs)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, 1010, "移动失败")
+		return
+	}
+	ok(c, gin.H{"moved": n})
 }
 
 // ---------- 点赞 / 评论 ----------

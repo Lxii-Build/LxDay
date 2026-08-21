@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +26,9 @@ func aok(c *gin.Context, data interface{}) {
 }
 
 func afail(c *gin.Context, httpCode, bizCode int, msg string) {
+	// 与 fail 同理：不排空 body 的话，「大 body + 提前拒绝」会让 Nginx 收到 RST 变成 502。
+	// 后台的 /upload（APK 上传，可达数百 MB）尤其容易踩到。
+	drainRequestBody(c)
 	c.JSON(httpCode, gin.H{"code": bizCode, "msg": msg})
 }
 
@@ -474,7 +478,11 @@ func (s *Store) DashboardStats() gin.H {
 		for rows.Next() {
 			var d string
 			var c int
-			rows.Scan(&d, &c)
+			if err := rows.Scan(&d, &c); err != nil {
+				// 坏行跳过并留痕：忽略 Scan 错误会让 NULL 列静默变成零值。
+				slog.Error("scan dashboard_daily failed", "err", err)
+				continue
+			}
 			daily = append(daily, gin.H{"date": d, "count": c})
 		}
 	}
@@ -482,7 +490,6 @@ func (s *Store) DashboardStats() gin.H {
 		"users":        q("SELECT COUNT(*) FROM `user`"),
 		"pairs":        q("SELECT COUNT(*) FROM pair WHERE status=1 AND user_a_id>0 AND user_b_id>0"),
 		"todos":        q("SELECT COUNT(*) FROM todo WHERE status<2"),
-		"diaries":      q("SELECT COUNT(*) FROM diary"),
 		"new_users_7d": q("SELECT COUNT(*) FROM `user` WHERE created_at>=datetime('now','-7 days')"),
 		"daily_new":    daily,
 	}
@@ -531,7 +538,11 @@ func (s *Store) ListUsers(keyword string, limit, offset int) ([]AdminUserRow, in
 	for rows.Next() {
 		var u AdminUserRow
 		var birthday, anniversary sql.NullTime
-		rows.Scan(&u.ID, &u.Username, &u.Email, &u.Nickname, &u.AvatarURL, &u.Gender, &u.Signature, &birthday, &u.Status, &u.CreatedAt, &anniversary)
+		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.Nickname, &u.AvatarURL, &u.Gender, &u.Signature, &birthday, &u.Status, &u.CreatedAt, &anniversary); err != nil {
+			// 坏行跳过并留痕：忽略 Scan 错误会让 NULL 列静默变成零值。
+			slog.Error("scan admin_user_row failed", "err", err)
+			continue
+		}
 		if birthday.Valid {
 			b := birthday.Time.Format("2006-01-02")
 			u.Birthday = &b
@@ -597,7 +608,11 @@ func (s *Store) ListPairs(limit, offset int) ([]gin.H, int, error) {
 		var na, nb, code string
 		var status int
 		var created time.Time
-		rows.Scan(&id, &ua, &ub, &na, &nb, &status, &code, &created)
+		if err := rows.Scan(&id, &ua, &ub, &na, &nb, &status, &code, &created); err != nil {
+			// 坏行跳过并留痕：忽略 Scan 错误会让 NULL 列静默变成零值。
+			slog.Error("scan pair_row failed", "err", err)
+			continue
+		}
 		out = append(out, gin.H{"id": id, "user_a_id": ua, "user_b_id": ub, "name_a": na, "name_b": nb,
 			"status": status, "invite_code": code, "created_at": created})
 	}
@@ -664,8 +679,12 @@ func (s *Store) ListTodosAll(keyword string, limit, offset int) ([]gin.H, int, e
 		var remindAt sql.NullTime
 		var remindType, repeatType, status int
 		var remindEnabled bool
-		rows.Scan(&id, &pid, &cid, &creatorName, &aid, &assigneeName,
-			&title, &note, &remindAt, &remindType, &repeatType, &remindEnabled, &status)
+		if err := rows.Scan(&id, &pid, &cid, &creatorName, &aid, &assigneeName,
+			&title, &note, &remindAt, &remindType, &repeatType, &remindEnabled, &status); err != nil {
+			// 坏行跳过并留痕：忽略 Scan 错误会让 NULL 列静默变成零值。
+			slog.Error("scan admin_todo_row failed", "err", err)
+			continue
+		}
 		var ra interface{}
 		if remindAt.Valid {
 			ra = remindAt.Time
@@ -678,31 +697,6 @@ func (s *Store) ListTodosAll(keyword string, limit, offset int) ([]gin.H, int, e
 			"repeat_type": repeatType, "remind_at": ra,
 			"status": status, "pair_id": pid,
 		})
-	}
-	return out, total, nil
-}
-
-func (s *Store) ListDiariesAll(limit, offset int) ([]gin.H, int, error) {
-	var total int
-	if err := s.DB.QueryRow("SELECT COUNT(*) FROM diary").Scan(&total); err != nil {
-		return nil, 0, err
-	}
-	rows, err := s.DB.Query(
-		"SELECT d.id,d.pair_id,d.author_id,COALESCE(u.nickname,''),d.title,d.diary_date,d.created_at "+
-			"FROM diary d LEFT JOIN `user` u ON u.id=d.author_id ORDER BY d.id DESC LIMIT ? OFFSET ?",
-		limit, offset)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer rows.Close()
-	out := []gin.H{}
-	for rows.Next() {
-		var id, pid, aid int64
-		var name, title, date string
-		var created time.Time
-		rows.Scan(&id, &pid, &aid, &name, &title, &date, &created)
-		out = append(out, gin.H{"id": id, "pair_id": pid, "author_id": aid, "author_name": name,
-			"title": title, "diary_date": date, "created_at": created})
 	}
 	return out, total, nil
 }
@@ -722,23 +716,6 @@ func handleAdminDeleteTodo(c *gin.Context) {
 	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
 	st.DeleteTodo(id)
 	st.AddAudit(c.GetInt64("aid"), "", "delete_todo", "todo="+strconv.FormatInt(id, 10), c.ClientIP())
-	aok(c, gin.H{"ok": true})
-}
-
-func handleAdminListDiaries(c *gin.Context) {
-	limit, offset, current, size := pageParams(c)
-	list, total, err := st.ListDiariesAll(limit, offset)
-	if err != nil {
-		afail(c, 500, 500, "查询失败")
-		return
-	}
-	pageResp(c, list, total, current, size)
-}
-
-func handleAdminDeleteDiary(c *gin.Context) {
-	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
-	st.DeleteDiary(id)
-	st.AddAudit(c.GetInt64("aid"), "", "delete_diary", "diary="+strconv.FormatInt(id, 10), c.ClientIP())
 	aok(c, gin.H{"ok": true})
 }
 
@@ -794,7 +771,11 @@ func (s *Store) ListAudit(limit, offset int) ([]gin.H, int, error) {
 		var id, aid int64
 		var name, action, detail, ip string
 		var created time.Time
-		rows.Scan(&id, &aid, &name, &action, &detail, &ip, &created)
+		if err := rows.Scan(&id, &aid, &name, &action, &detail, &ip, &created); err != nil {
+			// 坏行跳过并留痕：忽略 Scan 错误会让 NULL 列静默变成零值。
+			slog.Error("scan audit_row failed", "err", err)
+			continue
+		}
 		out = append(out, gin.H{"id": id, "admin_id": aid, "admin_name": name, "action": action,
 			"detail": detail, "ip": ip, "created_at": created})
 	}
@@ -822,7 +803,11 @@ func (s *Store) ListAdmins() ([]AdminUser, error) {
 	out := []AdminUser{}
 	for rows.Next() {
 		var a AdminUser
-		rows.Scan(&a.ID, &a.Username, &a.Email, &a.Role, &a.MustChange, &a.Status)
+		if err := rows.Scan(&a.ID, &a.Username, &a.Email, &a.Role, &a.MustChange, &a.Status); err != nil {
+			// 坏行跳过并留痕：忽略 Scan 错误会让 NULL 列静默变成零值。
+			slog.Error("scan admin_account_row failed", "err", err)
+			continue
+		}
 		out = append(out, a)
 	}
 	return out, nil
@@ -941,12 +926,20 @@ func handleAdminDeleteVersion(c *gin.Context) {
 
 // ---------- 系统设置（站点/存储/推送/SMTP） ----------
 
+// settingKeys 敏感/展示类设置（含密钥），一律限超管读写。
+//
+// 已删掉 6 个废弃键（Q43=A）：storage.local_dir 与 5 个 OSS 键。
+// 0813 就定了「只留 local 存储、隐藏 OSS/COS/Kodo」，前端早已不显示，
+// 后端却还留着——留一个"配了没用"的键比没有这个键更糟：
+// 它会让人（包括未来的我）以为改它有效，然后浪费时间排查。
+// push.provider 同理：推送网关目前是日志占位实现，配它不产生任何行为。
+//
+// 运行参数（相册配额/保留期/限流/互动冷却）不在这里，见 settings.go 的 runtimeSettingSpecs，
+// 那些键不含密钥，故对普通 admin 开放。
 var settingKeys = []string{
 	"site.name", "site.url", "site.logo", "site.description",
-	"storage.driver", "storage.local_dir",
-	"storage.oss_endpoint", "storage.oss_bucket", "storage.oss_access_key", "storage.oss_secret", "storage.oss_base_url",
+	"storage.driver",
 	"smtp.host", "smtp.port", "smtp.username", "smtp.password", "smtp.from", "smtp.ssl",
-	"push.provider",
 }
 
 // handleAdminSiteInfo 只回站点展示信息（名称/LOGO/描述），任何已登录管理员可读。
@@ -964,6 +957,12 @@ func handleAdminSiteInfo(c *gin.Context) {
 	})
 }
 
+// handleAdminGetSettings 下发全部设置。
+//
+// 除当前值外还回 `defaults` 与 `meta`（Q26=C）：
+// 「一键恢复默认」由前端填回 defaults 再提交，这样默认值永远与代码里的常量一致，
+// 不会出现"后台写死的默认值和代码不一样"这种分裂。meta 带分区/类型/取值范围，
+// 前端据此分组渲染并做输入校验，新增配置项无需改前端结构。
 func handleAdminGetSettings(c *gin.Context) {
 	m := map[string]string{}
 	for _, k := range settingKeys {
@@ -973,7 +972,19 @@ func handleAdminGetSettings(c *gin.Context) {
 		}
 		m[k] = v
 	}
-	aok(c, m)
+	// 运行参数（相册配额/保留期/限流/互动冷却）走 settings.go 的快照，不含任何密钥。
+	values, defaults, meta := runtimeSettingsPayload()
+	for k, v := range values {
+		m[k] = v
+	}
+	aok(c, gin.H{"values": m, "defaults": defaults, "meta": meta})
+}
+
+// handleAdminGetRuntimeSettings 只回运行参数（相册配额/保留期/限流/互动冷却）+ 默认值 + 元信息。
+// **不含任何密钥**，故对普通 admin 开放；SMTP 与存储配置在 handleAdminGetSettings（限超管）。
+func handleAdminGetRuntimeSettings(c *gin.Context) {
+	values, defaults, meta := runtimeSettingsPayload()
+	aok(c, gin.H{"values": values, "defaults": defaults, "meta": meta})
 }
 
 func handleAdminUpdateSettings(c *gin.Context) {
@@ -982,25 +993,87 @@ func handleAdminUpdateSettings(c *gin.Context) {
 		afail(c, 400, 400, "参数错误")
 		return
 	}
-	allowed := map[string]bool{}
+	// 敏感键（SMTP/存储/站点）仍限超管；运行参数放开给普通 admin（Q42=C）。
+	// 0820 那轮刚把敏感路由收敛到超管，就是因为之前"普通 admin 事实等于超管"。
+	isSuper := c.GetString("role") == "super"
+	sensitive := map[string]bool{}
 	for _, k := range settingKeys {
-		allowed[k] = true
+		sensitive[k] = true
 	}
+
+	// 审计要记「键名: 旧值→新值」而非只记条数（Q42=C）。
+	// 此前只写 `keys=3`，真出问题时完全查不出是谁把配额改成了 0。
+	changes := make([]string, 0, len(in))
+	runtimeTouched := false
+	siteTouched := false
+
 	for k, v := range in {
-		if !allowed[k] {
+		switch {
+		case sensitive[k]:
+			if !isSuper {
+				afail(c, 403, 403, "修改「"+k+"」需要超级管理员权限")
+				return
+			}
+			if k == "smtp.password" && v == "__set__" {
+				continue // 占位符表示不修改
+			}
+			old, _ := st.GetSetting(k)
+			if old == v {
+				continue
+			}
+			if err := st.SetSetting(k, v); err != nil {
+				afail(c, 500, 500, "保存失败")
+				return
+			}
+			// 密钥类脱敏后再进审计：审计日志本身也可能被导出/截图。
+			if strings.Contains(k, "password") || strings.Contains(k, "secret") ||
+				strings.Contains(k, "access_key") {
+				changes = append(changes, k+": ***→***")
+			} else {
+				changes = append(changes, fmt.Sprintf("%s: %q→%q", k, old, v))
+			}
+			if strings.HasPrefix(k, "site.") {
+				siteTouched = true
+			}
+		case isRuntimeSettingKey(k):
+			old, _ := st.GetSetting(k)
+			if old == v {
+				continue
+			}
+			if err := st.SetSetting(k, v); err != nil {
+				afail(c, 500, 500, "保存失败")
+				return
+			}
+			changes = append(changes, fmt.Sprintf("%s: %q→%q", k, old, v))
+			runtimeTouched = true
+		default:
+			// 不认识的键静默忽略（白名单语义），不因此让整个请求失败。
 			continue
 		}
-		if k == "smtp.password" && v == "__set__" {
-			continue // 占位符表示不修改
-		}
-		st.SetSetting(k, v)
 	}
-	// site.url 被 siteBaseURL() 缓存（缓存是为了避开 MaxOpenConns(1) 下的自锁），
-	// 改完必须失效，否则新配的站点地址要等进程重启才生效。
-	invalidateSiteBaseCache()
+
+	if siteTouched {
+		// site.url 被 siteBaseURL() 缓存（缓存是为了避开 MaxOpenConns(1) 下的自锁），
+		// 改完必须失效，否则新配的站点地址要等进程重启才生效。
+		invalidateSiteBaseCache()
+	}
+	if runtimeTouched {
+		// 整体重建快照并 atomic 替换 → 改完立即生效，无需重启容器
+		//（管理员 Q27=A 明确不想动服务器上的 compose）。
+		reloadRuntimeSettings()
+	}
+
+	detail := "无改动"
+	if len(changes) > 0 {
+		sort.Strings(changes) // 顺序稳定，便于比对两次审计
+		detail = strings.Join(changes, "; ")
+		if len(detail) > 900 {
+			detail = detail[:900] + fmt.Sprintf(" …(共 %d 项)", len(changes))
+		}
+	}
 	st.AddAudit(c.GetInt64("aid"), c.GetString("admin_name"), "update_settings",
-		fmt.Sprintf("keys=%d", len(in)), c.ClientIP())
-	aok(c, gin.H{"ok": true})
+		detail, c.ClientIP())
+	aok(c, gin.H{"ok": true, "changed": len(changes)})
 }
 
 // APPEND-ADMIN-8
@@ -1019,7 +1092,11 @@ func (s *Store) ListNotifyTemplates() ([]gin.H, error) {
 		var code, title, body string
 		var enabled int
 		var updated time.Time
-		rows.Scan(&id, &code, &title, &body, &enabled, &updated)
+		if err := rows.Scan(&id, &code, &title, &body, &enabled, &updated); err != nil {
+			// 坏行跳过并留痕：忽略 Scan 错误会让 NULL 列静默变成零值。
+			slog.Error("scan notify_template_row failed", "err", err)
+			continue
+		}
 		out = append(out, gin.H{"id": id, "code": code, "title": title, "body": body, "enabled": enabled, "updated_at": updated})
 	}
 	return out, nil
@@ -1063,7 +1140,11 @@ func (s *Store) ListNotifyRecords(limit, offset int) ([]gin.H, int, error) {
 		var code, title, body, target string
 		var sent int
 		var created time.Time
-		rows.Scan(&id, &code, &title, &body, &target, &sent, &created)
+		if err := rows.Scan(&id, &code, &title, &body, &target, &sent, &created); err != nil {
+			// 坏行跳过并留痕：忽略 Scan 错误会让 NULL 列静默变成零值。
+			slog.Error("scan notify_record_row failed", "err", err)
+			continue
+		}
 		out = append(out, gin.H{"id": id, "template_code": code, "title": title, "body": body,
 			"target": target, "sent_count": sent, "created_at": created})
 	}
@@ -1079,7 +1160,11 @@ func (s *Store) AllUserIDs() ([]int64, error) {
 	out := []int64{}
 	for rows.Next() {
 		var id int64
-		rows.Scan(&id)
+		if err := rows.Scan(&id); err != nil {
+			// 坏行跳过并留痕：忽略 Scan 错误会让 NULL 列静默变成零值。
+			slog.Error("scan user_id_row failed", "err", err)
+			continue
+		}
 		out = append(out, id)
 	}
 	return out, nil
@@ -1441,7 +1526,6 @@ func registerAdminRoutes(r *gin.Engine) {
 	auth.GET("/users", handleAdminListUsers)
 	auth.GET("/pairs", handleAdminListPairs)
 	auth.GET("/todos", handleAdminListTodos)
-	auth.GET("/diaries", handleAdminListDiaries)
 	auth.GET("/app-versions", handleAdminListVersions)
 	auth.GET("/audit-logs", handleAdminListAudit)
 	auth.GET("/network-logs", handleAdminListNetworkLogs)
@@ -1461,7 +1545,6 @@ func registerAdminRoutes(r *gin.Engine) {
 	sup.PUT("/users/:id/status", handleAdminSetUserStatus)
 	sup.POST("/pairs/:id/unbind", handleAdminUnbindPair)
 	sup.DELETE("/todos/:id", handleAdminDeleteTodo)
-	sup.DELETE("/diaries/:id", handleAdminDeleteDiary)
 	// 相册照片是全站最私密的内容，列表与删除都收敛到超管（普通 admin 连元数据都不给看）。
 	sup.GET("/photos", handleAdminListPhotos)
 	sup.DELETE("/photos/:id", handleAdminDeletePhoto)
@@ -1478,9 +1561,27 @@ func registerAdminRoutes(r *gin.Engine) {
 	sup.DELETE("/admins/:id", handleAdminDeleteAdmin)
 
 	// GET /settings 会回吐 SMTP 主机/账号等配置，同样限超管。
+	// 运行参数（相册配额/保留期/限流/互动冷却）单独开一条只读接口给普通 admin（Q42=C）。
+	//
+	// **不能直接把 GET /settings 放给普通 admin**：那里面有 smtp.host 与 smtp.username，
+	// 虽然 password 会脱敏成 __set__，但主机与账号本身就是攻击面
+	//（0820 那轮正是为此把 /settings 收敛到超管）。故拆成两条：
+	//   - GET /runtime-settings：只有运行参数 + 默认值 + 元信息，零密钥，普通 admin 可读
+	//   - GET /settings：含 SMTP/存储，仍限超管
+	auth.GET("/runtime-settings", handleAdminGetRuntimeSettings)
+	// 写入统一走一条，敏感键的超管校验在 handler 内逐键做
+	// （命中 settingKeys 且非超管 → 403，见 handleAdminUpdateSettings）。
+	auth.PUT("/settings", handleAdminUpdateSettings)
+
 	sup.GET("/settings", handleAdminGetSettings)
-	sup.PUT("/settings", handleAdminUpdateSettings)
+	// SMTP 测试会真的发信，仍限超管。
 	sup.POST("/settings/smtp-test", handleAdminSmtpTest)
+
+	// 相册管理 + 磁盘统计（Q28=D）。全部限超管：相册是全站最私密的内容。
+	registerAdminAlbumRoutes(sup)
+
+	// 日记导出：功能下线前的留档通道（Q33=B）。导完即可移除。
+	registerDiaryExportRoutes(sup)
 
 	sup.PUT("/notify-templates", handleAdminUpsertTemplate)
 	sup.DELETE("/notify-templates/:id", handleAdminDeleteTemplate)

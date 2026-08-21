@@ -13,7 +13,9 @@ db:
 push:
   provider: "none"              # getui / jpush / none（当前为占位，不接商业推送）
 
-# 日记图片本地存储（Go 自托管 /uploads/）
+# 图片本地存储（Go 自托管 /upload/）
 storage:
   upload_dir: "uploads"          # 相对工作目录，或绝对路径
-  upload_max_mb: 10
+  # 注意：单张上限、每日配额等已改为**后台「系统设置」页可配**（存库，改完立即生效）。
+  # 此处不再提供 upload_max_mb —— 那个键代码里从来没被引用过，配了完全没用，
+  # 留着只会让人以为改它有效然后浪费时间排查。

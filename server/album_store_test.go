@@ -1,6 +1,8 @@
 package main
 
 import (
+	"database/sql"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -59,7 +61,7 @@ func seedPair(t *testing.T, s *Store, nickA, nickB, code string) (*Pair, int64, 
 func addPhoto(t *testing.T, s *Store, pairID, uid, albumID int64, name string, takenAt *time.Time) *Photo {
 	t.Helper()
 	rel := "upload/2026/08/20/" + name + ".jpg"
-	p, err := s.CreatePhoto(pairID, uid, albumID, rel, "upload/2026/08/20/"+name+"_thumb.jpg",
+	p, err := s.CreatePhoto(pairID, uid, albumID, rel, "upload/2026/08/20/"+name+"_thumb.jpg", "",
 		1600, 1200, 2048, "image/jpeg", takenAt)
 	if err != nil {
 		t.Fatalf("create photo %s: %v", name, err)
@@ -114,8 +116,12 @@ func Test相册与照片的Pair归属校验(t *testing.T) {
 	}
 
 	// 越权软删：SetPhotoStatus 带 pair_id，改不动别人的照片。
-	if err := s.SetPhotoStatus(photoB.ID, pairA.ID, 2); err != nil {
-		t.Fatalf("set status: %v", err)
+	//
+	// 0821 起它在「一行都没改到」时返回 sql.ErrNoRows 而非静默 nil：
+	// 静默成功会让调用方以为删掉了（客户端刷新后照片还在，用户以为是 bug）。
+	// handler 侧已先过 getOwnedPhoto 校验归属，真走到这里报错说明有竞态或脏数据。
+	if err := s.SetPhotoStatus(photoB.ID, pairA.ID, 2); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("越权软删应返回 sql.ErrNoRows，实际 %v", err)
 	}
 	again, err := s.GetPhoto(photoB.ID)
 	if err != nil {

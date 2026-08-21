@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	_ "embed"
 	"fmt"
+	"log/slog"
 	"strings"
 )
 
@@ -39,6 +40,53 @@ var schemaAddedColumns = []addedColumn{
 	// token_ver：JWT 撤销版本号，见 schema.sql 注释。老库缺此列会导致所有鉴权查询直接失败。
 	{"user", "token_ver", "INTEGER NOT NULL DEFAULT 0"},
 	{"admin_user", "token_ver", "INTEGER NOT NULL DEFAULT 0"},
+	// preview_path：三档缩略图里的中间尺寸（长边 1080）。老照片为 NULL，scanPhoto 回退原图。
+	{"photo", "preview_path", "TEXT"},
+	// deleted_at：进回收站的时刻，回收站保留期与剩余天数都依赖它。
+	// 老数据为 NULL，清理逻辑用 COALESCE(deleted_at, created_at) 兜底。
+	{"photo", "deleted_at", "DATETIME"},
+	// unclassified_name：「未归类」虚拟相册的自定义名称（管理员要求它也能改名）。
+	// 存在 pair 上而非 album 表——它不是真实相册行（album_id=0）。
+	{"pair", "unclassified_name", "TEXT"},
+}
+
+// droppedTables 是**功能下线后要清理的表**（管理员 Q31=D：彻底断根）。
+//
+// 「日记」功能于 0821 移除。0811 那轮只删了客户端入口、留下服务端孤儿接口，
+// 结果 0820 又把它接回来了——留着表和接口，将来看到它们还在就会以为功能该有。
+// 这次连表一起删，让"这个功能不存在"成为不可误解的事实。
+//
+// 顺序写死：先子表（diary_image）再主表（diary）。
+var droppedTables = []string{"diary_image", "diary"}
+
+// DropRetiredTables 删除已下线功能的表，返回每张表删掉的行数。
+//
+// **刻意不在 runMigrations 里自动执行。** 迁移每次启动都会跑，
+// 若自动 DROP，新镜像一上线日记就没了——而管理员还没来得及导出留档，
+// 那个导出接口就成了废物。故改由后台显式触发：
+// `POST /api/admin/diaries/purge`（内部会先要求导出确认，见 diary_export.go）。
+//
+// 失败不 panic、不阻断调用方：删表是清理动作，把它搞成故障源没有意义。
+func DropRetiredTables(db *sql.DB) map[string]int {
+	result := map[string]int{}
+	for _, table := range droppedTables {
+		var name string
+		err := db.QueryRow(
+			`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&name)
+		if err != nil {
+			continue // 表不存在（或查不到）→ 无需处理
+		}
+		// 记一下删了多少行，便于事后核对是否与导出的条数一致。
+		var rows int
+		_ = db.QueryRow(`SELECT COUNT(*) FROM "` + table + `"`).Scan(&rows)
+		if _, err := db.Exec(`DROP TABLE IF EXISTS "` + table + `"`); err != nil {
+			slog.Error("drop retired table failed", "table", table, "err", err)
+			continue
+		}
+		result[table] = rows
+		slog.Warn("已删除下线功能的数据表", "table", table, "rows_dropped", rows)
+	}
+	return result
 }
 
 // addColumns 幂等补列：已存在则跳过，不存在才 ALTER，保证重复启动不报错。

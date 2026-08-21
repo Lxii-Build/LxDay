@@ -31,7 +31,7 @@ JWT_SECRET=$(openssl rand -hex 32) go run . config.yaml
 | memstore.go | 进程内存态实现（替代 Redis；重启即失，见下「说明」） |
 | migrations.go | 启动执行内嵌 `sql/schema.sql` + 幂等补列（`PRAGMA table_info` 探测） |
 | hub.go | WebSocket 实时通道（单机内存路由，多节点扩展点见注释） |
-| handlers.go | 认证/绑定/待办/日记/历史 handler + JWTAuth + AppKeyGuard |
+| handlers.go | 认证/绑定/待办/历史/状态上报 handler + JWTAuth + AppKeyGuard |
 | account.go | 注册/登录/邮箱验证码/扩展资料 |
 | invite.go | 邀请码生成与绑定限流 |
 | album_handlers.go | 相册与照片接口（含保留字分派） |
@@ -76,7 +76,7 @@ PUT  /api/v1/profile/me              改扩展资料（昵称/性别/签名/生�
 POST /api/v1/profile/avatar          头像上传（multipart, 落 /upload/YYYY/MM/DD/）
 ```
 
-**状态 / 待办 / 日记 / 互动**
+**状态 / 待办 / 互动**
 
 ```
 GET  /api/v1/partner/status          对方实时状态
@@ -85,11 +85,6 @@ GET  /api/v1/todos                   待办列表
 PUT  /api/v1/todos/:id               编辑待办
 POST /api/v1/todos/:id/complete      完成待办
 DELETE /api/v1/todos/:id             删除待办
-POST /api/v1/diaries                 发布日记
-GET  /api/v1/diaries?date=YYYY-MM-DD 日记归档
-PUT  /api/v1/diaries/:id             编辑日记
-DELETE /api/v1/diaries/:id           删除日记
-POST /api/v1/diaries/images          日记图片上传（multipart, 本地磁盘）
 POST /api/v1/interactions/comfort    求陪伴（冷却 7s/1 次）
 POST /api/v1/interactions/calm       求冷静（冷却 7s/1 次，与 comfort 分桶）
 POST /api/v1/interactions/ring       强制响铃（默认 600s/3 次，可配）
@@ -174,7 +169,6 @@ GET  /api/admin/stats                概览统计
 GET  /api/admin/users                用户列表
 GET  /api/admin/pairs                情侣关系列表
 GET  /api/admin/todos                待办列表
-GET  /api/admin/diaries              日记列表
 GET  /api/admin/app-versions         版本列表
 GET  /api/admin/audit-logs           系统日志（管理员操作审计）
 GET  /api/admin/network-logs         网络日志（API 请求日志）
@@ -186,7 +180,6 @@ POST /api/admin/upload                    后台文件上传（APK/LOGO）
 PUT  /api/admin/users/:id/status          封禁 / 解封用户
 POST /api/admin/pairs/:id/unbind          强制解绑
 DELETE /api/admin/todos/:id               删待办
-DELETE /api/admin/diaries/:id             删日记
 GET  /api/admin/photos                    相册照片审核（**只给元数据，不返回图片 URL**）
 DELETE /api/admin/photos/:id              软删照片（进用户回收站，用户可自行恢复）
 POST /api/admin/app-versions              发版
@@ -208,7 +201,7 @@ POST /api/admin/notify                    向用户群发通知
 
 **为什么这些要收敛到 `requireSuper`**：此前只有 `POST /admins` 与 `PUT /settings` 挂了它，
 其余全部裸奔，于是「普通 admin」事实上等于超管——能从 `GET /settings` 读出存储与 SMTP 密钥、
-能全站群发、能删任意日记待办、能封禁用户、能解绑他人情侣关系、能上传大文件落盘。
+能全站群发、能删任意待办与照片、能封禁用户、能解绑他人情侣关系、能上传大文件落盘。
 相册照片是全站最私密的内容，**列表与删除都限超管，普通 admin 连元数据都不给看**；
 且列表接口不返回图片 URL——管理员没有用户 token，本就读不了 `/media/<id>`，
 返回 URL 只会凭空多一条泄露面。

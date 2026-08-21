@@ -102,7 +102,6 @@ android {
         versionName = propVersionName
 
         // 安全模式：true = 启动极简 UI（跳过主题/backdrop/miuix），用于闪退二分定位
-        buildConfigField("boolean", "SAFE_MODE", "false")
         // 构建期注入的服务端地址 / WS 地址 / 通讯密钥（空则运行时回退推导 / 不发密钥头）
         buildConfigField("String", "BASE_URL", "\"$propBaseUrl\"")
         buildConfigField("String", "WS_URL", "\"$propWsUrl\"")

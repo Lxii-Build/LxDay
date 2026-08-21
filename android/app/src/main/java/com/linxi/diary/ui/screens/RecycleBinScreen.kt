@@ -1,12 +1,10 @@
 package com.linxi.diary.ui.screens
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -28,17 +26,23 @@ import com.linxi.diary.data.AppImageLoader
 import com.linxi.diary.data.PhotoItem
 import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.components.KernelScreen
+import com.linxi.diary.ui.components.LxButton
+import com.linxi.diary.ui.components.LxButtonVariant
+import com.linxi.diary.ui.components.LxConfirmDialog
+import com.linxi.diary.ui.theme.BrandRed
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * 回收站：软删的照片在这里，可恢复。
+ * 回收站。
  *
- * 服务端的删除一律是软删（status=2），不删磁盘文件——没有这个页面的话，
- * 误删的照片就永远找不回来了（接口早已就绪，只是缺入口）。
+ * 此前只能「恢复」，不能彻底删除——而服务端全链路软删、磁盘文件从不删除，
+ * 于是磁盘只涨不跌。现在（Q21=C）：
+ *   - 单张「彻底删除」+ 顶部「清空回收站」，都会**真删磁盘文件**
+ *   - 每张显示「还剩 N 天自动删除」，让用户知道这不是永久保险箱
+ *   - 两个删除动作都走 LxConfirmDialog：红色确认按钮 + 1 秒冷静期
  */
 @Composable
 fun RecycleBinScreen(onBack: () -> Unit) {
@@ -47,19 +51,24 @@ fun RecycleBinScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
 
     var photos by remember { mutableStateOf<List<PhotoItem>>(emptyList()) }
+    var keepDays by remember { mutableStateOf(-1) }
     var loading by remember { mutableStateOf(true) }
     var refreshing by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var busyId by remember { mutableStateOf(0L) }
+    var purgeTarget by remember { mutableStateOf<PhotoItem?>(null) }
+    var confirmPurgeAll by remember { mutableStateOf(false) }
+    var purgeBusy by remember { mutableStateOf(false) }
 
     fun load(pull: Boolean = false) {
         scope.launch {
             if (pull) refreshing = true else loading = true
             error = null
-            runCatching {
-                val arr = ApiClient.recycledPhotos()
-                (0 until arr.length()).map { PhotoItem.fromJson(arr.getJSONObject(it)) }
-            }.onSuccess { photos = it }
+            runCatching { ApiClient.recycledPhotosFull() }
+                .onSuccess { result ->
+                    photos = result.first
+                    keepDays = result.second
+                }
                 .onFailure { error = albumFriendlyError(it) }
             loading = false
             refreshing = false
@@ -68,6 +77,53 @@ fun RecycleBinScreen(onBack: () -> Unit) {
 
     LaunchedEffect(Unit) { load() }
 
+    purgeTarget?.let { target ->
+        LxConfirmDialog(
+            show = true,
+            title = "彻底删除",
+            message = "这张照片将被永久删除，服务器上的原图与缩略图会一并清除，之后无法恢复。",
+            confirmText = "永久删除",
+            destructive = true,
+            busy = purgeBusy,
+            busyText = "删除中…",
+            onConfirm = {
+                purgeBusy = true
+                scope.launch {
+                    runCatching { ApiClient.purgePhoto(target.id) }
+                        .onFailure { error = albumFriendlyError(it) }
+                    purgeBusy = false
+                    purgeTarget = null
+                    load()
+                }
+            },
+            onDismiss = { if (!purgeBusy) purgeTarget = null },
+        )
+    }
+
+    if (confirmPurgeAll) {
+        LxConfirmDialog(
+            show = true,
+            title = "清空回收站",
+            message = "回收站里的 ${photos.size} 张照片将被永久删除，" +
+                "服务器上的文件一并清除，之后无法恢复。",
+            confirmText = "全部永久删除",
+            destructive = true,
+            busy = purgeBusy,
+            busyText = "清空中…",
+            onConfirm = {
+                purgeBusy = true
+                scope.launch {
+                    runCatching { ApiClient.purgeRecycleBin() }
+                        .onFailure { error = albumFriendlyError(it) }
+                    purgeBusy = false
+                    confirmPurgeAll = false
+                    load()
+                }
+            },
+            onDismiss = { if (!purgeBusy) confirmPurgeAll = false },
+        )
+    }
+
     KernelScreen(
         title = "回收站",
         navigationIcon = { BackAction(onBack) },
@@ -75,13 +131,37 @@ fun RecycleBinScreen(onBack: () -> Unit) {
         onRefresh = { load(pull = true) },
         loading = loading,
     ) {
+        if (photos.isNotEmpty()) {
+            item {
+                Column(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                    if (keepDays > 0) {
+                        Text(
+                            "删除的照片在回收站保留 $keepDays 天，之后自动永久删除。",
+                            fontSize = 13.sp,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    LxButton(
+                        text = "清空回收站",
+                        onClick = { confirmPurgeAll = true },
+                        variant = LxButtonVariant.Negative,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
         error?.let { msg ->
             item {
                 Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
                     Column(Modifier.padding(16.dp)) {
                         Text(msg, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         Spacer(Modifier.height(12.dp))
-                        Button(onClick = { load() }, modifier = Modifier.fillMaxWidth()) { Text("重试") }
+                        LxButton(
+                            text = "重试",
+                            onClick = { load() },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                 }
             }
@@ -117,25 +197,49 @@ fun RecycleBinScreen(onBack: () -> Unit) {
                     Column(Modifier.weight(1f).padding(start = 12.dp)) {
                         Text(p.caption.ifBlank { "无描述" }, fontSize = 15.sp)
                         Spacer(Modifier.height(2.dp))
-                        Text(
-                            "${p.width}×${p.height}",
-                            fontSize = 13.sp,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        val remain = p.recycleRemainingDays
+                        if (remain != null && remain >= 0) {
+                            Text(
+                                if (remain == 0) "即将自动删除" else "还剩 $remain 天自动删除",
+                                fontSize = 12.sp,
+                                // 快到期时转红，让用户有机会及时恢复。
+                                color = if (remain <= 3) BrandRed
+                                else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            )
+                        } else {
+                            Text(
+                                "${p.width}×${p.height}",
+                                fontSize = 13.sp,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            )
+                        }
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        LxButton(
+                            text = if (busyId == p.id) "恢复中…" else "恢复",
+                            onClick = {
+                                if (busyId != 0L) return@LxButton
+                                busyId = p.id
+                                scope.launch {
+                                    runCatching { ApiClient.restorePhoto(p.id) }
+                                        .onSuccess { photos = photos.filterNot { it.id == p.id } }
+                                        .onFailure { error = albumFriendlyError(it) }
+                                    busyId = 0L
+                                }
+                            },
+                            enabled = busyId == 0L,
+                            variant = LxButtonVariant.Positive,
+                            cornerRadius = 12,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        LxButton(
+                            text = "彻底删除",
+                            onClick = { purgeTarget = p },
+                            enabled = busyId == 0L,
+                            variant = LxButtonVariant.Negative,
+                            cornerRadius = 12,
                         )
                     }
-                    Button(
-                        onClick = {
-                            if (busyId != 0L) return@Button
-                            busyId = p.id
-                            scope.launch {
-                                runCatching { ApiClient.restorePhoto(p.id) }
-                                    .onSuccess { photos = photos.filterNot { it.id == p.id } }
-                                    .onFailure { error = albumFriendlyError(it) }
-                                busyId = 0L
-                            }
-                        },
-                        enabled = busyId == 0L,
-                    ) { Text(if (busyId == p.id) "恢复中…" else "恢复", fontSize = 13.sp) }
                 }
             }
         }

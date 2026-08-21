@@ -207,6 +207,12 @@
     },
     "changeCredentials": {
       "title": "修改登录凭据"
+    },
+    "albumManage": {
+      "title": "相册管理"
+    },
+    "storageStats": {
+      "title": "磁盘统计"
     }
   },
   "table": {
@@ -302,7 +308,6 @@
   "contentAudit": {
     "tabs": {
       "todo": "待办",
-      "diary": "日记",
       "photo": "相册照片"
     },
     "todo": {
@@ -336,21 +341,6 @@
       },
       "deleteTitle": "删除待办",
       "deleteConfirm": "确定要删除待办「{title}」吗？"
-    },
-    "diary": {
-      "searchPlaceholder": "搜索标题 / 作者",
-      "empty": "暂无日记",
-      "untitled": "(无标题)",
-      "table": {
-        "id": "ID",
-        "title": "标题",
-        "author": "作者",
-        "pairId": "关系 ID",
-        "diaryDate": "日记日期",
-        "createdAt": "创建时间"
-      },
-      "deleteTitle": "删除日记",
-      "deleteConfirm": "日记（#{id}）将被永久删除，无法恢复。确定继续吗？"
     },
     "photo": {
       "searchPlaceholder": "搜索照片描述",

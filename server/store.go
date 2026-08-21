@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 )
@@ -225,7 +226,11 @@ func (s *Store) ListTodos(pairID int64, status int) ([]Todo, error) {
 	var out []Todo
 	for rows.Next() {
 		var t Todo
-		rows.Scan(&t.ID, &t.PairID, &t.CreatorID, &t.AssigneeID, &t.Title, &t.Note, &t.RemindAt, &t.RemindType, &t.RepeatType, &t.Weekdays, &t.RemindEnabled, &t.Status, &t.CompletedAt)
+		if err := rows.Scan(&t.ID, &t.PairID, &t.CreatorID, &t.AssigneeID, &t.Title, &t.Note, &t.RemindAt, &t.RemindType, &t.RepeatType, &t.Weekdays, &t.RemindEnabled, &t.Status, &t.CompletedAt); err != nil {
+			// 坏行跳过并留痕：忽略 Scan 错误会让 NULL 列静默变成零值。
+			slog.Error("scan todo failed", "err", err)
+			continue
+		}
 		out = append(out, t)
 	}
 	return out, nil
@@ -311,7 +316,11 @@ func (s *Store) DueTodos(now time.Time) ([]Todo, error) {
 	var out []Todo
 	for rows.Next() {
 		var t Todo
-		rows.Scan(&t.ID, &t.PairID, &t.CreatorID, &t.AssigneeID, &t.Title, &t.Note, &t.RemindAt, &t.RemindType, &t.RepeatType, &t.Weekdays, &t.RemindEnabled, &t.Status, &t.CompletedAt)
+		if err := rows.Scan(&t.ID, &t.PairID, &t.CreatorID, &t.AssigneeID, &t.Title, &t.Note, &t.RemindAt, &t.RemindType, &t.RepeatType, &t.Weekdays, &t.RemindEnabled, &t.Status, &t.CompletedAt); err != nil {
+			// 坏行跳过并留痕：忽略 Scan 错误会让 NULL 列静默变成零值。
+			slog.Error("scan todo failed", "err", err)
+			continue
+		}
 		out = append(out, t)
 	}
 	return out, nil
@@ -324,110 +333,6 @@ func (s *Store) AdvanceTodoRemind(id int64, next *time.Time) error {
 }
 
 // ---------- 日记 ----------
-
-func (s *Store) CreateDiary(pairID, authorID int64, title, content, date string) (*Diary, error) {
-	d := &Diary{PairID: pairID, AuthorID: authorID, Title: title, Content: content, DiaryDate: date}
-	res, err := s.DB.Exec(
-		`INSERT INTO diary(pair_id,author_id,title,content,diary_date) VALUES(?,?,?,?,?)`,
-		pairID, authorID, title, content, date)
-	if err != nil {
-		return nil, err
-	}
-	d.ID, _ = res.LastInsertId()
-	return d, nil
-}
-
-func (s *Store) ListDiaries(pairID int64, date string) ([]Diary, error) {
-	q := `SELECT d.id,d.pair_id,d.author_id,u.nickname,d.title,d.content,d.diary_date,d.created_at,d.updated_at
-		  FROM diary d JOIN user u ON u.id=d.author_id WHERE d.pair_id=?`
-	var args []interface{} = []interface{}{pairID}
-	if date != "" {
-		q += " AND d.diary_date=?"
-		args = append(args, date)
-	}
-	q += " ORDER BY d.diary_date DESC, d.id DESC"
-	rows, err := s.DB.Query(q, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []Diary
-	for rows.Next() {
-		var d Diary
-		rows.Scan(&d.ID, &d.PairID, &d.AuthorID, &d.AuthorName, &d.Title, &d.Content,
-			&d.DiaryDate, &d.CreatedAt, &d.UpdatedAt)
-		d.Images, _ = s.DiaryImages(d.ID)
-		out = append(out, d)
-	}
-	return out, nil
-}
-
-func (s *Store) DiaryImages(id int64) ([]string, error) {
-	rows, err := s.DB.Query(`SELECT url FROM diary_image WHERE diary_id=? ORDER BY sort_no`, id)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var u string
-		rows.Scan(&u)
-		out = append(out, u)
-	}
-	return out, nil
-}
-
-// AddDiaryImages 落库日记配图 URL。
-//
-// 必须先过白名单校验：此前把客户端传来的任意字符串直接入库并回显给双方客户端，可被用于
-//   - 注入 javascript:/data: 串 → 客户端渲染时执行脚本；
-//   - 注入攻击者服务器 URL 当追踪像素 → 对方一打开日记就回传 IP/UA/访问时间。
-func (s *Store) AddDiaryImages(id int64, urls []string) error {
-	if err := validateUploadURLs(urls); err != nil {
-		return err
-	}
-	for i, u := range urls {
-		_, err := s.DB.Exec(`INSERT INTO diary_image(diary_id,url,sort_no) VALUES(?,?,?)`, id, u, i)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (s *Store) UpdateDiary(id int64, title, content *string) error {
-	sets, args := []string{}, []interface{}{}
-	if title != nil {
-		sets = append(sets, "title=?")
-		args = append(args, *title)
-	}
-	if content != nil {
-		sets = append(sets, "content=?")
-		args = append(args, *content)
-	}
-	if len(sets) == 0 {
-		return nil
-	}
-	args = append(args, id)
-	_, err := s.DB.Exec("UPDATE diary SET "+strings.Join(sets, ",")+" WHERE id=?", args...)
-	return err
-}
-
-func (s *Store) DeleteDiary(id int64) error {
-	_, err := s.DB.Exec(`DELETE FROM diary WHERE id=?`, id)
-	if err != nil {
-		return err
-	}
-	_, err = s.DB.Exec(`DELETE FROM diary_image WHERE diary_id=?`, id)
-	return err
-}
-
-// DiaryPairID 返回日记所属 pair_id，用于越权校验。
-func (s *Store) DiaryPairID(id int64) (int64, error) {
-	var pid int64
-	err := s.DB.QueryRow(`SELECT pair_id FROM diary WHERE id=?`, id).Scan(&pid)
-	return pid, err
-}
 
 // ---------- 状态（Redis 为主，落库兜底） ----------
 
@@ -467,15 +372,36 @@ func nameOf(st *DeviceStatus) interface{} {
 	return nil
 }
 
+// parseDayRange 把 YYYY-MM-DD 解析为「本地时区」的当日 [00:00, 次日00:00)。
+//
+// 必须用 ParseInLocation 而不是 Parse：Parse 得到的是 **UTC 零点**，
+// 而写入侧用的是 time.Now().Truncate(5*time.Minute)（服务器本地时区）。
+// 容器 TZ=Asia/Shanghai(+8) 时，"今天"的查询窗口实际是本地 08:00~次日 08:00，
+// 于是凌晨 0~8 点的记录被算进"昨天"，用户看到当天早上一片空白。
+func parseDayRange(date string) (time.Time, time.Time, bool) {
+	start, err := time.ParseInLocation("2006-01-02", date, time.Local)
+	if err != nil {
+		return time.Time{}, time.Time{}, false
+	}
+	return start, start.AddDate(0, 0, 1), true
+}
+
 // HistoryTimeline 分页查询某用户历史时间线（按 ts 倒序）
+//
+// 三个可空列用 sql.NullString 接，并且**必须检查 rows.Scan 的返回值**：
+// 忽略它会让出错的行以全零值进入结果集（Ts 变零时间 → ts=-62135596800000），
+// 客户端按 ts 做 LazyColumn key 时就撞重复 key 而崩溃。这是 0821 的崩溃根因。
 func (s *Store) HistoryTimeline(pairID, uid int64, date string, limit, offset int) ([]StatusHistory, error) {
 	q := `SELECT pair_id,user_id,battery,charging,screen_on,locked,foreground_pkg,foreground_name,ssid,network,ts
 		  FROM status_history WHERE pair_id=? AND user_id=?`
 	args := []interface{}{pairID, uid}
 	if date != "" {
+		start, end, okD := parseDayRange(date)
+		if !okD {
+			return nil, fmt.Errorf("invalid date %q", date)
+		}
 		q += " AND ts>=? AND ts<?"
-		start, _ := time.Parse("2006-01-02", date)
-		args = append(args, start, start.AddDate(0, 0, 1))
+		args = append(args, start, end)
 	}
 	q += " ORDER BY ts DESC LIMIT ? OFFSET ?"
 	args = append(args, limit, offset)
@@ -484,34 +410,62 @@ func (s *Store) HistoryTimeline(pairID, uid int64, date string, limit, offset in
 		return nil, err
 	}
 	defer rows.Close()
-	var out []StatusHistory
+	out := []StatusHistory{}
 	for rows.Next() {
 		var h StatusHistory
-		rows.Scan(&h.PairID, &h.UserID, &h.BatteryLevel, &h.IsCharging, &h.ScreenOn, &h.IsLocked,
-			&h.ForegroundPkg, &h.ForegroundApp, &h.SSID, &h.NetworkType, &h.Ts)
+		if err := rows.Scan(&h.PairID, &h.UserID, &h.BatteryLevel, &h.IsCharging, &h.ScreenOn, &h.IsLocked,
+			&h.ForegroundPkg, &h.ForegroundApp, &h.SSID, &h.NetworkType, &h.Ts); err != nil {
+			// 单行坏数据不该让整页失败，但必须记下来——静默跳过等于又埋一颗雷。
+			slog.Error("scan status_history row failed", "err", err, "pair_id", pairID, "user_id", uid)
+			continue
+		}
 		out = append(out, h)
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
 // BatteryCurve 某日 24h 电量序列（按 ts 升序）
 func (s *Store) BatteryCurve(pairID, uid int64, date string) ([]StatusHistory, error) {
-	start, _ := time.Parse("2006-01-02", date)
+	start, end, okD := parseDayRange(date)
+	if !okD {
+		return nil, fmt.Errorf("invalid date %q", date)
+	}
 	rows, err := s.DB.Query(
 		`SELECT pair_id,user_id,battery,charging,ts FROM status_history
 		 WHERE pair_id=? AND user_id=? AND ts>=? AND ts<? ORDER BY ts ASC`,
-		pairID, uid, start, start.AddDate(0, 0, 1))
+		pairID, uid, start, end)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []StatusHistory
+	out := []StatusHistory{}
 	for rows.Next() {
 		var h StatusHistory
-		rows.Scan(&h.PairID, &h.UserID, &h.BatteryLevel, &h.IsCharging, &h.Ts)
+		if err := rows.Scan(&h.PairID, &h.UserID, &h.BatteryLevel, &h.IsCharging, &h.Ts); err != nil {
+			slog.Error("scan battery_curve row failed", "err", err, "pair_id", pairID, "user_id", uid)
+			continue
+		}
 		out = append(out, h)
 	}
-	return out, nil
+	return out, rows.Err()
+}
+
+// CleanupStatusHistory 删除 N 天前的状态历史。days<=0 表示永久保留（不清理）。
+//
+// 必须用 SQLite 的 datetime() 而非 MySQL 的 `NOW() - INTERVAL ? DAY`——
+// 0820 那轮 netlog 就是写成 MySQL 语法导致清理永久静默失败、磁盘只涨不跌。
+func (s *Store) CleanupStatusHistory(days int) (int64, error) {
+	if days <= 0 {
+		return 0, nil // 永久保留
+	}
+	res, err := s.DB.Exec(
+		`DELETE FROM status_history WHERE ts < datetime('now', ?)`, negDaysModifier(days))
+	if err != nil {
+		slog.Error("cleanup status_history failed", "err", err, "days", days)
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
 
 // ---------- 离线补偿 ----------

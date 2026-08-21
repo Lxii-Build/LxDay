@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log/slog"
 	"os"
 	"strconv"
@@ -46,7 +45,7 @@ var reqLogCh = make(chan RequestLog, 1024)
 
 // PLACEHOLDER_NETLOG
 
-// startRequestLogWorker 单消费者异步落库（避免每请求起 goroutine）；并每 6 小时清理超保留期记录。
+// startRequestLogWorker 单消费者异步落库（避免每请求起 goroutine）；并周期跑数据保留清理。
 func startRequestLogWorker() {
 	go func() {
 		for rl := range reqLogCh {
@@ -56,11 +55,46 @@ func startRequestLogWorker() {
 	go func() {
 		t := time.NewTicker(6 * time.Hour)
 		defer t.Stop()
-		st.CleanupRequestLogs(7)
+		runRetentionCleanup()
 		for range t.C {
-			st.CleanupRequestLogs(7)
+			runRetentionCleanup()
 		}
 	}()
+}
+
+// runRetentionCleanup 按后台配置的保留天数清理三类历史数据。
+//
+// 三处「磁盘只涨不跌」的来源（0821 排查结论）：
+//
+//	① request_log —— 保留天数此前写死 7 天，改不了
+//	② status_history —— 注释写着「永久保留」，全仓无任何清理任务
+//	③ 回收站照片 —— 全链路软删，/upload 下的原图与缩略图永久保留
+//
+// **每类都记录实际删除行数**：0820 那轮 netlog 的清理 SQL 误用 MySQL 语法
+// （`NOW() - INTERVAL ? DAY`），在 SQLite 上永久静默失败、磁盘必被打满，
+// 而调用方忽略了返回值所以完全无感。有了行数日志，下次再写错能立刻看出来。
+func runRetentionCleanup() {
+	s := settingsNow()
+
+	if n, err := st.CleanupRequestLogsN(s.NetworkLogDays); err != nil {
+		slog.Error("retention: request_log cleanup failed", "err", err)
+	} else if n > 0 {
+		slog.Info("retention: request_log cleaned", "rows", n, "keep_days", s.NetworkLogDays)
+	}
+
+	if n, err := st.CleanupStatusHistory(s.StatusHistoryDays); err != nil {
+		slog.Error("retention: status_history cleanup failed", "err", err)
+	} else if n > 0 {
+		slog.Info("retention: status_history cleaned", "rows", n, "keep_days", s.StatusHistoryDays)
+	}
+
+	// 回收站到期照片：真删库行 + 真删磁盘文件。
+	if cnt, freed, err := st.PurgeExpiredRecycleBin(s.RecycleBinDays); err != nil {
+		slog.Error("retention: recycle bin purge failed", "err", err)
+	} else if cnt > 0 {
+		slog.Info("retention: recycle bin purged",
+			"photos", cnt, "freed_mb", freed/(1024*1024), "keep_days", s.RecycleBinDays)
+	}
 }
 
 // RequestLogger 请求日志中间件：注入 X-Request-Id，记录结构化 slog 行并异步入库。
@@ -120,18 +154,25 @@ func (s *Store) InsertRequestLog(rl RequestLog) {
 //
 // 参数用 printf 拼进 modifier 字符串：SQLite 的 datetime modifier 不支持占位符，
 // 故 days 必须是受信整数（调用方传常量），此处再做一次范围收敛以防注入。
-func (s *Store) CleanupRequestLogs(days int) {
-	if days < 1 {
-		days = 1
+// CleanupRequestLogsN 删除 N 天前的请求日志，返回实际删除行数。
+// days<=0 表示永久保留（不清理）。
+func (s *Store) CleanupRequestLogsN(days int) (int64, error) {
+	if days <= 0 {
+		return 0, nil // 永久保留
 	}
-	if days > 3650 {
-		days = 3650
-	}
-	modifier := fmt.Sprintf("-%d days", days)
-	if _, err := s.DB.Exec(
-		`DELETE FROM request_log WHERE created_at < datetime('now', ?)`, modifier); err != nil {
+	res, err := s.DB.Exec(
+		`DELETE FROM request_log WHERE created_at < datetime('now', ?)`, negDaysModifier(days))
+	if err != nil {
 		slog.Error("cleanup request_log failed", "err", err, "days", days)
+		return 0, err
 	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
+// CleanupRequestLogs 保留旧签名（忽略返回值的调用点仍可用）。
+func (s *Store) CleanupRequestLogs(days int) {
+	_, _ = s.CleanupRequestLogsN(days)
 }
 
 func (s *Store) ListRequestLogs(method, path string, status, limit, offset int) ([]RequestLog, int, error) {
@@ -163,7 +204,12 @@ func (s *Store) ListRequestLogs(method, path string, status, limit, offset int) 
 	for rows.Next() {
 		var r RequestLog
 		var created time.Time
-		rows.Scan(&r.ID, &r.Method, &r.Path, &r.Status, &r.LatencyMs, &r.IP, &r.UA, &r.RequestID, &created)
+		if err := rows.Scan(&r.ID, &r.Method, &r.Path, &r.Status, &r.LatencyMs, &r.IP, &r.UA, &r.RequestID, &created); err != nil {
+			// 单行坏数据（如可空列为 NULL）不能静默变成零值：
+			// 忽略 Scan 错误曾导致状态历史整行零值 → 客户端撞重复 key 崩溃。
+			slog.Error("scan request_log row failed", "err", err)
+			continue
+		}
 		r.CreatedAt = created.Format("2006-01-02 15:04:05")
 		out = append(out, r)
 	}

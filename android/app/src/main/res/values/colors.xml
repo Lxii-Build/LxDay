@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!--
+      启动帧底色。与 miuix colorScheme.background 对齐（浅 #F7F7F7 / 暗 #0F0F0F），
+      让"冷启动 → Compose 首帧"之间没有色差跳变（Q4=A）。
+      card_bg 是通知卡片用色（带品牌色调），拿它当窗口底色会闪一下粉/紫。
+    -->
+    <color name="launch_bg">#F7F7F7</color>
     <!-- 浅色（默认）：MilkGlass 规范色板 -->
     <color name="card_bg">#F6EEF2</color>
     <color name="card_text">#5B5560</color>

@@ -21,12 +21,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Email
-import androidx.compose.material.icons.rounded.Lock
-import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.Pin
-import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,6 +44,12 @@ import com.linxi.diary.util.Logs
 import com.linxi.diary.util.UserPrefs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Contacts
+import top.yukonga.miuix.kmp.icon.extended.Email
+import top.yukonga.miuix.kmp.icon.extended.Lock
+import top.yukonga.miuix.kmp.icon.extended.Pin
+import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
@@ -154,7 +154,7 @@ fun RegisterScreen(
                         singleLine = true,
                         leadingIcon = {
                             Icon(
-                                Icons.Rounded.Person,
+                                MiuixIcons.Contacts,
                                 contentDescription = null,
                                 tint = colorScheme.onSurfaceVariantSummary,
                                 modifier = Modifier.padding(start = 12.dp),
@@ -172,7 +172,7 @@ fun RegisterScreen(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                         leadingIcon = {
                             Icon(
-                                Icons.Rounded.Email,
+                                MiuixIcons.Email,
                                 contentDescription = null,
                                 tint = colorScheme.onSurfaceVariantSummary,
                                 modifier = Modifier.padding(start = 12.dp),
@@ -192,7 +192,7 @@ fun RegisterScreen(
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 leadingIcon = {
                                     Icon(
-                                        Icons.Rounded.Pin,
+                                        MiuixIcons.Pin,
                                         contentDescription = null,
                                         tint = colorScheme.onSurfaceVariantSummary,
                                         modifier = Modifier.padding(start = 12.dp),
@@ -225,7 +225,7 @@ fun RegisterScreen(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                         leadingIcon = {
                             Icon(
-                                Icons.Rounded.Lock,
+                                MiuixIcons.Lock,
                                 contentDescription = null,
                                 tint = colorScheme.onSurfaceVariantSummary,
                                 modifier = Modifier.padding(start = 12.dp),

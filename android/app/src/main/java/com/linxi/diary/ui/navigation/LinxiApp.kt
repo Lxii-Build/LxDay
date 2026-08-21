@@ -21,12 +21,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.Explore
-import androidx.compose.material.icons.rounded.Favorite
-import androidx.compose.material.icons.rounded.Person
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -52,6 +46,7 @@ import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.ui.liquid.miuix.FloatingBottomBar
 import com.linxi.diary.ui.liquid.miuix.FloatingBottomBarItem
 import com.linxi.diary.ui.screens.AlbumDetailScreen
+import com.linxi.diary.ui.screens.AvatarCropScreen
 import com.linxi.diary.ui.screens.AlbumListScreen
 import com.linxi.diary.ui.screens.BindScreen
 import com.linxi.diary.ui.screens.OnThisDayScreen
@@ -63,6 +58,7 @@ import com.linxi.diary.ui.screens.AppearanceScreen
 import com.linxi.diary.ui.screens.DiscoverPlaceholderScreen
 import com.linxi.diary.ui.screens.DiscoverScreen
 import com.linxi.diary.ui.screens.HistoryScreen
+import com.linxi.diary.ui.screens.KeepAliveCheckScreen
 import com.linxi.diary.ui.screens.LoginScreen
 import com.linxi.diary.ui.screens.NowScreen
 import com.linxi.diary.ui.screens.PrivacyConsentDialog
@@ -72,11 +68,16 @@ import com.linxi.diary.ui.screens.SettingsScreen
 import com.linxi.diary.ui.screens.TodoScreen
 import com.linxi.diary.ui.screens.UpdateDialog
 import com.linxi.diary.ui.screens.UpdateInfo
-import com.linxi.diary.ui.screens.DiaryScreen
 import com.linxi.diary.util.Logs
 import com.linxi.diary.util.UserPrefs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Add
+import top.yukonga.miuix.kmp.icon.extended.Community
+import top.yukonga.miuix.kmp.icon.extended.Contacts
+import top.yukonga.miuix.kmp.icon.extended.FavoritesFill
+import top.yukonga.miuix.kmp.icon.extended.Ok
 import top.yukonga.miuix.kmp.basic.FloatingActionButton
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Scaffold
@@ -88,10 +89,10 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 private data class TabItem(val label: String, val icon: ImageVector)
 
 private val tabs = listOf(
-    TabItem("主页", Icons.Rounded.Favorite),
-    TabItem("待办", Icons.Rounded.CheckCircle),
-    TabItem("发现", Icons.Rounded.Explore),
-    TabItem("我的", Icons.Rounded.Person)
+    TabItem("主页", MiuixIcons.FavoritesFill),
+    TabItem("待办", MiuixIcons.Ok),
+    TabItem("发现", MiuixIcons.Community),
+    TabItem("我的", MiuixIcons.Contacts)
 )
 
 @Composable
@@ -120,6 +121,12 @@ fun LinxiApp() {
     var viewerIndex by remember { mutableStateOf(0) }
     // 选图结果：选择器页返回后由相册详情页消费。
     var pickedUris by remember { mutableStateOf<List<android.net.Uri>>(emptyList()) }
+    // 选图的目的地：相册上传 or 头像。此前 PhotoPicker 返回后固定回 AlbumDetail，
+    // 头像要复用同一个选择器（Q13=C）就必须知道该回哪儿。
+    var pickerTarget by remember { mutableStateOf(PickerTarget.Album) }
+    // 待裁剪的图与裁剪结果
+    var cropUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var croppedAvatar by remember { mutableStateOf<java.io.File?>(null) }
     LaunchedEffect(Unit) {
         ProfileRuntime.actions.collect { action ->
             if (action.navigateToBind) {
@@ -210,14 +217,47 @@ fun LinxiApp() {
                     onOpenPhoto = { list, index ->
                         viewerPhotos = list; viewerIndex = index; screen = Screen.PhotoViewer
                     },
-                    onPickPhotos = { screen = Screen.PhotoPicker },
+                    onPickPhotos = {
+                        pickerTarget = PickerTarget.Album
+                        screen = Screen.PhotoPicker
+                    },
                     pickedUris = pickedUris,
                     onPickedConsumed = { pickedUris = emptyList() },
                 )
                 Screen.PhotoPicker -> PhotoPickerScreen(
-                    onBack = { screen = Screen.AlbumDetail },
-                    onPicked = { uris -> pickedUris = uris; screen = Screen.AlbumDetail },
+                    title = if (pickerTarget == PickerTarget.Avatar) "选择头像" else "选择照片",
+                    multiple = pickerTarget == PickerTarget.Album,
+                    onBack = {
+                        screen = if (pickerTarget == PickerTarget.Avatar) Screen.ProfileEdit
+                        else Screen.AlbumDetail
+                    },
+                    onPicked = { uris ->
+                        if (pickerTarget == PickerTarget.Avatar) {
+                            // 头像是单选：拿第一张进裁剪页
+                            cropUri = uris.firstOrNull()
+                            screen = if (cropUri != null) Screen.AvatarCrop else Screen.ProfileEdit
+                        } else {
+                            pickedUris = uris
+                            screen = Screen.AlbumDetail
+                        }
+                    },
                 )
+                Screen.AvatarCrop -> {
+                    val target = cropUri
+                    if (target == null) {
+                        screen = Screen.ProfileEdit
+                    } else {
+                        AvatarCropScreen(
+                            uri = target,
+                            onCancel = { cropUri = null; screen = Screen.ProfileEdit },
+                            onCropped = { file ->
+                                croppedAvatar = file
+                                cropUri = null
+                                screen = Screen.ProfileEdit
+                            },
+                        )
+                    }
+                }
                 Screen.PhotoViewer -> PhotoViewerScreen(
                     photos = viewerPhotos,
                     initialIndex = viewerIndex,
@@ -230,10 +270,20 @@ fun LinxiApp() {
                         viewerPhotos = list; viewerIndex = index; screen = Screen.PhotoViewer
                     },
                 )
-                Screen.DiscoverDiary -> DiaryScreen(onBack = { mainInitialPage = 2; screen = Screen.Main })
                 Screen.DiscoverListen -> DiscoverPlaceholderScreen("一起听", onBack = { mainInitialPage = 2; screen = Screen.Main })
                 Screen.DiscoverWatch -> DiscoverPlaceholderScreen("一起看", onBack = { mainInitialPage = 2; screen = Screen.Main })
-                Screen.ProfileEdit -> ProfileEditScreen(onBack = { mainInitialPage = 3; screen = Screen.Main })
+                Screen.ProfileEdit -> ProfileEditScreen(
+                    onBack = { mainInitialPage = 3; screen = Screen.Main },
+                    onPickAvatar = {
+                        pickerTarget = PickerTarget.Avatar
+                        screen = Screen.PhotoPicker
+                    },
+                    croppedAvatar = croppedAvatar,
+                    onCroppedConsumed = { croppedAvatar = null },
+                )
+                Screen.KeepAliveCheck -> KeepAliveCheckScreen(
+                    onBack = { mainInitialPage = 3; screen = Screen.Main },
+                )
                 Screen.About -> AboutScreen(
                     onBack = { mainInitialPage = 3; screen = Screen.Main },
                     onLogout = { screen = Screen.Login },
@@ -245,11 +295,11 @@ fun LinxiApp() {
                     onOpenBind = { screen = Screen.Bind },
                     onOpenAppearance = { screen = Screen.Appearance },
                     onOpenAlbum = { screen = Screen.DiscoverAlbum },
-                    onOpenDiary = { screen = Screen.DiscoverDiary },
                     onOpenListen = { screen = Screen.DiscoverListen },
                     onOpenWatch = { screen = Screen.DiscoverWatch },
                     onOpenProfileEdit = { screen = Screen.ProfileEdit },
                     onOpenAbout = { screen = Screen.About },
+                    onOpenKeepAliveCheck = { screen = Screen.KeepAliveCheck },
                 )
                 }
             }
@@ -266,11 +316,11 @@ private fun MainTabs(
     onOpenBind: () -> Unit,
     onOpenAppearance: () -> Unit,
     onOpenAlbum: () -> Unit,
-    onOpenDiary: () -> Unit,
     onOpenListen: () -> Unit,
     onOpenWatch: () -> Unit,
     onOpenProfileEdit: () -> Unit,
-    onOpenAbout: () -> Unit
+    onOpenAbout: () -> Unit,
+    onOpenKeepAliveCheck: () -> Unit,
 ) {
     val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { tabs.size })
     val mainState = rememberMainPagerState(pagerState)
@@ -336,11 +386,11 @@ private fun MainTabs(
                     1 -> TodoScreen()
                     2 -> DiscoverScreen(
                         onOpenAlbum = onOpenAlbum,
-                        onOpenDiary = onOpenDiary,
                         onOpenListen = onOpenListen,
                         onOpenWatch = onOpenWatch,
                     )
                     3 -> SettingsScreen(
+                        onOpenKeepAliveCheck = onOpenKeepAliveCheck,
                         onOpenConsent = { reviewConsent = true },
                         onOpenBind = onOpenBind,
                         onOpenHistory = onOpenHistory,
@@ -401,7 +451,7 @@ private fun MainTabs(
                     onClick = { fabAction.invoke() },
                     modifier = Modifier.offset { IntOffset(0, fabOffsetY.roundToPx()) },
                 ) {
-                    Icon(Icons.Rounded.Add, contentDescription = "添加待办")
+                    Icon(MiuixIcons.Add, contentDescription = "添加待办")
                 }
             }
         }
@@ -422,5 +472,9 @@ private fun MainTabs(
 private enum class Screen {
     Login, Register, Bind, Main, History, Appearance, ProfileEdit, About,
     DiscoverAlbum, AlbumDetail, PhotoPicker, PhotoViewer, OnThisDay, RecycleBin,
-    DiscoverDiary, DiscoverListen, DiscoverWatch,
+    AvatarCrop, KeepAliveCheck,
+    DiscoverListen, DiscoverWatch,
 }
+
+/** 选图器的用途。决定单选/多选、标题，以及选完该回哪个页面。 */
+private enum class PickerTarget { Album, Avatar }

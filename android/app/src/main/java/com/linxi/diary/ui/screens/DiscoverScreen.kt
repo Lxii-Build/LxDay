@@ -19,13 +19,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Book
-import androidx.compose.material.icons.rounded.Construction
-import androidx.compose.material.icons.rounded.Movie
-import androidx.compose.material.icons.rounded.MusicNote
-import androidx.compose.material.icons.rounded.PhotoLibrary
-import androidx.compose.material3.Icon
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -34,22 +27,30 @@ import com.linxi.diary.data.ApiClient
 import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.components.KernelScreen
 import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Music
+import top.yukonga.miuix.kmp.icon.extended.Photos
+import top.yukonga.miuix.kmp.icon.extended.RecordingTape
+import top.yukonga.miuix.kmp.icon.extended.Tune
+import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 
 /**
- * Tab ③ 发现：相册 / 日记 / 一起听 / 一起看 入口卡。
+ * Tab ③ 发现：相册 / 一起听 / 一起看 入口卡。
  *
- * 日记入口在 0811 那轮把「日记页」改成「发现页」时被一并去掉了，
- * 但服务端 diary 表、`/diaries` 接口、后台「内容审核-日记」页全都还在——
- * App 名字就叫「林曦日记」，却没有任何写日记的入口。这里把它接回来。
+ * 「日记」功能已于 0821 整体移除（管理员 Q31=D：客户端、服务端接口、
+ * 数据表、后台页面、文档全部清掉，彻底断根）。
+ * 0811 那轮只删了客户端入口、留下服务端孤儿接口，结果 0820 又接回来了——
+ * 留着半截实现，将来看到接口还在就会以为功能该有。
+ *
+ * App 名字仍叫「林曦日记」、包名仍是 com.linxi.diary，这两个不受影响。
  */
 @Composable
 fun DiscoverScreen(
     onOpenAlbum: () -> Unit,
-    onOpenDiary: () -> Unit,
     onOpenListen: () -> Unit,
     onOpenWatch: () -> Unit,
 ) {
@@ -59,7 +60,6 @@ fun DiscoverScreen(
     var loading by remember { mutableStateOf(true) }
     var refreshing by remember { mutableStateOf(false) }
     var albumCount by remember { mutableStateOf<Int?>(null) }
-    var diaryCount by remember { mutableStateOf<Int?>(null) }
     val scope = rememberCoroutineScope()
 
     suspend fun fetch() {
@@ -67,9 +67,6 @@ fun DiscoverScreen(
         runCatching { ApiClient.albumSummary() }
             .onSuccess { albumCount = it }
             .onFailure { albumCount = null }
-        runCatching { ApiClient.diaryCount() }
-            .onSuccess { diaryCount = it }
-            .onFailure { diaryCount = null }
     }
 
     LaunchedEffect(Unit) {
@@ -94,20 +91,13 @@ fun DiscoverScreen(
                 DiscoverCard(
                     "相册",
                     albumCount?.let { "已收藏 $it 张照片" } ?: "记录你们的共同瞬间",
-                    Icons.Rounded.PhotoLibrary,
+                    MiuixIcons.Photos,
                     onOpenAlbum,
                 )
                 Spacer(Modifier.height(12.dp))
-                DiscoverCard(
-                    "日记",
-                    diaryCount?.let { "已写下 $it 篇" } ?: "记下今天想说的话",
-                    Icons.Rounded.Book,
-                    onOpenDiary,
-                )
+                DiscoverCard("一起听", "分享此刻在听的歌", MiuixIcons.Music, onOpenListen)
                 Spacer(Modifier.height(12.dp))
-                DiscoverCard("一起听", "分享此刻在听的歌", Icons.Rounded.MusicNote, onOpenListen)
-                Spacer(Modifier.height(12.dp))
-                DiscoverCard("一起看", "同步你们喜欢的影像", Icons.Rounded.Movie, onOpenWatch)
+                DiscoverCard("一起看", "同步你们喜欢的影像", MiuixIcons.RecordingTape, onOpenWatch)
             }
         }
     }
@@ -154,7 +144,7 @@ fun DiscoverPlaceholderScreen(title: String, onBack: () -> Unit) {
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Icon(
-                    Icons.Rounded.Construction,
+                    MiuixIcons.Tune,
                     contentDescription = null,
                     tint = colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.size(72.dp),

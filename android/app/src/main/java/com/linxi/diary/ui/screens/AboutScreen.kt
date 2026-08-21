@@ -16,12 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Code
-import androidx.compose.material.icons.rounded.Favorite
-import androidx.compose.material.icons.rounded.Language
-import androidx.compose.material.icons.rounded.SystemUpdate
-import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,6 +49,11 @@ import com.linxi.diary.util.Logs
 import com.linxi.diary.util.UserPrefs
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.File
+import top.yukonga.miuix.kmp.icon.extended.Translate
+import top.yukonga.miuix.kmp.icon.extended.Update
+import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
@@ -130,7 +129,7 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit)
                         upToDate -> "已是最新版本"
                         else -> "当前版本 v${BuildConfig.VERSION_NAME}"
                     },
-                    startAction = { AboutIcon(Icons.Rounded.SystemUpdate) },
+                    startAction = { AboutIcon(MiuixIcons.Update) },
                     onClick = {
                         if (!checking) {
                             checking = true; upToDate = false
@@ -149,13 +148,13 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit)
                 ArrowPreference(
                     title = "开源仓库",
                     summary = REPO_URL,
-                    startAction = { AboutIcon(Icons.Rounded.Code) },
+                    startAction = { AboutIcon(MiuixIcons.File) },
                     onClick = { runCatching { uriHandler.openUri(REPO_URL) } },
                 )
                 ArrowPreference(
                     title = "官网",
                     summary = SITE_URL,
-                    startAction = { AboutIcon(Icons.Rounded.Language) },
+                    startAction = { AboutIcon(MiuixIcons.Translate) },
                     onClick = { runCatching { uriHandler.openUri(SITE_URL) } },
                 )
             }

@@ -21,16 +21,18 @@ var (
 	reEmail    = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`) // 邮箱基础校验
 )
 
-const emailCodeTTL = 10 * time.Minute
+// emailCodeTTLNow 验证码有效期，读后台配置（默认 10 分钟）。
+func emailCodeTTLNow() time.Duration {
+	return time.Duration(settingsNow().EmailCodeTTLMinutes) * time.Minute
+}
 
 func emailCodeKey(email string) string   { return "emailcode:" + strings.ToLower(email) }
 func emailCodeCDKey(email string) string { return "emailcode:cd:" + strings.ToLower(email) }
 
 // ---------- 验证码爆破防护 ----------
 
-// maxEmailCodeAttempts 单个验证码允许的校验失败次数。
+// 单个验证码允许的校验失败次数已改为后台可配（settings.go 的 EmailCodeMaxAttempts，默认 5）。
 // 6 位数字仅 100 万组合，无上限时可在有效期内穷举 → 冒用他人邮箱注册。
-const maxEmailCodeAttempts = 5
 
 func emailCodeAttemptKey(email string) string {
 	return "emailcode:try:" + strings.ToLower(email)
@@ -38,13 +40,13 @@ func emailCodeAttemptKey(email string) string {
 
 // emailCodeAttemptAllowed 是否还允许尝试。
 func emailCodeAttemptAllowed(email string) bool {
-	return st.mem.count(emailCodeAttemptKey(email)) < maxEmailCodeAttempts
+	return st.mem.count(emailCodeAttemptKey(email)) < int64(settingsNow().EmailCodeMaxAttempts)
 }
 
 // emailCodeAttemptFailed 记一次失败，返回是否已达上限（达到则调用方应作废该验证码）。
 func emailCodeAttemptFailed(email string) bool {
 	// TTL 与验证码有效期同量级即可：验证码过期后计数自然失效。
-	return st.mem.incr(emailCodeAttemptKey(email), 15*time.Minute) >= maxEmailCodeAttempts
+	return st.mem.incr(emailCodeAttemptKey(email), 15*time.Minute) >= int64(settingsNow().EmailCodeMaxAttempts)
 }
 
 func emailCodeAttemptReset(email string) { st.mem.del(emailCodeAttemptKey(email)) }
@@ -173,24 +175,25 @@ func handleSendEmailCode(c *gin.Context) {
 		fail(c, 400, 1002, "邮箱格式不正确")
 		return
 	}
-	// 60s 限频
-	if !st.mem.kvSetNX(emailCodeCDKey(email), 60*time.Second) {
-		fail(c, 429, 1012, "验证码发送过于频繁，请稍后再试")
+	// 发送冷却（后台可配，默认 60s）。文案带上真实秒数，避免用户干等不知道要多久。
+	cdSec := settingsNow().EmailCodeCooldownSec
+	if !st.mem.kvSetNX(emailCodeCDKey(email), time.Duration(cdSec)*time.Second) {
+		fail(c, 429, 1012, fmt.Sprintf("验证码发送过于频繁，请 %d 秒后再试", cdSec))
 		return
 	}
 	code := randomCode(6)
-	st.mem.kvSet(emailCodeKey(email), code, emailCodeTTL)
+	st.mem.kvSet(emailCodeKey(email), code, emailCodeTTLNow())
 	sc, err := loadSMTP()
 	if err != nil {
 		fail(c, 500, 1013, "邮件服务未配置，请联系管理员")
 		return
 	}
-	body := verifyCodeEmailHTML(code, int(emailCodeTTL.Minutes()))
+	body := verifyCodeEmailHTML(code, int(emailCodeTTLNow().Minutes()))
 	if err := sendMail(sc, email, "林曦日记 · 邮箱验证码", body); err != nil {
 		fail(c, 500, 1014, "验证码发送失败，请稍后再试")
 		return
 	}
-	ok(c, gin.H{"sent": true, "expires_in": int(emailCodeTTL.Seconds())})
+	ok(c, gin.H{"sent": true, "expires_in": int(emailCodeTTLNow().Seconds())})
 }
 
 // APPEND-ACCOUNT-2
@@ -286,13 +289,15 @@ func handleLogin(c *gin.Context) {
 	}
 	// 登录失败限流：同一账号 10 分钟内最多 5 次失败，防暴力破解。
 	failKey := "login:fail:" + strings.ToLower(account)
-	if st.mem.count(failKey) >= 5 {
-		fail(c, 429, 1012, "登录尝试过于频繁，请 10 分钟后再试")
+	loginWindow := time.Duration(settingsNow().LoginRateWindowMin) * time.Minute
+	if st.mem.count(failKey) >= int64(settingsNow().AdminLoginMaxFails) {
+		fail(c, 429, 1012, fmt.Sprintf("登录尝试过于频繁，请 %d 分钟后再试",
+			settingsNow().LoginRateWindowMin))
 		return
 	}
 	u, err := st.GetUserByLogin(account)
 	if err != nil || !checkPassword(u.PasswordHash, req.Password) {
-		st.mem.incr(failKey, 10*time.Minute)
+		st.mem.incr(failKey, loginWindow)
 		fail(c, 400, 1007, "账号或密码错误")
 		return
 	}

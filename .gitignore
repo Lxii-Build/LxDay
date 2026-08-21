@@ -44,3 +44,6 @@ release-store-password.txt
 # 系统
 .DS_Store
 Thumbs.db
+
+# 后台移动端审计的截图产物（scripts/mobile-audit.mjs 生成）
+admin/mobile-audit/
