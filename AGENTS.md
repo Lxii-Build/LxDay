@@ -94,14 +94,37 @@ Nginx 侧表现为 **502 Bad Gateway**——把我们精心写的中文错误整
 磁盘只涨不跌（0820 的 netlog 就踩过这个）。
 清理类 SQL 一律返回 `RowsAffected` 并记日志，写错了才看得出来。
 
-### 2.5 客户端：解码大图必须先缩
+### 2.5 SQLite 迁移：顺序必须是「建表 → 补列 → 建索引」
+
+`schema.sql` 不能一趟执行完。**老库里表已存在，`CREATE TABLE IF NOT EXISTS` 是空操作，
+新列不会凭空出现**；若紧随其后的 `CREATE INDEX` 引用了那个新列，就会报
+`no such column: xxx`，**容器直接起不来**。
+
+0821 就是这么炸的：`idx_photo_status_deleted` 引用 `photo.deleted_at`，
+而补列（`addColumns`）在整个 schema 跑完之后才执行。
+
+新库不会暴露这个问题（`CREATE TABLE` 自带新列），所以**只用全新临时库做测试永远测不到
+这条升级路径**。任何涉及加列的改动，必须补一个"先建旧表结构、再跑 runMigrations"的测试
+（见 `migrations_upgrade_test.go`）。
+
+### 2.6 新增依赖要检查它声明的最低 Go 版本
+
+```bash
+go list -m -f '{{.Path}} {{.GoVersion}}' <module>
+```
+
+0821 引入的 HEIC/AVIF 解码器声明 `go >= 1.25`，`go mod tidy` 把 `go.mod` 提到 1.25，
+而 `Dockerfile` 还是 `golang:1.22-alpine`、CI 配 `go-version: '1.22'` → 镜像构建失败。
+本机恰好是 1.25 所以完全没复现出来。**改完 go.mod 要同步确认 Dockerfile 与 CI 的版本。**
+
+### 2.7 客户端：解码大图必须先缩
 
 `ImagePrepPolicy.sampleSize` 只能做 2 的幂，4000×3000 会算出 `sample=1` 从而
 **全尺寸解码 45.8MB**。必须配合 `decodeDensityScale`（`inDensity`/`inTargetDensity`
 + `inScaled`）在解码期直接出目标尺寸。连续上传时前者必 OOM，而失败只会静默
 `uploadFailed++`——表现就是用户说的"照片会消失"。
 
-### 2.6 后台配置优先于常量
+### 2.8 后台配置优先于常量
 
 新增可调参数一律加到 `server/settings.go` 的 `runtimeSettingSpecs`，
 **不要新增环境变量、不要改 docker-compose**（管理员明确不想动服务器上的

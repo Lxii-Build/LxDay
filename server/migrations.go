@@ -13,19 +13,57 @@ import (
 //go:embed sql/schema.sql
 var baseSchemaSQL string
 
-// runMigrations 执行内嵌建表脚本（全部 CREATE TABLE/INDEX IF NOT EXISTS，幂等），
-// 随后对「已存在的老库」补齐新增列（addColumns）。
-// 采用单文件 SQLite + 单实例，无需版本化迁移与建议锁。
+// runMigrations 执行内嵌建表脚本（全部 IF NOT EXISTS，幂等）并补齐老库缺的列。
+//
+// **执行顺序必须是「建表 → 补列 → 建索引」，不能一趟走完。**
+//
+// 原因（0821 踩过，生产库直接起不来）：老库里 `photo` 表已存在，
+// `CREATE TABLE IF NOT EXISTS` 是空操作，新列 `deleted_at` 不会凭空出现；
+// 而 schema.sql 里紧跟着就有 `CREATE INDEX ... ON photo(status, deleted_at)`，
+// 于是在补列之前就引用了不存在的列 → `no such column: deleted_at` → 启动失败。
+//
+// 新库不会暴露这个问题（CREATE TABLE 自带新列），所以只用全新临时库做测试
+// 永远测不到这条升级路径 —— 见 migrations_upgrade_test.go 的回归测试。
 func runMigrations(db *sql.DB) error {
-	for _, stmt := range splitSQLStatements(baseSchemaSQL) {
-		if strings.TrimSpace(stmt) == "" {
-			continue
-		}
+	tableStmts, indexStmts := splitSchemaByKind(baseSchemaSQL)
+
+	// ① 建表：新库一次建全，老库为空操作
+	for _, stmt := range tableStmts {
 		if _, err := db.Exec(stmt); err != nil {
-			return fmt.Errorf("apply schema failed: %w", err)
+			return fmt.Errorf("apply schema (tables) failed: %w", err)
 		}
 	}
-	return addColumns(db)
+	// ② 补列：老库缺的新列在这里加上，索引才引用得到
+	if err := addColumns(db); err != nil {
+		return err
+	}
+	// ③ 建索引：此时无论新库老库，列都齐了
+	for _, stmt := range indexStmts {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("apply schema (indexes) failed: %w", err)
+		}
+	}
+	return nil
+}
+
+// splitSchemaByKind 把建表脚本拆成「建表/其它」与「建索引」两组。
+//
+// 判定只看语句开头是不是 CREATE [UNIQUE] INDEX：schema.sql 全是 DDL，
+// 不存在把索引语句嵌在别处的情况。
+func splitSchemaByKind(sqlText string) (tables []string, indexes []string) {
+	for _, stmt := range splitSQLStatements(sqlText) {
+		t := strings.TrimSpace(stmt)
+		if t == "" {
+			continue
+		}
+		upper := strings.ToUpper(t)
+		if strings.HasPrefix(upper, "CREATE INDEX") || strings.HasPrefix(upper, "CREATE UNIQUE INDEX") {
+			indexes = append(indexes, stmt)
+		} else {
+			tables = append(tables, stmt)
+		}
+	}
+	return tables, indexes
 }
 
 // addedColumn 描述一个「后加的列」：新库由 schema.sql 的 CREATE TABLE 直接建出，
