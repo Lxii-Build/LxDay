@@ -11,7 +11,10 @@ COPY admin/ ./
 RUN rm -rf node_modules dist && npm install && npm run build
 
 # ---- 阶段②：编译 Go 服务端（内嵌前端 dist） ----
-FROM golang:1.22-alpine AS build
+# Go 1.25：HEIC/AVIF 解码器（gen2brain/heic|avif，底层 wazero）要求 go >= 1.25。
+# 用 1.22 会在 `go mod tidy` 阶段直接失败（0821 的 CI 就是这么红的）。
+# 它们是**纯 Go wasm 实现、无需 CGO**，所以下面仍能 CGO_ENABLED=0 静态编译。
+FROM golang:1.25-alpine AS build
 WORKDIR /src
 ENV GOPROXY=https://goproxy.cn,direct
 COPY server/ ./
