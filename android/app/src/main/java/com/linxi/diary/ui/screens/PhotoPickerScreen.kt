@@ -108,14 +108,29 @@ fun PhotoPickerScreen(
     // 预览大图（角标点击）
     var previewImage by remember { mutableStateOf<LocalImage?>(null) }
 
-    val systemPicker = rememberLauncherForActivityResult(
-        if (multiple) {
-            ActivityResultContracts.PickMultipleVisualMedia(MAX_SELECT)
-        } else {
-            ActivityResultContracts.PickMultipleVisualMedia(1)
-        }
+    // 系统 Photo Picker 的兜底入口。**单选与多选必须用不同的 contract**：
+    //
+    // `PickMultipleVisualMedia` 的 init 是 `require(maxItems > 1)`，
+    // 传 1 会当场抛 IllegalArgumentException「Max items must be higher than 1」。
+    // 而 contract 在 composition 期就被构造，于是**头像选图页一进就崩**
+    //（管理员报的「更换资料里面的选头像会导致应用卡死」）。单选的正确 contract 是
+    // `PickVisualMedia`，它返回单个 Uri?。
+    //
+    // 两个 launcher 都无条件创建：`rememberLauncherForActivityResult` 注册的是
+    // Activity 级回调，按条件只建其中一个会让 composition 结构随 `multiple` 变化。
+    val multiPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(MAX_SELECT)
     ) { uris ->
         if (uris.isNotEmpty()) onPicked(uris)
+    }
+    val singlePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) onPicked(listOf(uri))
+    }
+    val launchSystemPicker: () -> Unit = {
+        val request = PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+        if (multiple) multiPicker.launch(request) else singlePicker.launch(request)
     }
 
     suspend fun loadBucket(bucket: String) {
@@ -174,11 +189,7 @@ fun PhotoPickerScreen(
                 actions = {
                     LxButton(
                         text = "系统相册",
-                        onClick = {
-                            systemPicker.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                            )
-                        },
+                        onClick = launchSystemPicker,
                         variant = LxButtonVariant.Neutral,
                         cornerRadius = 12,
                         horizontalPadding = 14,
@@ -237,11 +248,7 @@ fun PhotoPickerScreen(
                         Spacer(Modifier.height(12.dp))
                         LxButton(
                             text = "用系统相册选择",
-                            onClick = {
-                                systemPicker.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                )
-                            },
+                            onClick = launchSystemPicker,
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }

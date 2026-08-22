@@ -5,8 +5,10 @@ import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.disk.DiskCache
 import coil3.disk.directory
+import coil3.map.Mapper
 import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import coil3.request.Options
 import coil3.request.crossfade
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
@@ -46,6 +48,16 @@ object AppImageLoader {
 
         return ImageLoader.Builder(appContext as PlatformContext)
             .components {
+                // 相对路径补成绝对 URL —— **收口在这里而不是每个调用点**。
+                //
+                // 服务端在后台 site.url 未配置时返回相对路径 `/media/<id>/thumb`
+                //（默认就是未配置，app_setting 表没有种子数据）。Coil 拿到无 scheme
+                // 的字符串不走网络 fetcher，会当本机文件找 → 失败 → 渲染空白，
+                // 看起来就是管理员报的「缩略图是透明的」。
+                //
+                // mapper 对**所有**图片请求生效：相册网格、相册封面、大图页、头像
+                // 一处修全部受益，也不会有人新写一个调用点时忘了补。
+                add(RelativeUrlMapper())
                 add(OkHttpNetworkFetcherFactory(callFactory = { client }))
             }
             .memoryCache {
@@ -62,6 +74,17 @@ object AppImageLoader {
             }
             .crossfade(true)
             .build()
+    }
+
+    /**
+     * 把服务端返回的相对图片地址映射成绝对 URL。
+     *
+     * 只处理 String 类型的 data —— 本机图片是 `Uri` 类型（相册大图走 MediaStore uri），
+     * 不经过这里，也不该被改动。判定规则见 [MediaUrlPolicy.absolutize]。
+     */
+    private class RelativeUrlMapper : Mapper<String, String> {
+        override fun map(data: String, options: Options): String =
+            MediaUrlPolicy.absolutize(data, com.linxi.diary.BuildConfig.BASE_URL)
     }
 
     /** 给每个图片请求补上鉴权头。token 每次实时读取，避免登出后仍用旧 token。 */

@@ -385,6 +385,11 @@ private fun PhotoGrid(
                 Modifier
                     .aspectRatio(1f)
                     .clip(RoundedCornerShape(8.dp))
+                    // 占位底色：**没有它，加载失败就是字面意义上的透明**——
+                    // 0822 管理员报的「缩略图貌似是透明的」正是如此（根因是服务端返回的
+                    // 相对路径没被补成绝对 URL，见 MediaUrlPolicy）。
+                    // 有个灰格子兜底，下次再出加载问题是看得见的。
+                    .background(MiuixTheme.colorScheme.onBackground.copy(alpha = 0.06f))
                     .combinedClickable(
                         onClick = {
                             if (selecting) onToggle(p.id) else onOpenPhoto(photos, index)

@@ -2,6 +2,7 @@ package com.linxi.diary.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -250,6 +251,9 @@ private fun AlbumCard(
                     .height(64.dp)
                     .aspectRatio(1f)
                     .clip(RoundedCornerShape(8.dp))
+                    // 占位底色：空相册与"封面加载失败"都该有个可见方块。
+                    // 没有它时封面加载失败是完全透明的（0822 管理员报的症状）。
+                    .background(MiuixTheme.colorScheme.onBackground.copy(alpha = 0.06f))
             ) {
                 if (coverUrl.isNotBlank()) {
                     AsyncImage(

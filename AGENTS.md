@@ -157,7 +157,30 @@ ImagePrepPolicy.boundsFailure(opened, bounds.outWidth, bounds.outHeight)?.let { 
 
 新增交互组件一律在组件内部保证最小触达尺寸，别指望每个调用点都记得传参。
 
-### 2.10 后台配置优先于常量
+### 2.10 服务端图片地址是「条件绝对」的，客户端必须补全
+
+服务端 `mediaPathURL` / `publicUploadURL` 在后台 `site.url` **未配置时返回相对路径**
+（`/media/<id>/thumb`），而 `app_setting` 表没有种子数据 —— **默认就是相对路径**。
+
+Coil 拿到无 scheme 的字符串**不走网络 fetcher**，会当本机文件找 → 失败 →
+`AsyncImage` 没配 error 占位就渲染空白。0822 管理员报的「缩略图貌似是透明的」正是如此。
+
+补全统一走 `MediaUrlPolicy.absolutize`，且**收口在 `AppImageLoader` 的 Coil mapper 里**，
+不要在每个调用点各写一遍（新增调用点必然有人忘）。
+
+**两个坑**：
+- `BuildConfig.BASE_URL` 是 `https://域名/api/v1`，**带 API 路径**；图片挂在根路径。
+  必须先取 origin（`MediaUrlPolicy.originOf`）再拼，否则得到 `/api/v1/media/1/thumb` → 404。
+- 带 scheme 的一律不能动：`content://` / `file://` 是本机原图
+  （`LocalPhotoIndex` 的"读本机原图"优化），改写就等于把那条优化改坏。
+
+### 2.11 图片位必须有占位底色
+
+相册网格与相册封面此前没有背景色，**加载失败就是字面意义上的透明**——
+这让 2.10 那个 bug 完全隐形。任何图片位都要有占位底色，
+失败时是可见的灰格子而不是什么都没有。
+
+### 2.12 后台配置优先于常量
 
 新增可调参数一律加到 `server/settings.go` 的 `runtimeSettingSpecs`，
 **不要新增环境变量、不要改 docker-compose**（管理员明确不想动服务器上的
