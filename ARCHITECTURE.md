@@ -110,7 +110,7 @@ graph LR
     subgraph "UI 层 ui/"
         THEME["theme/ MilkGlass 深浅主题"]
         NAV["navigation/ 状态机导航"]
-        SCREENS["screens/<br/>Bind/Consent/Now/Todo/Diary/Settings/History"]
+        SCREENS["screens/<br/>Bind/Consent/Now/Todo/Album/Settings/History"]
     end
 
     BAT --> FGS
@@ -147,6 +147,22 @@ graph LR
 | 低电量(<15%) / 指定 WiFi / 亮灭屏等 | 即时事件驱动，不受上表约束 | — |
 
 息屏优先级最高：即便 Composition 还活着，息屏也不该按前台频率轮询。
+
+**亮屏判定与前台应用（0821 重写）**
+
+亮/息屏以 `Display.getState()` 为权威来源（`core/ScreenStateProbe.kt`），
+分 `On` / `Off` / `Aod` 三档。不能只用 `PowerManager.isInteractive()`：
+一加 15 默认开着息屏显示，AOD 状态下它的返回值不足以区分「真亮屏」与「息屏显示」，
+而上报时 AOD 必须算作未亮屏，否则伴侣会看到你整夜都在用手机。
+
+前台应用走 `core/ForegroundAppPolicy.kt`（纯策略、可单测）：
+查询窗口 60 秒起、取不到则按 5min / 30min / 6h 逐级回退；
+认 `ACTIVITY_PAUSED` / `ACTIVITY_STOPPED`（否则回到桌面仍显示上一个应用）；
+**息屏不查**（结果无意义且白耗电）；结果缓存 10 分钟 TTL。
+该权限（「使用情况访问」）未授予时此项为空，其余状态不受影响。
+
+采集全程在 IO 线程（`StatusForegroundService.refreshNow` → `collectScope`），
+通知更新才回主线程。此前采集在主线程、前台档每 10 秒一次，是实打实的 ANR 风险。
 
 **WS 连接参数**
 
@@ -287,13 +303,14 @@ SetMaxOpenConns(1)
   `ALTER TABLE ADD COLUMN` 不支持 `IF NOT EXISTS`，不先探测则老库每次启动都报
   `duplicate column name`。
 
-**表清单**：共 **18 张**，以 `server/sql/schema.sql` 为唯一真源，此处不复制列定义。
+**表清单**：共 **16 张**，以 `server/sql/schema.sql` 为唯一真源，此处不复制列定义。
+（注意 `user` 在 schema 里是 `"user"` 带引号形态——它是 SQL 保留字。）
 分组：
 
 | 分组 | 表 |
 |---|---|
 | 账号与关系 | `user`、`pair` |
-| 业务 | `todo`、`diary`、`diary_image`、`status_history` |
+| 业务 | `todo`、`status_history` |
 | 相册（详见 [§3.2](#32-相册模块)） | `album`、`photo`、`photo_comment`、`photo_like` |
 | 后台与运维 | `admin_user`、`app_setting`、`app_version`、`admin_audit_log`、`notify_template`、`notify_record`、`request_log` |
 | 预留 | `push_token`（不接商业推送，接口为占位） |
@@ -335,8 +352,9 @@ SetMaxOpenConns(1)
 ```
 uploadDir/                       容器内 /app/uploads（uploads 卷）
   upload/YYYY/MM/DD/
-      <随机名>.<ext>             新：日期分区（头像 / 相册原图+预览图+缩略图）
-      <随机名>_thumb.jpg|png     相册缩略图（长边 512，等比缩放非方裁）
+      <随机名>.<ext>             新：日期分区（头像 / 相册原图）
+      <随机名>_thumb.jpg|png     相册缩略图（长边 384，等比缩放非方裁）
+      <随机名>_preview.jpg|png   相册中间尺寸（长边 1080，大图页先加载这档）
   <历史文件>                     旧：兼容历史头像与后台上传的 APK / LOGO
 ```
 
@@ -421,7 +439,7 @@ sequenceDiagram
     C->>C: EXIF 旋正 + 长边压 2048 + HEIC→JPEG
     C->>S: POST /api/v1/media (multipart, file)
     S->>S: MaxBytesReader 限死 body → 魔数白名单 → 配额检查
-    S->>D: 原字节落盘 + 长边 512 等比缩略图
+    S->>D: 原字节落盘 + 长边 384 缩略图 + 长边 1080 预览图
     S->>DB: INSERT photo(url=真实相对路径, album_id=0)
     S-->>C: Photo{ url:"/media/12", thumb_url:"/media/12/thumb" }
 
@@ -584,7 +602,7 @@ sequenceDiagram
 阶段① node:22-alpine
       admin/ -> rm -rf node_modules dist -> npm install -> npm run build
       先清本地产物：避免跨平台二进制污染（本地 node_modules 被 COPY 进去）
-阶段② golang:1.22-alpine
+阶段② golang:1.25-alpine
       server/ -> 用阶段①的 dist 覆盖 webdist/ -> go mod tidy
               -> CGO_ENABLED=0 go build -trimpath -ldflags "-s -w"
       能这样静态编译的前提是 modernc.org/sqlite 是纯 Go 实现（无需 gcc）
@@ -612,11 +630,12 @@ sequenceDiagram
 erDiagram
     USER ||--o| PAIR : "user_a_id / user_b_id"
     PAIR ||--o{ TODO : "pair_id"
-    PAIR ||--o{ DIARY : "pair_id"
     PAIR ||--o{ ALBUM : "pair_id"
     PAIR ||--o{ PHOTO : "pair_id"
     PAIR ||--o{ STATUS_HISTORY : "pair_id"
-    DIARY ||--o{ DIARY_IMAGE : "diary_id"
+    ALBUM ||--o{ PHOTO : "album_id（0 = 未归类）"
+    PHOTO ||--o{ PHOTO_COMMENT : "photo_id"
+    PHOTO ||--o{ PHOTO_LIKE : "photo_id"
     USER ||--o{ PUSH_TOKEN : "user_id"
 
     USER {
@@ -643,19 +662,23 @@ erDiagram
         tinyint remind_type
         tinyint status
     }
-    DIARY {
+    ALBUM {
         bigint id PK
         bigint pair_id
-        bigint author_id
-        varchar title
-        text content
-        date diary_date
+        varchar name
+        bigint cover_photo_id
+        tinyint status
     }
-    DIARY_IMAGE {
+    PHOTO {
         bigint id PK
-        bigint diary_id
-        varchar url
-        int sort_no
+        bigint pair_id
+        bigint album_id
+        varchar path
+        varchar thumb_path
+        varchar preview_path
+        datetime taken_at
+        datetime deleted_at
+        tinyint status
     }
     STATUS_HISTORY {
         bigint id PK

@@ -1,8 +1,24 @@
-# 林曦日记 · 整合设计文档
+# 林曦日记 · 整合设计文档（历史文档）
+
+> ## ⚠️ 这是 2026-08-08 的设计快照，不再是权威依据
+>
+> 本文件记录首轮设计访谈定下的决策，保留下来是为了**能查到某个设计当初为什么那样定**。
+> 它**不反映当前实现**，以下几处已经变了：
+>
+> | 本文档写的 | 现在的实际情况 |
+> |---|---|
+> | MySQL + Redis | **内嵌 SQLite**（`modernc.org/sqlite`，纯 Go）+ **进程内存态**，单容器无 MySQL/Redis |
+> | Nginx 反代静态资源 | Go 服务端 `go:embed` 内嵌后台前端，**不依赖 Nginx**（TLS 仍由外部反代终止） |
+> | 日记功能（`/diaries`、`diary` 表、`diary_new` 事件） | **已整体下线**，表已可删。App 名称保留「日记」二字但没有这个功能 |
+> | 相册 | 本文档成文时还没有；现在是主功能，见 [docs/ALBUM.md](docs/ALBUM.md) |
+> | minSdk 29 | minSdk 33 / targetSdk 37 |
+>
+> **当前的权威文档**：架构看 [ARCHITECTURE.md](ARCHITECTURE.md)、
+> 接口看 [server/README.md](server/README.md) 与 [docs/ALBUM.md](docs/ALBUM.md)、
+> 代码约定看 [AGENTS.md](AGENTS.md)、变更历史看 [CHANGELOG.md](CHANGELOG.md)。
 
 > 版本：v1.0（2026-08-08）
-> 来源：五轮设计访谈（grilling）的全部决策固化。本文档是唯一权威依据，代码实现以此为准。
-> 与初版方案 / 工程骨架不一致处，以本文档为准。
+> 来源：五轮设计访谈（grilling）的全部决策固化。
 
 ---
 
@@ -61,7 +77,7 @@
 ## 2. 架构与模块
 
 ```
-安卓端 (Compose + Kotlin, minSdk 29)
+安卓端 (Compose + Kotlin, minSdk 29 —— 现已提到 33)
 ├─ 采集层: 电量/充电/屏幕/解锁/前台APP/用量/WiFi/音乐(NotificationListener)
 ├─ 同步层: WebSocket (状态上报/对方状态/事件), 离线重连补拉, 心跳 30s
 ├─ 常驻层: 前台服务(dataSync) + 常驻通知卡(RemoteViews) + 卡片被删重发兜底

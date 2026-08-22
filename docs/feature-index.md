@@ -3,16 +3,20 @@
 | 功能 | UI/入口 | 核心实现 | 权限或协议 |
 |---|---|---|---|
 | 绑定 | `screens/BindScreen.kt` | `data/ApiClient.kt` | REST `/pair/create-invite`、`/pair/bind` |
-| 知情授权 | 根级 Miuix `OverlayDialog` / `screens/PrivacyConsentScreen.kt` | `UserPrefs.privacyConsented`、`sync/SharingRuntimePolicy.kt` | 同意后才开启真实共享；DemoMode 保持关闭 |
-| 主页 | `screens/NowScreen.kt` | `core/DeviceStatusHolder.kt` | 状态同步 WS；DemoMode 禁用远程互动 |
-| 待办 | `screens/TodoScreen.kt` / 主层 FAB | `core/TodoAlarmReceiver.kt`、`debug/DemoContent.kt` | REST + WS + AlarmManager；示例无副作用 |
+| 知情授权 | 根级 Miuix `OverlayDialog` / `screens/PrivacyConsentScreen.kt` | `UserPrefs.privacyConsented`、`sync/SharingRuntimePolicy.kt` | 同意后才开启真实共享 |
+| 主页 | `screens/NowScreen.kt` | `core/DeviceStatusHolder.kt`、`sync/StatusFreshness.kt` | 状态同步 WS；数据时效分 Fresh/Stale/Offline 三档 |
+| 待办 | `screens/TodoScreen.kt` / 主层 FAB | `core/TodoAlarmReceiver.kt` | REST + WS + AlarmManager |
 | 相册列表 | 发现页 → `Screen.DiscoverAlbum` / `screens/AlbumListScreen.kt` | `data/ApiClient.kt` | REST `/albums`、`/albums/summary`；见 [ALBUM.md](ALBUM.md) |
-| 相册详情（网格） | `screens/AlbumDetailScreen.kt` | Coil 3 加载 `/media/<id>/thumb` | REST `/albums/:id/photos` |
-| 大图查看 | `screens/PhotoViewerScreen.kt` | Pager + 双指缩放；Coil 3 加载 `/media/<id>` | REST `/photos/:id`、点赞/评论接口 |
+| 相册详情（网格） | `screens/AlbumDetailScreen.kt` | Coil 3 加载 `/media/<id>/thumb`；长按进多选 | REST `/albums/:id/photos`、批量删/移 |
+| 大图查看 | `screens/PhotoViewerScreen.kt` | Pager + 双指缩放；先 `/preview` 再 `/media/<id>`；`data/LocalPhotoIndex.kt` 优先读本机原图 | REST `/photos/:id`、点赞/评论接口 |
+| 回收站 | 相册列表 → `screens/RecycleBinScreen.kt` | `data/ApiClient.kt` | REST `/photos/recycled`、`restore`、`purge`、`purge-all` |
 | 「这一天」 | `screens/OnThisDayScreen.kt` | `data/ApiClient.kt` | REST `/photos/on-this-day` |
-| 图片选择器 | `screens/PhotoPickerScreen.kt` | `data/MediaStoreImages.kt`；顶栏兜底系统 Photo Picker | READ_MEDIA_IMAGES（Photo Picker 免权限） |
-| 照片上传 | 选择器 → 上传 | `data/ImagePrep.kt`、`data/ImagePrepPolicy.kt` | EXIF 旋正 + 长边 2048 + HEIC→JPEG；REST `POST /media` |
-| 伴侣状态历史 | 我的 → `screens/HistoryScreen.kt` | `data/ApiClient.kt` | REST history endpoints；DemoMode 禁止进入 |
+| 图片选择器 | `screens/PhotoPickerScreen.kt` | `data/MediaStoreImages.kt`、`data/MediaSortPolicy`；顶栏兜底系统 Photo Picker | READ_MEDIA_IMAGES + READ_MEDIA_VISUAL_USER_SELECTED（Photo Picker 免权限） |
+| 照片上传 | 选择器 → 上传 | `data/ImagePrep.kt`、`data/ImagePrepPolicy.kt`、`data/PhotoUploader.kt` | EXIF 旋正 + 解码期缩到 2048 + HEIC→JPEG；REST `POST /media`；失败逐张给原因 |
+| 头像 | 我的 → 编辑资料 → 点头像 | 同一个选图器 → `screens/AvatarCropScreen.kt` + `data/AvatarCropper.kt` | 圆形裁剪后 `POST /me/avatar` |
+| 图片地址补全 | 无独立页面 | `data/MediaUrlPolicy.kt`，收口在 `data/AppImageLoader.kt` 的 Coil mapper | 服务端 `site.url` 未配置时返回相对路径，客户端补 origin |
+| 同步自检 | 我的 → `screens/KeepAliveCheckScreen.kt` | 逐项探测保活权限 | 每项写明「不开会怎样」 |
+| 伴侣状态历史 | 我的 → `screens/HistoryScreen.kt` | `data/ApiClient.kt` | REST `/status/history?who=me\|partner`、`/status/battery-curve` |
 | 状态采集 | 无独立页面 | `core/StatusCollector.kt` | Usage Access、定位、通知使用权 |
 | 实时同步 | 无独立页面 | `sync/StatusSyncManager.kt` | WSS `/ws?token=JWT` |
 | 常驻通知 | 我的页开关/前台服务 | `service/StatusForegroundService.kt` | 前台服务、通知权限 |

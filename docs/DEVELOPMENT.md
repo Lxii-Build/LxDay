@@ -8,9 +8,9 @@
 
 | 工具 | 版本 | 说明 |
 |---|---|---|
-| Go | 1.22+ | 纯 Go（`CGO_ENABLED=0`），SQLite 用 `modernc.org/sqlite` |
+| Go | **1.25+** | 纯 Go（`CGO_ENABLED=0`），SQLite 用 `modernc.org/sqlite`。1.25 是 HEIC/AVIF 解码器（底层 wazero）声明的最低版本，`go.mod` / `Dockerfile` / CI 三处必须一致 |
 | JDK | Temurin 21 | Android 构建要求 |
-| Android SDK | platform 36 + build-tools 36 | |
+| Android SDK | platform 37 + build-tools 37 | minSdk 33 / targetSdk 37，见 `android/build.gradle.kts` 的 `extra[...]` |
 | Gradle | 9.7.0 | |
 | Node | ≥20.19 | 后台前端（Vite 7 + Vue 3.5） |
 

@@ -10,13 +10,15 @@
 | 实时状态 | 电量/充电/亮灭屏/前台应用/WiFi 实时共享；常驻通知卡；状态历史与电量曲线 |
 | 互动 | 求陪伴 / 求冷静 / 强制响铃（7 秒自动停止 + 双向撤回） |
 | 待办 | 双向待办、仅一次/每天/每周提醒、强提醒、本地闹钟兜底 |
-| **相册** | 相册列表与详情网格、大图查看（Pager + 双指缩放）、「这一天」、评论、点赞、软删除（回收站接口已就绪，客户端入口待补）；接口见 [docs/ALBUM.md](docs/ALBUM.md) |
-| 运营后台 | 数据看板、用户/绑定管理、内容审核（待办 / **相册照片**）、版本发布、通知、审计与网络日志、管理员管理 |
+| **相册** | 分组管理（建/改名/删，「未归类」可改名不可删）、网格长按多选批量删除与移动、大图查看（Pager + 双指缩放）、三档图（thumb 384 / preview 1080 / origin）、「这一天」、评论、点赞、**回收站**（恢复 / 彻底删除 / 清空 / 剩余天数）；接口见 [docs/ALBUM.md](docs/ALBUM.md) |
+| 运营后台 | 数据看板、用户/绑定管理、内容审核（待办 / **相册照片**）、**相册管理**、**磁盘统计**、**21 项运行参数**（相册配额 / 保留天数 / 限流 / token / 邀请码 / 互动冷却，改完即生效）、版本发布、通知、审计与网络日志、管理员管理 |
 
 ## 技术栈
 
-- **安卓端**：Kotlin + Compose（minSdk 29）、miuix 设计体系、**Coil 3**（图片加载，内存 + 磁盘缓存）、OkHttp、WebSocket、AlarmManager。
-- **服务端**：Go + Gin、内嵌 SQLite、WebSocket Hub、进程内存态；图片解码为**纯 Go**（`image/jpeg|png|gif` + `golang.org/x/image/webp`），不依赖 libvips 等系统库。
+- **安卓端**：Kotlin + Compose（minSdk 33 / targetSdk 37）、miuix 设计体系（UI 层不用 material3 组件）、**Coil 3**（图片加载，内存 + 磁盘缓存）、OkHttp、WebSocket、AlarmManager。
+- **服务端**：Go 1.25 + Gin、内嵌 SQLite、WebSocket Hub、进程内存态；图片解码为**纯 Go**
+  （`image/jpeg|png|gif` + `golang.org/x/image/webp` + `gen2brain/heic|avif` 的 wasm 解码器），
+  不依赖 libvips 等系统库，`CGO_ENABLED=0` 静态编译。
 - **运营后台**：Vue 3 + TypeScript + Element Plus + Vite + Pinia。
 
 ## 架构与部署形态
@@ -36,13 +38,19 @@ lx/
 │   ├── static.go             # 去 Nginx：内嵌 SPA 后台 + /uploads 静态 + /healthz
 │   ├── admin.go              # 后台 /api/admin/*（JWT+RBAC，{code,msg,data} 信封）
 │   ├── album_handlers.go     # 相册接口；album_media.go 上传 + /media 鉴权代理；album_store.go 数据访问
+│   ├── album_purge.go        # 回收站彻底删除 / 清空 / 按天自动清理（真删磁盘文件）
+│   ├── admin_album.go        # 后台相册管理 + 磁盘统计 + 缩略图（带审计与 no-store）
+│   ├── settings.go           # 21 项运行参数：范围收敛 + 默认值下发 + 一键恢复，改完即生效
+│   ├── client_config.go      # GET /client-config 下发开关给客户端
+│   ├── diary_export.go       # 已下线的日记功能的导出与显式删表（不在自动迁移里跑）
 │   ├── avatar_*.go / exif.go # 纯 Go 图片处理链（解码/缩放/EXIF），不依赖 libvips
+│   ├── netlog.go / security.go / storage.go / invite.go / push.go
 │   ├── handlers.go / store.go / models.go / hub.go / migrations.go
-│   ├── sql/schema.sql        # 建库建表
+│   ├── sql/schema.sql        # 建库建表（16 张表，唯一真源）
 │   └── Dockerfile            # 仅后端镜像（前后端分离部署用）
 ├── admin/                    # 运营后台前端（Vue3 + TS + ElementPlus + Vite + Pinia）
 │   └── Dockerfile            # 仅前端 Nginx 镜像（前后端分离部署用）
-├── android/                  # 安卓端（Kotlin + Compose / minSdk 29 / miuix）
+├── android/                  # 安卓端（Kotlin + Compose / minSdk 33 / miuix）
 │   └── app/src/main/java/com/linxi/diary/  # ui(theme/components/navigation/screens) / core / data / sync
 └── .github/workflows/        # build-server.yml / build-android.yml / release.yml
 ```
@@ -69,8 +77,15 @@ lx/
 - **通讯密钥（可选）**：构建期把 `APP_KEY` 注入 APK，请求带 `X-App-Key` 头；服务端 `app_key`（或环境变量 `APP_KEY`）非空时校验 `/api/v1/*`，用于挡非官方客户端。留空即禁用。
 - **不接商业推送**：纯 WS + 本地 AlarmManager 兜底。
 - **图片存储**：服务器本地磁盘，Go 自托管 `/uploads/`（去 Nginx）；预留对象存储抽象。
-- **相册隐私**：照片对外 URL 一律是鉴权代理 `/media/<id>`，**真实磁盘路径不出服务端**；只有该 pair 的成员能读，照片 URL 也不进网络日志。运营后台的照片审核页只给元数据、不给缩略图。详见 [docs/ALBUM.md](docs/ALBUM.md)。
-- **图片处理纯 Go**：解码链只用标准库 + `x/image`，因为运行镜像是 alpine、没有 libvips；代价是不支持 HEIC/AVIF，故由客户端在上传前转成 JPEG。
+- **相册隐私**：照片对外 URL 一律是鉴权代理 `/media/<id>`，**真实磁盘路径不出服务端**；只有该 pair 的成员能读，照片 URL 也不进网络日志。运营后台的照片审核页只给元数据；相册管理页可看缩略图但**只给 384 一档、永不给原图**，每次查看写审计、响应头带 `no-store` 与 `Referrer-Policy: no-referrer`。详见 [docs/ALBUM.md](docs/ALBUM.md)。
+- **图片地址补全**：服务端在后台 `site.url` 未配置时返回相对路径（`/media/<id>/thumb`），
+  客户端由 `MediaUrlPolicy` 统一补成绝对 URL 并**收口在 Coil 的 mapper**。
+  注意 `BASE_URL` 带 `/api/v1` 而图片挂根路径，补全前必须先取 origin。
+- **图片处理纯 Go**：运行镜像是 alpine、没有 libvips，所以解码链只用标准库 + `x/image`
+  + `gen2brain/heic|avif`（底层 wazero，纯 Go wasm 运行时）。
+  **HEIC / AVIF / BMP 服务端能真解码**，不必给 alpine 装 libheif，也不破坏 `CGO_ENABLED=0`。
+  客户端上传前仍统一转 JPEG——本机转换比服务端解码快得多，也省上传流量。
+  注意这些解码器声明 `go >= 1.25`，`go.mod`、`Dockerfile`、CI 三处版本必须同步。
 - **待办提醒**：仅一次 / 每天 / 每周指定几天（全选=每天）+ 强提醒 + 提醒开关（`remind_enabled`，关闭保留待办但不提醒）；被提醒者可为情侣任一方。
 - **隐私**：绑定后页内知情同意 Dialog + 状态共享总开关（关闭即停采+本地清空）；TLS 全链路。
 - **绑定**：8 位混合字符邀请码（原 6 位纯数字可枚举）、1 小时有效、每账号 10 分钟 5 次尝试上限；账号体系登录后用邀请码绑定伴侣；邀请方生成码后轮询绑定状态，对方一绑定自动进入主界面（服务端并推 `paired` 事件）。

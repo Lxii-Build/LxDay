@@ -23,10 +23,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -195,8 +196,22 @@ fun AvatarCropScreen(
 /**
  * 裁剪画布：图片 + 圆形遮罩。
  *
- * 遮罩用 `drawWithContent` + `BlendMode.Clear` 在半透明黑幕上"挖"出一个圆，
+ * 遮罩用 `BlendMode.Clear` 在半透明黑幕上"挖"出一个圆，
  * 比叠四块矩形更准确（尤其在非正方形容器里）。
+ *
+ * ## 「裁剪框中间是黑的」的原因与修法（0822）
+ *
+ * `BlendMode.Clear` 会把目标像素的 **alpha 一并清成 0**。遮罩层若没有自己的
+ * 离屏合成层，绘制就直接落在父级画布上 —— 而图片已经画在那里了，
+ * 于是 `drawCircle(Clear)` 把**图片连同黑幕一起清掉**，露出底下不透明的
+ * 窗口表面，圆圈里就是一片黑。
+ *
+ * 修法是给遮罩层加 `CompositingStrategy.Offscreen`：让它先画到独立的离屏缓冲，
+ * `Clear` 只作用于该缓冲内的内容（里面只有那层半透明黑幕），
+ * 清出真正的透明区后再整层合成回去，才能透出下面的图片。
+ *
+ * 这类"用了 Clear/DstOut 等擦除型 BlendMode 却忘了离屏层"的问题，
+ * 现象就是**该透明的地方变成黑色**。
  */
 @Composable
 private fun CropCanvas(
@@ -230,31 +245,37 @@ private fun CropCanvas(
                     translationY = offsetY,
                 ),
         )
-        // 圆形取景框：容器是正方形，圆直径 = 边长的 82%（留出呼吸位）。
+        // 圆形取景框：容器是正方形，圆直径 = 边长 × FRAME_RATIO。
+        //
+        // **必须复用 AvatarCropper.FRAME_RATIO，不能在这里另写一个数**：
+        // 这里画的圈决定用户"看到"要裁哪块，而 AvatarCropper.frameToBitmapRect 用同一个
+        // 比例算"实际"裁哪块。两处各写一份，一旦有人只改一边，导出的头像就与预览错位，
+        // 而这种错位在小比例差下很难一眼看出来。
         Box(
             Modifier
                 .fillMaxSize()
+                // **必须有离屏层**，否则 BlendMode.Clear 会连图片一起擦掉、露出黑色底。
+                // 详见本函数文档注释。
+                .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
                 .drawWithContent {
                     drawContent()
-                    val d = size.minDimension * 0.82f
-                    val topLeft = Offset((size.width - d) / 2f, (size.height - d) / 2f)
+                    val d = size.minDimension * AvatarCropper.FRAME_RATIO
+                    val center = Offset(size.width / 2f, size.height / 2f)
                     drawRect(Color.Black.copy(alpha = 0.55f))
-                    // 挖出圆形透明区
+                    // 挖出圆形透明区（只擦掉上面那层黑幕，图片在离屏层之外不受影响）
                     drawCircle(
-                        color = Color.Transparent,
+                        color = Color.Black,
                         radius = d / 2f,
-                        center = Offset(size.width / 2f, size.height / 2f),
+                        center = center,
                         blendMode = BlendMode.Clear,
                     )
                     // 圆环描边
                     drawCircle(
                         color = Color.White.copy(alpha = 0.9f),
                         radius = d / 2f,
-                        center = Offset(size.width / 2f, size.height / 2f),
-                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()),
+                        center = center,
+                        style = Stroke(width = 2.dp.toPx()),
                     )
-                    // 消除未用变量告警的同时保留意图：topLeft 供将来做方形裁剪复用
-                    if (topLeft.x < 0f) drawRect(Color.Transparent, size = Size(0f, 0f))
                 }
         )
     }

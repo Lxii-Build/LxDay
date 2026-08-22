@@ -26,9 +26,12 @@
 ## 生命周期和刷新
 
 - `startForegroundService()` 后先发布占位卡，再执行状态采集，满足前台服务启动时限。
-- 只有绑定有效、已完成知情同意、共享开启且不处于 DemoMode 时，Service 和 WebSocket 才允许运行。
+- 只有绑定有效、已完成知情同意、共享开启时，Service 和 WebSocket 才允许运行
+  （判定集中在 `sync/SharingRuntimePolicy.kt`）。
 - 收到相同业务状态时不重复刷新通知；更新时间不参与业务状态去重。
-- 关闭共享、退出登录或进入 DemoMode 时断开 WebSocket 并停止 Service。
+- 关闭共享或退出登录时断开 WebSocket 并停止 Service。
+- 状态采集在 IO 线程执行（`collectScope`），只有通知更新回主线程；
+  `onDestroy` 取消 scope。此前采集在主线程、前台档每 10 秒一次，是 ANR 风险。
 - 通知被移除后，仅在常驻卡开关开启且共享策略仍允许时恢复。
 
 ## 资源兼容
@@ -45,4 +48,4 @@ Android 13+ 需要 `POST_NOTIFICATIONS`。权限被拒或后台启动受限时�
 - 展开态包含头像、前台 App、同步、手机、电量、网络和一个响铃 Action。
 - Android 13～16 能构建并使用系统装饰模板展示。
 - 状态未变化时不重复更新、响铃或震动。
-- DemoMode 和未同意状态不启动真实通知、状态采集或同步。
+- 未完成知情同意或共享已关闭时，不启动真实通知、状态采集或同步。

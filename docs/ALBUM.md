@@ -65,9 +65,21 @@
 |---|---|---|---|---|
 | 9 | POST | `/media` | `multipart/form-data`，字段名 `file` | 新建的 `Photo`（`album_id=0`） |
 
-单张上限 20MB；魔数白名单 JPEG/PNG/GIF/WebP；HEIC/AVIF 明确拒绝（纯 Go 解码链无实现，
-返回可操作提示而非笼统 500）。原图**按原字节保存不重编码**（重编码既损画质又抹掉 EXIF），
-另生成长边 512 的等比缩略图。落库同时解析 EXIF 拍摄时间，解析失败留空不阻断上传。
+单张上限 20MB（可在后台调，见 `album.photo_max_mb`）；魔数白名单
+JPEG / PNG / GIF / WebP / **BMP / HEIC / AVIF**。
+
+HEIC/AVIF 自 0821 起**服务端能真解码**：用 `gen2brain/heic|avif`（底层 wazero，
+纯 Go wasm 运行时），不必给 alpine 镜像装 libheif，也不破坏 `CGO_ENABLED=0` 静态编译。
+代价是这两个包声明 `go >= 1.25`，`go.mod` / `Dockerfile` / CI 三处版本必须同步。
+客户端上传前仍统一转 JPEG——本机转换比服务端解码快得多，也省上传流量；
+服务端支持是为了兜住「直接调接口传 HEIC」与将来的其它客户端。
+
+原图**按原字节保存不重编码**（重编码既损画质又抹掉 EXIF），另生成两档等比缩略图：
+`_thumb`（长边 384，网格用）与 `_preview`（长边 1080，大图页先加载这档）。
+落库同时解析 EXIF 拍摄时间，解析失败留空不阻断上传。
+
+失败原因分了业务码（1020~1027：配额用尽 / 超单张上限 / 魔数不认识 / 无解码器 /
+文件损坏 / 像素数超限 / 落盘失败 / 相册功能被关闭），客户端据此逐张显示原因并判断能否重试。
 
 ### 2.4 单张照片
 
@@ -83,10 +95,25 @@
 删除只改 `status`、**不删盘上文件**：照片是不可再生资产，误删必须可恢复。
 「这一天」单次最多返回 200 张（回忆入口，不是全量浏览）。
 
-> **客户端覆盖情况（截至 0820）**：`/photos/recycled` 与 `/photos/:id/restore` 服务端已就绪，
-> 但 Android 端尚未接入（`ApiClient` 里没有对应方法，也没有回收站页面）。即照片删除后确实
-> 进了回收站、可被恢复，但**用户在 App 内暂时看不到也恢复不了**。同样待接入的还有
-> `PUT /albums/:id`、`DELETE /albums/:id`、`DELETE /photos/:id/comments/:cid`。
+**回收站与彻底删除**（0821 补齐，客户端已接入 `RecycleBinScreen`）：
+
+| # | 方法 | 路径 | 入参 | 说明 |
+|---|---|---|---|---|
+| — | DELETE | `/photos/:id/purge` | — | **彻底删除单张**：删库行 + 真删磁盘上的原图/预览/缩略图 |
+| — | POST | `/photos/purge-all` | — | **清空回收站**：同上，批量 |
+| — | POST | `/photos/batch-delete` | `{"ids":[…]}` | 批量软删（网格多选） |
+| — | POST | `/photos/batch-move` | `{"ids":[…],"album_id":N}` | 批量移动到其它相册 |
+
+> 后三条实际注册的是 `POST /photos/:id`，由 `handlePhotoActionByID` 按 `:id` 的字面值
+> （`batch-delete` / `batch-move` / `purge-all`）内部分派 —— gin 不允许同层的静态段与
+> 通配段并存，故沿用本文件其它地方（`/albums/summary`、`/photos/recycled`）同样的套路。
+
+软删只改 `status` 并记 `deleted_at`，**不删盘上文件**；彻底删除才落到磁盘。
+回收站每张返回「还剩 N 天自动删除」（`recycle_remaining_days`），
+保留天数见后台 `retention.recycle_bin_days`，到期由定时任务真删。
+
+`PUT /albums/0` 是「未归类」改名（它不是真实相册行，故单独走这条）；
+「未归类」可改名但不可删。
 
 ### 2.5 点赞 / 评论
 

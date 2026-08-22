@@ -1,6 +1,7 @@
 # 林曦日记 · 服务端
 
-Go 1.22 + Gin + gorilla/websocket + **内嵌 SQLite**（`modernc.org/sqlite`，纯 Go 无 CGO）
+Go **1.25**（HEIC/AVIF 解码器要求，见下）+ Gin + gorilla/websocket
++ **内嵌 SQLite**（`modernc.org/sqlite`，纯 Go 无 CGO）
 + **进程内存态**（替代 Redis）。无 MySQL、无 Redis、无 Nginx——运营后台前端产物由
 `go:embed` 内嵌，同一进程同时提供 API / WebSocket / 后台静态页 / 上传文件服务。
 部署形态见 [../docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md)，架构图见 [../ARCHITECTURE.md](../ARCHITECTURE.md)。
@@ -125,7 +126,8 @@ GET  /api/v1/photos/recycled?page=&size=      回收站列表 → handlePhotoByI
 
 # 图片读取：挂在根路径，只过 JWTAuth（不过 AppKeyGuard），见 ②
 GET  /media/:id                      原图字节流
-GET  /media/:id/thumb                缩略图字节流（长边 512）
+GET  /media/:id/thumb                缩略图字节流（长边 384，网格用）
+GET  /media/:id/preview              中间尺寸字节流（长边 1080，大图页先加载这档）
 ```
 
 ### 三处易踩的设计决策
