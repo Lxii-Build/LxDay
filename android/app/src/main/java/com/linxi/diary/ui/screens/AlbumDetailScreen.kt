@@ -235,6 +235,7 @@ fun AlbumDetailScreen(
                             onClick = { exitSelecting() },
                             variant = LxButtonVariant.Neutral,
                             cornerRadius = 12,
+                            horizontalPadding = 14,
                             modifier = Modifier.padding(end = 8.dp),
                         )
                     } else {
@@ -243,6 +244,7 @@ fun AlbumDetailScreen(
                             onClick = onPickPhotos,
                             variant = LxButtonVariant.Positive,
                             cornerRadius = 12,
+                            horizontalPadding = 14,
                             modifier = Modifier.padding(end = 12.dp),
                         )
                     }

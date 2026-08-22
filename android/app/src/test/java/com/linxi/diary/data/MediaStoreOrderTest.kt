@@ -134,3 +134,41 @@ class MediaStoreOrderTest {
         assertEquals("MyAlbum", MediaStoreImages.bucketLabel("MyAlbum"))
     }
 }
+
+/**
+ * 行 URI 形式的回归测试。
+ *
+ * 0821 把查询改成按卷遍历（为了覆盖 SD 卡）后，行 uri 也跟着变成按卷形式
+ * `content://media/external_primary/images/media/<id>`，与之前的规范形式
+ * `content://media/external/images/media/<id>` 不同。
+ *
+ * **为什么形态必须稳定**：uri 是被持久化的 —— `LocalPhotoIndex` 存
+ * 「服务端 photoId → 本机原图 uri」，选择器也用 uri 判选中态。
+ * 同一张图在不同版本给出不同 uri，老索引就全部失配，
+ * 「自己传的照片直接读本机原图」（管理员 Q24 的方案）会静默退化成每次都走网络。
+ */
+class MediaUriPolicyTest {
+
+    @Test
+    fun `主卷用规范形式`() {
+        assertTrue(
+            "external_primary 应转规范形式，与 0821 之前保持一致",
+            MediaUriPolicy.shouldUseCanonical("external_primary"),
+        )
+        assertTrue(MediaUriPolicy.shouldUseCanonical("external"))
+    }
+
+    @Test
+    fun `取不到卷名时按主卷处理`() {
+        // getVolumeName 可能抛异常（老版本/异常 uri），此时按主卷处理：
+        // 绝大多数设备只有主卷。
+        assertTrue(MediaUriPolicy.shouldUseCanonical(null))
+    }
+
+    @Test
+    fun `SD卡等其它卷保留自身形式`() {
+        // 规范形式定位不到 SD 卡上的行
+        assertTrue(!MediaUriPolicy.shouldUseCanonical("1234-5678"))
+        assertTrue(!MediaUriPolicy.shouldUseCanonical("sdcard1"))
+    }
+}

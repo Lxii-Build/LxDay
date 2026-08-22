@@ -1,5 +1,7 @@
 package com.linxi.diary.data
 
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -62,6 +64,73 @@ class ImagePrepPolicyMemoryTest {
                 decodedLong >= ImagePrepPolicy.MAX_EDGE,
             )
         }
+    }
+}
+
+/**
+ * 「上传显示无法读取图片」的回归测试（0822 查明的真凶）。
+ *
+ * ## 根因
+ *
+ * [ImagePrep] 里读边界那步原本写成：
+ * ```
+ * resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+ *     ?: error("无法读取所选图片")
+ * ```
+ * `use{}` 返回 lambda 的值，即 `decodeStream` 的返回值；而 `inJustDecodeBounds = true` 时
+ * **`decodeStream` 按设计永远返回 null**（只填 outWidth/outHeight，不产出 Bitmap）。
+ * 于是 `?:` 恒成立 → **每一张需要重编码的图都在第一步抛异常**
+ *（除 GIF 与动态 WebP 走 copyAsIs 之外的全部图片）。
+ *
+ * 这就是管理员报的「上传显示无法读取图片」，也是 Q57「服务器没成功上传过一张」的
+ * **第一道墙**（第二道是服务端中间件不排空 body 导致的 502，已另修）。
+ *
+ * ## 为什么此前的测试没抓到
+ *
+ * 上传链路的测试全在 [ImagePrepPolicy] 这层纯策略上（内存足迹、动图判定），
+ * 而这个 bug 在 [ImagePrep] 的 Android 调用处，`BitmapFactory` 在 JVM 单测里不可用。
+ * 修法是把判定逻辑抽成 [ImagePrepPolicy.boundsFailure] —— 让"该报错吗"这个决定
+ * 落在可测的一侧，Android 那侧只负责喂 `streamOpened` 与尺寸。
+ */
+class BoundsFailureTest {
+
+    @Test
+    fun `流打开且尺寸正常时绝不能报错`() {
+        // **这条就是 bug 的直接复现**：正常图片必须放行。
+        // 旧写法在这种情形下也会抛「无法读取所选图片」。
+        assertNull(
+            "4000×3000 的正常照片被判为失败——这正是「一张都传不上去」的原因",
+            ImagePrepPolicy.boundsFailure(streamOpened = true, outWidth = 4000, outHeight = 3000),
+        )
+        assertNull(ImagePrepPolicy.boundsFailure(true, 1, 1))
+        assertNull(ImagePrepPolicy.boundsFailure(true, 9248, 6944))
+    }
+
+    @Test
+    fun `流打不开才是读不到`() {
+        // 权限被撤、文件已删、uri 失效
+        assertEquals(
+            "无法读取所选图片",
+            ImagePrepPolicy.boundsFailure(streamOpened = false, outWidth = 0, outHeight = 0),
+        )
+        // 流没打开时即便尺寸字段有值（不可能，但防御），也应报"读不到"而非"损坏"
+        assertEquals("无法读取所选图片", ImagePrepPolicy.boundsFailure(false, 4000, 3000))
+    }
+
+    @Test
+    fun `流能开但尺寸为零是格式或损坏问题`() {
+        // 两种失败必须给不同文案：用户才能分辨该换一张，还是该去给权限。
+        assertEquals("图片已损坏或格式不支持", ImagePrepPolicy.boundsFailure(true, 0, 0))
+        assertEquals("图片已损坏或格式不支持", ImagePrepPolicy.boundsFailure(true, 4000, 0))
+        assertEquals("图片已损坏或格式不支持", ImagePrepPolicy.boundsFailure(true, 0, 3000))
+        assertEquals("图片已损坏或格式不支持", ImagePrepPolicy.boundsFailure(true, -1, -1))
+    }
+
+    @Test
+    fun `两种失败文案必须不同`() {
+        val cantRead = ImagePrepPolicy.boundsFailure(false, 0, 0)
+        val broken = ImagePrepPolicy.boundsFailure(true, 0, 0)
+        assertTrue("文案相同则用户无法分辨该换图还是该给权限", cantRead != broken)
     }
 }
 

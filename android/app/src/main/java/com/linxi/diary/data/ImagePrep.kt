@@ -47,10 +47,18 @@ object ImagePrep {
             }
 
             // 先只读边界拿原始尺寸，据此算 inSampleSize——直接全尺寸解码大图会 OOM。
+            //
+            // **注意这里的判定不能靠 decodeStream 的返回值**：`inJustDecodeBounds = true` 时
+            // 它永远返回 null，写成 `?.use { decodeStream(...) } ?: error(...)` 会让
+            // 每一张图都在这里抛「无法读取所选图片」。判定逻辑与理由见
+            // [ImagePrepPolicy.boundsFailure]。
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-                ?: error("无法读取所选图片")
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) error("图片已损坏或格式不支持")
+            val opened = resolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(it, null, bounds)
+                true
+            } ?: false
+            ImagePrepPolicy.boundsFailure(opened, bounds.outWidth, bounds.outHeight)
+                ?.let { error(it) }
 
             val sample = ImagePrepPolicy.sampleSize(bounds.outWidth, bounds.outHeight)
             val opts = BitmapFactory.Options().apply {

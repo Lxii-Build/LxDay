@@ -181,6 +181,7 @@ fun PhotoPickerScreen(
                         },
                         variant = LxButtonVariant.Neutral,
                         cornerRadius = 12,
+                        horizontalPadding = 14,
                         modifier = Modifier.padding(end = 12.dp),
                     )
                 },

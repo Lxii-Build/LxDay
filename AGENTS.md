@@ -124,7 +124,40 @@ go list -m -f '{{.Path}} {{.GoVersion}}' <module>
 + `inScaled`）在解码期直接出目标尺寸。连续上传时前者必 OOM，而失败只会静默
 `uploadFailed++`——表现就是用户说的"照片会消失"。
 
-### 2.8 后台配置优先于常量
+### 2.8 Kotlin：`?.use { }` 返回的是 lambda 的值，不是"流开没开"
+
+0822 查出的「上传显示无法读取图片 / 服务器没成功上传过一张」就是这一行：
+
+```kotlin
+// 错的：decodeStream 在 inJustDecodeBounds=true 时按设计永远返回 null
+//       于是 ?: 恒成立，每一张图都报「无法读取所选图片」
+resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+    ?: error("无法读取所选图片")
+
+// 对的：先明确拿到"流开没开"，再单独判尺寸
+val opened = resolver.openInputStream(uri)?.use {
+    BitmapFactory.decodeStream(it, null, bounds); true
+} ?: false
+ImagePrepPolicy.boundsFailure(opened, bounds.outWidth, bounds.outHeight)?.let { error(it) }
+```
+
+凡是 `?.use { ... } ?: error(...)`，都要先问一句**lambda 最后一个表达式可不可能是 null**。
+这类 bug 在编译期与代码审查里都很隐蔽，`AvatarCropper`/`AvatarCropScreen` 里的同类写法
+判的是 `bounds.outWidth` 所以侥幸没踩。
+
+**判定逻辑要抽成纯策略再单测**（`ImagePrepPolicy.boundsFailure`）：
+`BitmapFactory` 在 JVM 单测里不可用，把判定留在 Android 调用处等于永远测不到。
+补测试后**必须把实现临时改回旧语义、确认测试真的会红**，否则测试只是摆设。
+
+### 2.9 可点区域下限焊在组件里，不靠调用点传参
+
+`LxButton` 原本只有 `padding(vertical = 13.dp)`，横向零留白 → 顶栏里不带
+`fillMaxWidth` 的调用点被压成文字宽度（管理员报的「右上角上传按键太窄」）。
+现在由 `defaultMinSize(MIN_TOUCH_DP)` 兜住 48dp 下限。
+
+新增交互组件一律在组件内部保证最小触达尺寸，别指望每个调用点都记得传参。
+
+### 2.10 后台配置优先于常量
 
 新增可调参数一律加到 `server/settings.go` 的 `runtimeSettingSpecs`，
 **不要新增环境变量、不要改 docker-compose**（管理员明确不想动服务器上的

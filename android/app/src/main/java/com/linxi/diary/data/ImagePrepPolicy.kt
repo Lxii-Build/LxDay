@@ -71,6 +71,39 @@ object ImagePrepPolicy {
     }
 
     /**
+     * 「只读边界」之后的失败判定。
+     *
+     * ## 抽出来的理由：这里埋过一个「每一张都失败」的坑（0822 查明）
+     *
+     * 原本写成：
+     * ```
+     * resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+     *     ?: error("无法读取所选图片")
+     * ```
+     * 看着像「流打不开就报错」，实际不是。`use{}` 返回的是 lambda 的值，
+     * 也就是 `decodeStream` 的返回值；而 `inJustDecodeBounds = true` 时
+     * **`decodeStream` 按设计永远返回 null**（它只填 `outWidth`/`outHeight`，不产出 Bitmap）。
+     *
+     * 于是 `?:` 判的是「解码有没有产出 Bitmap」而不是「流有没有打开」，
+     * **每一张需要重编码的图都会在第一步抛异常** ——
+     * 也就是除 GIF 与动态 WebP 以外的全部图片。这正是管理员报的
+     * 「上传显示无法读取图片」与「服务器没成功上传过一张」的第一道墙
+     *（第二道是服务端中间件不排空 body 导致的 502，已另修）。
+     *
+     * 正确判定必须分两步，且两种失败要给不同文案（用户才能分辨该换图还是该给权限）：
+     *   1. 流没打开 → 读不到（权限/文件已删/uri 失效）
+     *   2. 流打开了但尺寸 <= 0 → 格式不支持或文件已损坏
+     *
+     * @param streamOpened `openInputStream` 是否返回了非 null
+     * @return 失败原因文案；null 表示成功
+     */
+    fun boundsFailure(streamOpened: Boolean, outWidth: Int, outHeight: Int): String? = when {
+        !streamOpened -> "无法读取所选图片"
+        outWidth <= 0 || outHeight <= 0 -> "图片已损坏或格式不支持"
+        else -> null
+    }
+
+    /**
      * 走完 sampleSize + decodeDensityScale 之后，解码出的 Bitmap 实际像素数。
      * 供内存回归测试断言，避免"改了缩放逻辑但内存没真的降下来"。
      */

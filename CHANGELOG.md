@@ -6,6 +6,28 @@
 
 ## [Unreleased]
 
+### 0822 · 找到「一张都传不上去」的真凶
+
+- **上传第一步就必抛异常**（这是"上传显示无法读取图片"与 Q57「服务器没成功上传过一张」的
+  真正第一道墙，此前我把它归给了 502——502 确实存在，但它只是第二道）：
+  `ImagePrep` 读图片边界那步写成
+  `openInputStream(uri)?.use { decodeStream(it, null, bounds) } ?: error("无法读取所选图片")`。
+  `use{}` 返回的是 lambda 的值，也就是 `decodeStream` 的返回值；而 `inJustDecodeBounds = true`
+  时 **`decodeStream` 按设计永远返回 null**（它只填 `outWidth`/`outHeight`，不产出 Bitmap）。
+  于是 `?:` 恒成立，**除 GIF 与动态 WebP（走 copyAsIs）之外的每一张图都在第一步抛异常**。
+  这个坑从 `a0a699f` 引入 `ImagePrep` 起就在。
+  已把判定抽成可单测的 `ImagePrepPolicy.boundsFailure`（区分"流没打开"与"尺寸为 0"两种失败，
+  给不同文案），并补 4 个回归测试——**已验证把实现改回旧语义时这些测试确实会红**。
+- **顶栏按钮太窄**：`LxButton` 只设了 `padding(vertical = 13.dp)`，横向零留白，
+  于是顶栏里不带 `fillMaxWidth` 的调用点（「上传」「取消」「系统相册」）被压成文字本身的宽度。
+  已加 `horizontalPadding` 参数，并用 `defaultMinSize` 把 48dp 最小触达尺寸**焊进组件**——
+  靠每个调用点自己记着传参迟早会漏。
+- 选图器行 URI 统一回规范形式（`content://media/external/...`）。0821 改成按卷遍历后
+  行 uri 变成了 `external_primary` 形态，而 uri 是被持久化的（`LocalPhotoIndex` 存
+  「photoId → 本机原图 uri」），形态一换老索引就全失配、"读本机原图"的优化静默失效。
+- `AGENTS.md` 补 2.8（`?.use{}` 的返回值陷阱 + 判定逻辑要抽纯策略再单测 + 补测试后必须
+  验证它在旧实现下会红）与 2.9（可点区域下限焊在组件里）。
+
 ### 0821 · 三条实证根因 + 相册/状态/后台大修
 
 **先说三条根因（都追到了代码行，其中两条本机跑出复现）**

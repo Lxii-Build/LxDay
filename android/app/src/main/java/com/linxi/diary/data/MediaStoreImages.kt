@@ -56,6 +56,29 @@ data class ImageBucket(
  *   - 按 bucket 分桶，用户能直接切到「截屏」或「微信」。
  */
 /**
+ * 行 URI 的形式选择策略（纯逻辑，可 JVM 单测）。
+ *
+ * 抽出来是因为「同一张图对应哪个 uri」这件事被持久化了：
+ * [LocalPhotoIndex] 把「服务端 photoId → 本机原图 uri」写进磁盘，
+ * 选择器也用 uri 做选中态判等。**同一张图在不同版本里必须给出同一个 uri**，
+ * 否则老索引全部失配、"自己传的照片读本机原图"这条优化直接失效。
+ */
+object MediaUriPolicy {
+
+    /**
+     * 该卷的行 URI 是否应用**规范形式**（`content://media/external/...`）。
+     *
+     * 主卷用规范形式：这是 `EXTERNAL_CONTENT_URI` 的形态，也是 0821 改成按卷遍历之前
+     * 一直在用的形态。保持一致，[LocalPhotoIndex] 里已存的索引才继续有效。
+     * 其它卷（SD 卡）保留按卷形式 —— 规范形式定位不到它们的行。
+     *
+     * @param volumeName `MediaStore.getVolumeName(uri)` 的结果；null 表示取不到
+     */
+    fun shouldUseCanonical(volumeName: String?): Boolean =
+        volumeName == null || volumeName == "external_primary" || volumeName == "external"
+}
+
+/**
  * 排序与分页的**纯策略**（不依赖任何 Android 类型，可在 JVM 单测里直接验）。
  *
  * 抽出来的理由：「图片消失」的根因就在排序规则上，而 `android.net.Uri` 在
@@ -135,6 +158,28 @@ object MediaStoreImages {
         }
 
     /**
+     * 行 URI：主卷用规范形式（`content://media/external/images/media/<id>`）。
+     *
+     * 不直接拿查询用的按卷 URI 拼 id。按卷查询得到的是
+     * `content://media/external_primary/images/media/<id>`，
+     * 与 0821 改成按卷遍历之前的形态不同 —— 而 uri 是被**持久化**的
+     *（[LocalPhotoIndex] 存「photoId → 本机原图 uri」），形态一换老索引就全失配。
+     *
+     * 主卷（`external_primary` / `EXTERNAL_CONTENT_URI` 指向的那个）转规范形式；
+     * 其它卷（SD 卡）保留自己的形式 —— 规范形式定位不到它们的行。
+     */
+    private fun rowUri(contentUri: Uri, id: Long): Uri {
+        val canonical = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        val volume = if (Build.VERSION.SDK_INT >= 29) {
+            runCatching { MediaStore.getVolumeName(contentUri) }.getOrNull()
+        } else {
+            null // 旧版本只有主卷
+        }
+        val base = if (MediaUriPolicy.shouldUseCanonical(volume)) canonical else contentUri
+        return android.content.ContentUris.withAppendedId(base, id)
+    }
+
+    /**
      * 分页查询。
      *
      * @param bucket 相册名；[BUCKET_ALL] 表示不过滤
@@ -205,7 +250,7 @@ object MediaStoreImages {
                         val ts = MediaSortPolicy.effectiveTimestamp(taken, added / 1000)
                         out += LocalImage(
                             id = id,
-                            uri = android.content.ContentUris.withAppendedId(contentUri, id),
+                            uri = rowUri(contentUri, id),
                             takenAtMs = ts,
                             sizeBytes = sizeCol.takeIf { it >= 0 }?.let { cursor.getLong(it) } ?: 0L,
                             mime = mimeCol.takeIf { it >= 0 }?.let { cursor.getString(it) }
