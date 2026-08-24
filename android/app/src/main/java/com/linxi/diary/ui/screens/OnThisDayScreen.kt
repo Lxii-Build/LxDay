@@ -1,6 +1,7 @@
 package com.linxi.diary.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,7 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -132,12 +133,17 @@ fun OnThisDayScreen(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    items(photos, key = { it.id }) { p ->
-                        val index = photos.indexOf(p)
+                    // 用 itemsIndexed 而非 items + photos.indexOf(p)：
+                    // 后者是 O(n) 查找放在每个 item 的 lambda 里，整体 O(n²)。
+                    // 「这一天」单次最多返回 200 张，滚动时会明显掉帧。
+                    // AlbumDetailScreen 修过同一个坑，这里当时没跟上。
+                    itemsIndexed(photos, key = { _, p -> p.id }) { index, p ->
                         Box(
                             Modifier
                                 .aspectRatio(1f)
                                 .clip(RoundedCornerShape(8.dp))
+                                // 占位底色：加载失败时是可见的灰格子而非完全透明。
+                                .background(MiuixTheme.colorScheme.onBackground.copy(alpha = 0.06f))
                                 .clickable { onOpenPhoto(photos, index) }
                         ) {
                             AsyncImage(

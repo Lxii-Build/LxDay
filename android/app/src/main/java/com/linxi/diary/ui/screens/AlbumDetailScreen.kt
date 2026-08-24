@@ -36,6 +36,7 @@ import coil3.compose.AsyncImage
 import com.linxi.diary.data.AlbumItem
 import com.linxi.diary.data.ApiClient
 import com.linxi.diary.data.AppImageLoader
+import com.linxi.diary.data.PagingMerge
 import com.linxi.diary.data.PhotoItem
 import com.linxi.diary.data.PhotoUploader
 import com.linxi.diary.data.UploadOutcome
@@ -138,8 +139,16 @@ fun AlbumDetailScreen(
             }.onSuccess { more ->
                 if (more.isEmpty() || more.size < PAGE_SIZE) reachedEnd = true
                 if (more.isNotEmpty()) {
-                    photos = photos + more
-                    page = next
+                    // **必须去重**：服务端是 OFFSET 分页，而**对方**上传照片会让列表增长
+                    // —— 拉下一页前若有新照片进来，全体下移，offset 就把上一页
+                    // 最后那张又返回一次，`itemsIndexed(key = { _, p -> p.id })`
+                    // 随即撞重复 key 崩溃。自己上传走整页重载所以自测发现不了。
+                    if (PagingMerge.allDuplicates(photos, more) { it.id }) {
+                        reachedEnd = true
+                    } else {
+                        photos = PagingMerge.appendDistinct(photos, more) { it.id }
+                        page = next
+                    }
                 }
             }.onFailure { reachedEnd = true }
         }
@@ -148,20 +157,33 @@ fun AlbumDetailScreen(
     LaunchedEffect(albumId) { loadFirst() }
 
     // 选图返回后逐张上传。
+    //
+    // **`onPickedConsumed()` 必须在 finally 里**：它原本写在循环之后，
+    // 而上传一批 100 张很慢，用户中途返回相册列表就会销毁本页 composition、
+    // 取消这个协程 —— 于是 `onPickedConsumed()` 永远执行不到，
+    // 而 `pickedUris` 存在上层的 remember 里、仍然非空。
+    // 再进任意相册时 LaunchedEffect 重新触发，**整批照片会被重传一遍**
+    // （100 张能直接撞掉服务端 200 张/日的配额，还产生一堆重复照片）。
+    //
+    // 放 finally 的语义是「这批 uri 已经交给我处理过了，不要再喂给我」，
+    // 与"是否全部成功"无关 —— 失败项由 uploadFailures 单独承载并提供重试入口。
     LaunchedEffect(pickedUris) {
         if (pickedUris.isEmpty()) return@LaunchedEffect
         uploadTotal = pickedUris.size
         uploadDone = 0
         uploadFailures.clear()
-        for ((index, uri) in pickedUris.withIndex()) {
-            val outcome = PhotoUploader.uploadOne(context, uri, albumId)
-            if (outcome == null) {
-                uploadDone++
-            } else {
-                uploadFailures += UploadFailure(index + 1, outcome)
+        try {
+            for ((index, uri) in pickedUris.withIndex()) {
+                val outcome = PhotoUploader.uploadOne(context, uri, albumId)
+                if (outcome == null) {
+                    uploadDone++
+                } else {
+                    uploadFailures += UploadFailure(index + 1, outcome)
+                }
             }
+        } finally {
+            onPickedConsumed()
         }
-        onPickedConsumed()
         loadFirst()
     }
 

@@ -191,7 +191,13 @@ func (s *Store) ListRequestLogs(method, path string, status, limit, offset int) 
 		args = append(args, status)
 	}
 	var total int
-	s.DB.QueryRow("SELECT COUNT(*) FROM request_log "+where, args...).Scan(&total)
+	// 总数出错时留 0：列表仍能显示，只是分页器不准。但必须留痕 ——
+	// 否则「列表有数据却显示共 0 条」这种矛盾现象查不出原因。
+	if err := s.DB.QueryRow(
+		"SELECT COUNT(*) FROM request_log "+where, args...,
+	).Scan(&total); err != nil {
+		slog.Error("count request_log failed", "err", err)
+	}
 	q := "SELECT id,method,path,status,latency_ms,ip,ua,request_id,created_at FROM request_log " +
 		where + " ORDER BY id DESC LIMIT ? OFFSET ?"
 	args = append(args, limit, offset)

@@ -459,9 +459,13 @@ func handleListRecycledPhotos(c *gin.Context) {
 	// 带上「还剩几天被自动彻底删除」（Q21=C）：
 	// 不告知的话用户会把回收站当永久保险箱，照片自己没了会来找我。
 	keep := settingsNow().RecycleBinDays
-	for _, p := range list {
-		d := recycleRemainingDays(p.deletedAt, p.CreatedAt, keep)
-		p.RecycleRemainingDays = &d
+	// **必须用下标遍历**：list 是 []Photo（值切片），`for _, p := range list`
+	// 拿到的是副本，往副本上写 RecycleRemainingDays 等于什么都没做 ——
+	// 而该字段是 `*int` + `omitempty`，写不进去就直接从 JSON 里消失，
+	// 客户端拿不到「还剩几天自动删除」，回收站页只能显示空白。
+	for i := range list {
+		d := recycleRemainingDays(list[i].deletedAt, list[i].CreatedAt, keep)
+		list[i].RecycleRemainingDays = &d
 	}
 	ok(c, gin.H{
 		"list": list, "total": total, "page": page, "size": size,

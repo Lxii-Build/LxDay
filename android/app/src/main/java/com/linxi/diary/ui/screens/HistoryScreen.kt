@@ -13,6 +13,7 @@ import androidx.compose.ui.unit.dp
 import com.linxi.diary.data.ApiClient
 import com.linxi.diary.data.BatteryPoint
 import com.linxi.diary.data.HistoryEntry
+import com.linxi.diary.data.PagingMerge
 import com.linxi.diary.ui.components.KernelScreen
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
@@ -68,7 +69,17 @@ fun HistoryScreen(onBack: () -> Unit = {}) {
                 parseHistory(ApiClient.historyTimeline(date, PAGE_SIZE, timeline.size))
             }.onSuccess { more ->
                 if (more.isEmpty() || more.size < PAGE_SIZE) reachedEnd = true
-                if (more.isNotEmpty()) timeline = timeline + more
+                // **必须去重**：服务端是 OFFSET 分页，而状态历史每 5 分钟就新增一条，
+                // 看「今天」时列表一直在长 —— 拉下一页前若有新记录写入，全体下移，
+                // offset 就会把上一页最后那条又返回一次。直接 `+ more` 会让
+                // `items(key = { it.ts })` 撞重复 key 而崩溃（滚到底是自动触发的，
+                // 用户什么都没做就崩）。详见 PagingMerge。
+                if (PagingMerge.allDuplicates(timeline, more) { it.ts }) {
+                    // 满页却全是重复 → 错位已经超过一页，再拉只会原地打转
+                    reachedEnd = true
+                } else {
+                    timeline = PagingMerge.appendDistinct(timeline, more) { it.ts }
+                }
             }.onFailure {
                 // 加载更多失败不清空已有数据，仅标记到底避免反复重试打接口
                 reachedEnd = true

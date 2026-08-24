@@ -89,6 +89,15 @@ fun AvatarCropScreen(
     var offsetX by remember(uri) { mutableStateOf(0f) }
     var offsetY by remember(uri) { mutableStateOf(0f) }
 
+    /**
+     * 裁剪画布的实际边长（像素），由 [CropCanvas] 回传。
+     *
+     * 导出时必须传给 `AvatarCropper.crop` —— 位移量的坐标系是这个容器，
+     * 用预览图尺寸代替会让拖动位移被按比例放大，裁出来的位置与看到的不一致。
+     * 0 表示还没测量完（此时"使用"按钮也还不该点，preview 尚未就绪）。
+     */
+    var canvasSizePx by remember(uri) { mutableStateOf(0f) }
+
     LaunchedEffect(uri) {
         preview = withContext(Dispatchers.IO) {
             runCatching {
@@ -152,6 +161,7 @@ fun AvatarCropScreen(
                             offsetX += dx
                             offsetY += dy
                         },
+                        onContainerSize = { canvasSizePx = it },
                     )
                 }
             }
@@ -174,16 +184,24 @@ fun AvatarCropScreen(
                         text = if (busy) "处理中…" else "使用",
                         onClick = {
                             val bmp = preview ?: return@LxButton
+                            val side = canvasSizePx
+                            if (side <= 0f) return@LxButton // 画布还没测量完
                             busy = true
                             scope.launch {
                                 val out = withContext(Dispatchers.IO) {
-                                    AvatarCropper.crop(context, uri, bmp, scale, offsetX, offsetY)
+                                    // **显式传 viewSizePx**：位移量的坐标系是画布容器，
+                                    // 不传就会退回默认值（预览图长边 1080），
+                                    // 与容器实际边长（屏宽 ≈1272）差约 18%，拖动后裁歪。
+                                    AvatarCropper.crop(
+                                        context, uri, bmp, scale, offsetX, offsetY,
+                                        viewSizePx = side,
+                                    )
                                 }
                                 busy = false
                                 if (out != null) onCropped(out) else loadFailed = true
                             }
                         },
-                        enabled = !busy && preview != null,
+                        enabled = !busy && preview != null && canvasSizePx > 0f,
                         variant = LxButtonVariant.Positive,
                         modifier = Modifier.weight(1f),
                     )
@@ -220,6 +238,17 @@ private fun CropCanvas(
     offsetX: Float,
     offsetY: Float,
     onTransform: (dScale: Float, dx: Float, dy: Float) -> Unit,
+    /**
+     * 回传容器实际边长（像素）。
+     *
+     * **导出时必须用这个值，不能用预览图的尺寸**：`offsetX`/`offsetY` 来自
+     * `detectTransformGestures` 的 pan，单位是**容器像素**；而 `AvatarCropper.crop`
+     * 的 `viewSizePx` 默认值取的是预览图长边（限死 1080）。一加 15 上容器是屏宽
+     * ≈1272px，两者差约 18% —— `frameToBitmapRect` 里 `fit = viewSize/bmp` 与
+     * offset 混算，于是**拖动位移被放大约 18%，拖得越多偏得越远**。
+     * 不拖动时正好抵消，所以"居中裁"看起来完全正常，一拖就歪。
+     */
+    onContainerSize: (Float) -> Unit,
 ) {
     BoxWithConstraints(
         Modifier
@@ -232,6 +261,9 @@ private fun CropCanvas(
             },
         contentAlignment = Alignment.Center,
     ) {
+        // 容器是 aspectRatio(1f) 的正方形，宽即边长。
+        val sidePx = constraints.maxWidth.toFloat()
+        LaunchedEffect(sidePx) { onContainerSize(sidePx) }
         Image(
             bitmap = bitmap.asImageBitmap(),
             contentDescription = "待裁剪的头像",

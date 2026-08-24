@@ -1,6 +1,7 @@
 package com.linxi.diary.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -184,7 +185,10 @@ fun RecycleBinScreen(onBack: () -> Unit) {
             Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(
-                        Modifier.size(64.dp).clip(RoundedCornerShape(8.dp))
+                        Modifier.size(64.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            // 占位底色：加载失败时是可见的灰方块而非完全透明。
+                            .background(MiuixTheme.colorScheme.onBackground.copy(alpha = 0.06f))
                     ) {
                         AsyncImage(
                             model = p.displayUrl,

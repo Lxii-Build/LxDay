@@ -153,9 +153,18 @@ func (s *Store) BindPair(code string, uid int64) (int64, error) {
 	if err != nil {
 		return 0, errors.New("邀请码无效或已失效")
 	}
-	// 判断是 A 还是 B
+	// 判断是 A 还是 B。
+	//
+	// **这里的 Scan 错误绝不能忽略**：忽略了 userA/userB 就保持零值，于是既跳过
+	// 下面「不能和自己绑定」的校验，又会走进 `userA == 0` 那条分支，
+	// 用 UPDATE 把已存在的 user_a_id **覆盖掉** —— 直接冲掉别人的情侣关系。
+	// 这不是展示不一致，是不可逆的数据破坏。
 	var userA, userB int64
-	s.DB.QueryRow(`SELECT user_a_id,user_b_id FROM pair WHERE id=?`, pairID).Scan(&userA, &userB)
+	if err := s.DB.QueryRow(
+		`SELECT user_a_id,user_b_id FROM pair WHERE id=?`, pairID,
+	).Scan(&userA, &userB); err != nil {
+		return 0, fmt.Errorf("读取绑定关系失败: %w", err)
+	}
 	if userA == uid || userB == uid {
 		return 0, errors.New("不能和自己绑定")
 	}

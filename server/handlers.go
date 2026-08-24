@@ -62,33 +62,67 @@ var siteBaseCache struct {
 	loaded bool
 }
 
-// invalidateSiteBaseCache 在后台保存设置后调用，使下次读取重新取库。
+// invalidateSiteBaseCache 在后台保存设置后调用：**立即重载，而不是留成冷态**。
+//
+// 为什么不能只把 loaded 置 false：那样下一次读取就要查库，而 siteBaseURL 会被
+// scanPhoto 在 `for rows.Next()` 遍历中调用 —— MaxOpenConns(1) 下那次查询会
+// 等一条永不释放的连接，直接死锁（详见 siteBaseCache 的注释与 warmSiteBaseCache）。
+//
+// 本函数只在后台保存设置时被调用（admin.go），那是普通 HTTP handler，
+// 此刻没有任何 rows 在遍历，可以安全查库。**冷态窗口必须在这里就关掉。**
 func invalidateSiteBaseCache() {
-	siteBaseCache.Lock()
-	siteBaseCache.loaded = false
-	siteBaseCache.Unlock()
+	warmSiteBaseCache()
 }
 
-// siteBaseURL 读后台站点地址(site.url)，规整为无尾斜杠的 scheme://host 前缀；未配置返回空（回退相对路径）。
-func siteBaseURL() string {
+// warmSiteBaseCache 主动把 site.url 读进缓存，消除「冷缓存 + rows 遍历」的死锁窗口。
+//
+// 必须在启动时（服务开始接请求、且在任何遍历照片的定时任务之前）调用一次，
+// 见 main.go。否则第一次走到 scanPhoto 的那条路径就会挂死整个连接池 ——
+// 最确定的触发点是 startRequestLogWorker 里同步先跑的那次 runRetentionCleanup。
+func warmSiteBaseCache() {
 	if st == nil {
-		return ""
+		return
 	}
-	siteBaseCache.RLock()
-	if siteBaseCache.loaded {
-		v := siteBaseCache.val
-		siteBaseCache.RUnlock()
-		return v
+	raw, err := st.GetSetting("site.url")
+	if err != nil {
+		// 取不到就别写缓存：留着未加载状态，下次再试。
+		// 这里刻意不 fatal —— 站点地址只影响 URL 是绝对还是相对，不该阻断启动。
+		slog.Warn("预热站点地址失败，图片 URL 暂按相对路径下发", "err", err)
+		return
 	}
-	siteBaseCache.RUnlock()
-
-	raw, _ := st.GetSetting("site.url")
 	v := normalizeSiteBase(raw)
 	siteBaseCache.Lock()
 	siteBaseCache.val = v
 	siteBaseCache.loaded = true
 	siteBaseCache.Unlock()
-	return v
+}
+
+// siteBaseURL 读后台站点地址(site.url)，规整为无尾斜杠的 scheme://host 前缀；
+// 未配置或缓存未就绪时返回空 —— 调用方回退相对路径，客户端侧会补全成绝对 URL。
+//
+// **本函数绝不查库。** 这是硬性约束，不是优化取舍：
+// 它会被 scanPhoto 在 `for rows.Next()` 遍历中调用，而 MaxOpenConns(1) 下
+// 那次查询要等一条正被 rows 占用、且要等遍历结束才释放的连接 —— 自己等自己，
+// 永久死锁，那条连接再也不回池，全站所有 DB 操作随之挂死。
+//
+// 早先的实现是「冷缓存时惰性查库」，靠"第一次调用之后就有缓存了"来规避，
+// 但**第一次调用本身仍要查库**。生产上最确定的触发点是启动时同步跑的那次
+// runRetentionCleanup → 清理回收站 → 遍历 photo 行 → scanPhoto，
+// 于是「库里有过期回收站照片」的容器一起来就整个服务不可用
+// （见 retention_deadlock_test.go，已实测复现）。
+//
+// 现在改成：**冷态直接返回空，绝不自己去查**。加载的责任交给
+// warmSiteBaseCache（启动时一次 + 后台保存设置后一次），那两处都不在 rows 遍历中。
+// 代价是万一预热失败，图片地址会退成相对路径 —— 客户端有
+// MediaUrlPolicy.absolutize 兜着，功能不受影响。
+// 收益是死锁在结构上不可能再发生，而不是靠"记得先预热"的顺序约定。
+func siteBaseURL() string {
+	siteBaseCache.RLock()
+	defer siteBaseCache.RUnlock()
+	if !siteBaseCache.loaded {
+		return "" // 冷态：回退相对路径，绝不在这里查库（会死锁，见上）
+	}
+	return siteBaseCache.val
 }
 
 func normalizeSiteBase(raw string) string {

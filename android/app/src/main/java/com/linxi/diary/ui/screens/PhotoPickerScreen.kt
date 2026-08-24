@@ -326,6 +326,8 @@ private fun PickerCell(
         Modifier
             .aspectRatio(1f)
             .clip(RoundedCornerShape(8.dp))
+            // 占位底色：缩略图还在解码或解码失败时，格子是可见的灰块而非透明。
+            .background(MiuixTheme.colorScheme.onBackground.copy(alpha = 0.06f))
     ) {
         AsyncImage(
             model = image.uri,

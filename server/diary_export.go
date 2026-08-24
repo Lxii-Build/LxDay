@@ -37,7 +37,9 @@ func handleAdminExportDiaries(c *gin.Context) {
 		afail(c, 500, 500, "查询失败")
 		return
 	}
-	defer rows.Close()
+	// 刻意不在这里 `defer rows.Close()`：rows 必须在**取图片地址之前**就关掉
+	// （否则死锁，见下），关闭责任在下面那个立即执行的闭包里。
+	// 放在这里会让人误以为连接一直被占到函数返回。
 
 	var sb strings.Builder
 	sb.WriteString("# 林曦日记 · 日记导出\n\n")
@@ -45,30 +47,56 @@ func handleAdminExportDiaries(c *gin.Context) {
 	sb.WriteString("> 本文件是「日记」功能下线前的留档。\n")
 	sb.WriteString("> 日记功能已于 2026-08-21 移除，此后不再产生新内容。\n\n---\n\n")
 
+	// **先把行全部读进内存并关闭 rows，再去取图片地址。**
+	//
+	// 不能在 `for rows.Next()` 里调 diaryImageURLs：它内部会再发一次 Query，
+	// 而 SQLite 连接池是 MaxOpenConns(1)（见 main.go）——外层 rows 正占着那条
+	// 唯一连接、且要等遍历结束才释放，内层查询于是永久等待。**自己等自己。**
+	// 结果不只是这个请求挂住：那条连接再也不回池，**全站所有 DB 操作随之瘫痪**，
+	// 只能重启容器。等于后台多了个"点一下就把生产打死"的按钮。
+	//
+	// 新库撞不到（schema 里已无 diary 表，外层 Query 直接报错返回），
+	// 只有从老库升级上来、diary 表还在的实例才会炸 —— 而那正是需要导出的实例。
+	// 同类修法见 album_store.go 的 ListAlbums。
+	type diaryRow struct {
+		id                                             int64
+		pairID                                         int64
+		nickname, title, content, diaryDate, createdAt string
+	}
+	var items []diaryRow
+	func() {
+		defer rows.Close()
+		for rows.Next() {
+			var r diaryRow
+			var authorID int64
+			if err := rows.Scan(&r.id, &r.pairID, &authorID, &r.nickname,
+				&r.title, &r.content, &r.diaryDate, &r.createdAt); err != nil {
+				slog.Error("scan diary for export failed", "err", err)
+				continue
+			}
+			items = append(items, r)
+		}
+		if err := rows.Err(); err != nil {
+			slog.Error("iterate diaries for export failed", "err", err)
+		}
+	}()
+
 	count := 0
 	lastPair := int64(-1)
-	for rows.Next() {
-		var id, pairID, authorID int64
-		var nickname, title, content, diaryDate, createdAt string
-		if err := rows.Scan(&id, &pairID, &authorID, &nickname,
-			&title, &content, &diaryDate, &createdAt); err != nil {
-			slog.Error("scan diary for export failed", "err", err)
-			continue
+	for _, r := range items {
+		if r.pairID != lastPair {
+			sb.WriteString(fmt.Sprintf("\n## 情侣 #%d\n\n", r.pairID))
+			lastPair = r.pairID
 		}
-		if pairID != lastPair {
-			sb.WriteString(fmt.Sprintf("\n## 情侣 #%d\n\n", pairID))
-			lastPair = pairID
-		}
-		sb.WriteString(fmt.Sprintf("### %s　%s\n\n", diaryDate, title))
-		sb.WriteString(fmt.Sprintf("*%s ·  写于 %s*\n\n", nickname, createdAt))
-		sb.WriteString(content)
+		sb.WriteString(fmt.Sprintf("### %s　%s\n\n", r.diaryDate, r.title))
+		sb.WriteString(fmt.Sprintf("*%s ·  写于 %s*\n\n", r.nickname, r.createdAt))
+		sb.WriteString(r.content)
 		sb.WriteString("\n\n")
 
-		// 附带图片地址（若有）。日记图片走 /upload 静态路径，
-		// 导出后这些 URL 仍可访问，直到管理员清理 uploads 目录。
-		// 直接查表而不用 store 方法：store 层的日记方法已随功能一并删除，
-		// 这里是唯一还需要读它的地方（导完即可移除本文件）。
-		if imgs := diaryImageURLs(id); len(imgs) > 0 {
+		// rows 已关闭，此时再查图片地址是安全的。
+		// 日记图片走 /upload 静态路径，导出后这些 URL 仍可访问，
+		// 直到管理员清理 uploads 目录。
+		if imgs := diaryImageURLs(r.id); len(imgs) > 0 {
 			sb.WriteString("图片：\n")
 			for _, u := range imgs {
 				sb.WriteString(fmt.Sprintf("- %s\n", u))
@@ -122,7 +150,11 @@ func handleAdminDiaryCount(c *gin.Context) {
 		return
 	}
 	var imgs int
-	st.DB.QueryRow(`SELECT COUNT(*) FROM diary_image`).Scan(&imgs)
+	// diary_image 可能已被 purge 删表，取不到就按 0 报，不阻断 ——
+	// 上面那条 diary 的计数才是这个接口的主要用途。
+	if err := st.DB.QueryRow(`SELECT COUNT(*) FROM diary_image`).Scan(&imgs); err != nil {
+		slog.Warn("count diary_image failed", "err", err)
+	}
 	aok(c, gin.H{"diaries": n, "images": imgs})
 }
 

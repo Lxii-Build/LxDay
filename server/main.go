@@ -107,6 +107,14 @@ func main() {
 	// 先载入后台可配的运行参数（相册配额/保留期/限流/互动冷却），
 	// 再起清理任务——后者要读保留天数。未配置的键一律回退代码里的默认常量。
 	reloadRuntimeSettings()
+	// **必须在 startRequestLogWorker 之前**：那里会同步先跑一次 runRetentionCleanup，
+	// 而清理回收站要遍历 photo 行、每行都过 scanPhoto → mediaURL → siteBaseURL。
+	// 若此时站点地址缓存还是冷的，那次查库会去等一条正被 rows 占用、
+	// 且要等遍历结束才释放的连接（MaxOpenConns(1)）——自己等自己，永久死锁，
+	// 那条连接再也不回池，全站所有 DB 操作随之挂死。
+	// 注意 reloadRuntimeSettings 不覆盖 site.url（它属于 settingKeys，不在
+	// runtimeSettingSpecs 里），所以这里必须单独预热一次。
+	warmSiteBaseCache()
 	startRequestLogWorker()
 
 	// 生产默认 release 模式：debug 模式会打印全部路由表与详细报错，

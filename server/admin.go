@@ -463,9 +463,14 @@ func pageResp(c *gin.Context, records interface{}, total, current, size int) {
 // ---------- 数据看板 ----------
 
 func (s *Store) DashboardStats() gin.H {
+	// COUNT 出错时返回 0 是可接受的降级（看板少一个数字，不影响功能），
+	// 但必须留痕 —— 否则「看板显示 0 而库里明明有数据」这种问题无从排查。
 	q := func(query string) int {
 		var n int
-		s.DB.QueryRow(query).Scan(&n)
+		if err := s.DB.QueryRow(query).Scan(&n); err != nil {
+			slog.Error("dashboard count failed", "query", query, "err", err)
+			return 0
+		}
 		return n
 	}
 	// 近 7 天每日新增
@@ -572,11 +577,24 @@ func handleAdminListUsers(c *gin.Context) {
 }
 
 func handleAdminSetUserStatus(c *gin.Context) {
-	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		afail(c, 400, 400, "用户 ID 非法")
+		return
+	}
 	var req struct {
 		Status int `json:"status"`
 	}
-	c.ShouldBindJSON(&req)
+	// **必须检查 err 且限定取值**（与 handleAdminSetAdminStatus 保持一致）。
+	// 原先是裸调 ShouldBindJSON 并把任意整数直落库，有两个真实后果：
+	//   ① body 解析失败时 req.Status 是零值 0，而 authUserByToken 认为
+	//      `status != 1` 即为禁用 → **一次格式错误的请求就把用户静默封禁**；
+	//   ② 传 status:7 也能写进去，而后台前端只提供 1/2 两个选项，
+	//      写进去之后没有任何界面能把他改回来。
+	if err := c.ShouldBindJSON(&req); err != nil || (req.Status != 1 && req.Status != 2) {
+		afail(c, 400, 400, "status 只能是 1(启用) 或 2(禁用)")
+		return
+	}
 	if err := st.SetUserStatus(id, req.Status); err != nil {
 		afail(c, 500, 500, "操作失败")
 		return
@@ -906,11 +924,21 @@ func handleAdminCreateVersion(c *gin.Context) {
 }
 
 func handleAdminSetVersionStatus(c *gin.Context) {
-	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		afail(c, 400, 400, "版本 ID 非法")
+		return
+	}
 	var req struct {
 		Status int `json:"status"`
 	}
-	c.ShouldBindJSON(&req)
+	// 同 handleAdminSetUserStatus：必须检查 err 并限定取值。
+	// 后台前端只在 0(下线) / 1(上线) 之间切换（app-version/index.vue:159），
+	// 裸调会让解析失败时静默按 0 处理 —— 把正在推送的版本直接下线。
+	if err := c.ShouldBindJSON(&req); err != nil || (req.Status != 0 && req.Status != 1) {
+		afail(c, 400, 400, "status 只能是 1(上线) 或 0(下线)")
+		return
+	}
 	if err := st.SetAppVersionStatus(id, req.Status); err != nil {
 		afail(c, 500, 500, "操作失败")
 		return

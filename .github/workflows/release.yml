@@ -22,9 +22,13 @@ on:
         required: false
         default: ''
       app_key:
-        description: 应用密钥（APP_KEY，可选）
+        description: 应用密钥（APP_KEY，可选；留空则用仓库 Secret）
         required: false
         default: ''
+      prerelease:
+        description: 标记为预发布（默认是——正式版要显式关掉）
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -112,6 +116,36 @@ jobs:
             exit 1
           fi
 
+      # 发行版必须过测试。此前这条流水线从头到尾不跑任何测试，
+      # 而 build-android.yml 与 build-server.yml 都跑 —— 等于日常 CI 拦得住的坏提交，
+      # 恰好在产出「用户真正安装的那个包」时放过去了。
+      - name: 配置 Go 1.25
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: server/go.sum
+
+      - name: 服务端 gofmt / vet / 测试
+        working-directory: server
+        run: |
+          FMT=$(gofmt -l .)
+          if [ -n "$FMT" ]; then
+            echo "::error::以下文件未 gofmt：$FMT"
+            exit 1
+          fi
+          go vet ./...
+          go test -timeout 600s ./...
+
+      - name: 安卓单元测试
+        working-directory: android
+        run: |
+          ./gradlew :app:testDebugUnitTest --no-daemon \
+            -PBASE_URL="$IN_BASE_URL" \
+            -PWS_URL="$IN_WS_URL" \
+            -PAPP_KEY="$IN_APP_KEY" \
+            -PVERSION_NAME="${{ steps.ver.outputs.name }}" \
+            -PVERSION_CODE="${{ steps.ver.outputs.code }}"
+
       - name: 构建 APK（${{ inputs.build_type }}）
         working-directory: android
         env:
@@ -193,7 +227,9 @@ jobs:
           tag_name: ${{ inputs.version }}
           name: ${{ inputs.version }}
           draft: false
-          prerelease: false
+          # 预发布默认开：这个项目的常规做法是先发 prerelease 真机验过再转正式版。
+          # 注意 boolean 类型的输入在表达式里是字符串 'true'/'false'，不能直接当布尔用。
+          prerelease: ${{ inputs.prerelease }}
           files: |
             android/app/build/outputs/apk/**/*.apk
             android/app/build/outputs/mapping/**/mapping.txt
