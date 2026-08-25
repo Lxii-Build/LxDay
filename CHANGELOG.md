@@ -7,9 +7,16 @@
 
 ## [Unreleased]
 
-### 0824 · 发版前全量代码审查修复
+（暂无）
 
-三端逐项审查后修掉 9 处问题，其中 4 处是「会打死生产」或「会崩」的级别。
+## [1.0.1] - 2026-08-25
+
+发版前全量代码审查的修复集。三端逐项审查后修掉 9 处问题，
+其中 4 处是「会打死生产」或「用户什么都没做就崩」的级别。
+
+**这一版建议尽快升级**：v1.0.0 的服务端有一条启动死锁，
+生产库运行超过回收站保留期（默认 30 天）后，容器重启就会挂死在清理任务上、
+整个服务不可用。详见下面第一条。
 
 **服务端**
 
@@ -275,5 +282,6 @@
   含「本机代理会造成假 502」的排查警告）、[docs/SELFTEST_0821.md](docs/SELFTEST_0821.md)
   （真机自测清单，含「我已验证 / 我无法验证」的分界）。
 
-[Unreleased]: https://github.com/Lxii-Build/LxDay/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/Lxii-Build/LxDay/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/Lxii-Build/LxDay/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/Lxii-Build/LxDay/releases/tag/v1.0.0
