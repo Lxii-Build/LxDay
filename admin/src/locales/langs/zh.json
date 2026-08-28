@@ -286,15 +286,19 @@
     "disableSuccess": "已禁用该用户"
   },
   "pairManage": {
-    "searchPlaceholder": "搜索昵称 / 邀请码",
+    "searchPlaceholder": "搜索昵称",
     "empty": "暂无绑定关系",
     "table": {
       "id": "ID",
       "userA": "用户 A",
       "userB": "用户 B",
-      "inviteCode": "邀请码",
+      "inviteState": "邀请状态",
       "status": "状态",
       "createdAt": "绑定时间"
+    },
+    "invite": {
+      "pending": "有挂起邀请",
+      "none": "无"
     },
     "status": {
       "bound": "已绑定",

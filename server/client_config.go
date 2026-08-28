@@ -67,6 +67,10 @@ func handleClientConfig(c *gin.Context) {
 //
 // 关掉后除「读」以外一律拒绝：读仍放行是为了让用户还能看到/导出已有照片，
 // 直接全拒会让人以为照片丢了。
+//
+// ★ 挂载点在 main.go 的 album 路由组。这个函数曾经**定义了却零挂载**，
+// 整整几个版本里「相册功能总开关」都只是个装饰：关掉它只有上传被 handler
+// 内部的检查拦下，建相册/改名/挂照片/评论点赞全部照旧可写。
 func requireAlbumEnabled() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if settingsNow().AlbumEnabled {
@@ -79,5 +83,24 @@ func requireAlbumEnabled() gin.HandlerFunc {
 		}
 		fail(c, http.StatusForbidden, codeUploadDisabled, "相册功能当前已关闭")
 		c.Abort()
+	}
+}
+
+// requireSocialEnabled 评论/点赞开关。
+//
+// 与相册总开关同样的问题：`album.social_enabled` 此前**服务端零校验**，
+// 纯靠客户端隐藏入口。而"隐藏入口"对旧版本 App、以及任何直接调接口的人都无效——
+// 管理员关掉它是为了止损（比如出现骚扰性评论），却拦不住真正需要拦的那条路径。
+//
+// 这里全方法拒绝而不像相册那样放行 GET：评论与点赞的读取入口不在这一组
+// （照片详情 handlePhotoByID 里一并返回），所以拒绝写就够了，不影响查看已有内容。
+func requireSocialEnabled() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !settingsNow().PhotoSocialEnabled {
+			fail(c, http.StatusForbidden, codeUploadDisabled, "评论与点赞功能当前已关闭")
+			c.Abort()
+			return
+		}
+		c.Next()
 	}
 }

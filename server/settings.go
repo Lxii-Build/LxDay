@@ -48,6 +48,7 @@ type RuntimeSettings struct {
 	EmailCodeMaxAttempts int
 	LoginRateWindowMin   int
 	AdminLoginMaxFails   int
+	UserLoginMaxFails    int
 	AdminTokenTTLHours   int
 	UserTokenTTLHours    int
 	InviteTTLMinutes     int
@@ -79,6 +80,7 @@ func defaultRuntimeSettings() RuntimeSettings {
 		EmailCodeMaxAttempts: 5,
 		LoginRateWindowMin:   10,
 		AdminLoginMaxFails:   5,
+		UserLoginMaxFails:    5,
 		AdminTokenTTLHours:   2,
 		UserTokenTTLHours:    720,
 		InviteTTLMinutes:     60,
@@ -99,8 +101,19 @@ type settingSpec struct {
 	Kind     string // int | int64 | bool | bytes(MB 输入)
 	Min, Max int64  // Kind 为数值时的收敛范围；bool 忽略
 	Label    string
-	get      func(*RuntimeSettings) string
-	set      func(*RuntimeSettings, int64, bool)
+	// Super 表示该项只有超管可写（读仍对所有管理员开放——这些值不含密钥，
+	// 且后台页面要显示当前状态）。
+	//
+	// 为什么需要它：运行参数整体是"不含密钥所以放给普通 admin"（Q42=C），
+	// 但这批参数里混着两类**权限等级完全不同**的东西：
+	//   - 「保留天数」是不可逆销毁开关。把 retention.recycle_bin_days 改成 1，
+	//     几小时后那次定时清理就会真删库行 + 真删磁盘文件，
+	//     全站用户回收站里的照片一起没了，且没有任何撤销途径；
+	//   - 「安全限流」是防护强度开关，往上调等于削弱爆破防护。
+	// 这两类必须跟 SMTP 一样限超管，否则"分角色"这件事在最要紧的地方是空的。
+	Super bool
+	get   func(*RuntimeSettings) string
+	set   func(*RuntimeSettings, int64, bool)
 }
 
 const (
@@ -133,43 +146,58 @@ var runtimeSettingSpecs = []settingSpec{
 		get: func(s *RuntimeSettings) string { return boolStr(s.OnThisDayEnabled) },
 		set: func(s *RuntimeSettings, _ int64, b bool) { s.OnThisDayEnabled = b }},
 
-	// 数据保留
-	{Key: "retention.network_log_days", Group: groupRetention, Kind: "int", Min: 0, Max: 3650, Label: "网络日志保留(天，0=永久)",
+	// 数据保留。三项全部限超管：调小保留期 = 让下一次定时清理去真删数据，
+	// 而清理是不可逆的（回收站那条连磁盘文件一起删）。
+	{Key: "retention.network_log_days", Group: groupRetention, Kind: "int", Min: 0, Max: 3650, Label: "网络日志保留(天，0=永久)", Super: true,
 		get: func(s *RuntimeSettings) string { return strconv.Itoa(s.NetworkLogDays) },
 		set: func(s *RuntimeSettings, v int64, _ bool) { s.NetworkLogDays = int(v) }},
-	{Key: "retention.status_history_days", Group: groupRetention, Kind: "int", Min: 0, Max: 3650, Label: "状态历史保留(天，0=永久)",
+	{Key: "retention.status_history_days", Group: groupRetention, Kind: "int", Min: 0, Max: 3650, Label: "状态历史保留(天，0=永久)", Super: true,
 		get: func(s *RuntimeSettings) string { return strconv.Itoa(s.StatusHistoryDays) },
 		set: func(s *RuntimeSettings, v int64, _ bool) { s.StatusHistoryDays = int(v) }},
-	{Key: "retention.recycle_bin_days", Group: groupRetention, Kind: "int", Min: 0, Max: 3650, Label: "回收站保留(天，0=永久)",
+	// 这一条是全部配置里破坏力最大的：改小 → runRetentionCleanup → PurgeExpiredRecycleBin
+	// → 真删 photo 行 + 真删磁盘上的原图与缩略图。用户以为"还在回收站里能恢复"的照片
+	// 会在几小时内消失，且无任何撤销途径。
+	{Key: "retention.recycle_bin_days", Group: groupRetention, Kind: "int", Min: 0, Max: 3650, Label: "回收站保留(天，0=永久)", Super: true,
 		get: func(s *RuntimeSettings) string { return strconv.Itoa(s.RecycleBinDays) },
 		set: func(s *RuntimeSettings, v int64, _ bool) { s.RecycleBinDays = int(v) }},
 
-	// 安全与限流
-	{Key: "security.email_code_ttl_min", Group: groupSecurity, Kind: "int", Min: 1, Max: 1440, Label: "邮箱验证码有效期(分钟)",
+	// 安全与限流。整组限超管：这些项都是"防护强度"旋钮，
+	// 往放松的方向调等于削弱爆破防护，而普通 admin 账号本身就是可能被爆破的目标之一。
+	{Key: "security.email_code_ttl_min", Group: groupSecurity, Kind: "int", Min: 1, Max: 1440, Label: "邮箱验证码有效期(分钟)", Super: true,
 		get: func(s *RuntimeSettings) string { return strconv.Itoa(s.EmailCodeTTLMinutes) },
 		set: func(s *RuntimeSettings, v int64, _ bool) { s.EmailCodeTTLMinutes = int(v) }},
-	{Key: "security.email_code_cooldown_sec", Group: groupSecurity, Kind: "int", Min: 10, Max: 3600, Label: "验证码发送冷却(秒)",
+	{Key: "security.email_code_cooldown_sec", Group: groupSecurity, Kind: "int", Min: 10, Max: 3600, Label: "验证码发送冷却(秒)", Super: true,
 		get: func(s *RuntimeSettings) string { return strconv.Itoa(s.EmailCodeCooldownSec) },
 		set: func(s *RuntimeSettings, v int64, _ bool) { s.EmailCodeCooldownSec = int(v) }},
-	{Key: "security.email_code_max_attempts", Group: groupSecurity, Kind: "int", Min: 1, Max: 100, Label: "验证码最大尝试次数",
+	// 上限从 100 收到 20：验证码只有 6 位（100 万组合），
+	// 允许 100 次尝试是在明显放大爆破成功率，给不出正当场景。
+	{Key: "security.email_code_max_attempts", Group: groupSecurity, Kind: "int", Min: 1, Max: 20, Label: "验证码最大尝试次数", Super: true,
 		get: func(s *RuntimeSettings) string { return strconv.Itoa(s.EmailCodeMaxAttempts) },
 		set: func(s *RuntimeSettings, v int64, _ bool) { s.EmailCodeMaxAttempts = int(v) }},
-	{Key: "security.login_rate_window_min", Group: groupSecurity, Kind: "int", Min: 1, Max: 1440, Label: "登录限流窗口(分钟)",
+	{Key: "security.login_rate_window_min", Group: groupSecurity, Kind: "int", Min: 1, Max: 1440, Label: "登录限流窗口(分钟)", Super: true,
 		get: func(s *RuntimeSettings) string { return strconv.Itoa(s.LoginRateWindowMin) },
 		set: func(s *RuntimeSettings, v int64, _ bool) { s.LoginRateWindowMin = int(v) }},
-	{Key: "security.admin_login_max_fails", Group: groupSecurity, Kind: "int", Min: 1, Max: 100, Label: "后台登录失败上限",
+	// 上限 20 而非 100：这两项是**削弱**爆破防护的方向，给不出需要 100 次失败的正当场景，
+	// 而配得越大越接近"关掉防护"。范围收敛在这里不只是防手滑，也是防越权改动的最后一道闸。
+	{Key: "security.admin_login_max_fails", Group: groupSecurity, Kind: "int", Min: 1, Max: 20, Label: "后台登录失败上限", Super: true,
 		get: func(s *RuntimeSettings) string { return strconv.Itoa(s.AdminLoginMaxFails) },
 		set: func(s *RuntimeSettings, v int64, _ bool) { s.AdminLoginMaxFails = int(v) }},
-	{Key: "security.admin_token_ttl_hours", Group: groupSecurity, Kind: "int", Min: 1, Max: 720, Label: "后台登录有效期(小时)",
+	// APP 端登录失败上限必须是独立的一项。此前 handleLogin 误读了上面那条
+	// `AdminLoginMaxFails`：标着"后台登录失败上限"的开关实际只作用于 APP 端，
+	// 而真正的后台登录写死 5 次、完全不受配置影响 —— 两边的语义整个错位。
+	{Key: "security.user_login_max_fails", Group: groupSecurity, Kind: "int", Min: 1, Max: 20, Label: "APP 登录失败上限", Super: true,
+		get: func(s *RuntimeSettings) string { return strconv.Itoa(s.UserLoginMaxFails) },
+		set: func(s *RuntimeSettings, v int64, _ bool) { s.UserLoginMaxFails = int(v) }},
+	{Key: "security.admin_token_ttl_hours", Group: groupSecurity, Kind: "int", Min: 1, Max: 720, Label: "后台登录有效期(小时)", Super: true,
 		get: func(s *RuntimeSettings) string { return strconv.Itoa(s.AdminTokenTTLHours) },
 		set: func(s *RuntimeSettings, v int64, _ bool) { s.AdminTokenTTLHours = int(v) }},
-	{Key: "security.user_token_ttl_hours", Group: groupSecurity, Kind: "int", Min: 1, Max: 8760, Label: "APP 登录有效期(小时)",
+	{Key: "security.user_token_ttl_hours", Group: groupSecurity, Kind: "int", Min: 1, Max: 8760, Label: "APP 登录有效期(小时)", Super: true,
 		get: func(s *RuntimeSettings) string { return strconv.Itoa(s.UserTokenTTLHours) },
 		set: func(s *RuntimeSettings, v int64, _ bool) { s.UserTokenTTLHours = int(v) }},
-	{Key: "security.invite_ttl_min", Group: groupSecurity, Kind: "int", Min: 1, Max: 10080, Label: "邀请码有效期(分钟)",
+	{Key: "security.invite_ttl_min", Group: groupSecurity, Kind: "int", Min: 1, Max: 10080, Label: "邀请码有效期(分钟)", Super: true,
 		get: func(s *RuntimeSettings) string { return strconv.Itoa(s.InviteTTLMinutes) },
 		set: func(s *RuntimeSettings, v int64, _ bool) { s.InviteTTLMinutes = int(v) }},
-	{Key: "security.bind_attempt_limit", Group: groupSecurity, Kind: "int", Min: 1, Max: 100, Label: "绑定尝试次数上限",
+	{Key: "security.bind_attempt_limit", Group: groupSecurity, Kind: "int", Min: 1, Max: 20, Label: "绑定尝试次数上限", Super: true,
 		get: func(s *RuntimeSettings) string { return strconv.Itoa(s.BindAttemptLimit) },
 		set: func(s *RuntimeSettings, v int64, _ bool) { s.BindAttemptLimit = int(v) }},
 
@@ -279,6 +307,10 @@ func runtimeSettingsPayload() (values map[string]string, defaults map[string]str
 		meta = append(meta, map[string]interface{}{
 			"key": spec.Key, "group": spec.Group, "kind": spec.Kind,
 			"min": spec.Min, "max": spec.Max, "label": spec.Label,
+			// 前端据此把非超管的对应输入框置灰。
+			// 注意这只是**提示**，真正的拦截在服务端 handleAdminUpdateSettings：
+			// 置灰只能防误操作，防不住直接调接口。
+			"super": spec.Super,
 		})
 	}
 	return values, defaults, meta
@@ -289,6 +321,17 @@ func isRuntimeSettingKey(key string) bool {
 	for _, spec := range runtimeSettingSpecs {
 		if spec.Key == key {
 			return true
+		}
+	}
+	return false
+}
+
+// isSuperOnlySettingKey 该运行参数是否只允许超管写入。
+// 未知键返回 false，由调用方按"不认识的键"处理（白名单语义）。
+func isSuperOnlySettingKey(key string) bool {
+	for _, spec := range runtimeSettingSpecs {
+		if spec.Key == key {
+			return spec.Super
 		}
 	}
 	return false

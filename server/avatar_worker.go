@@ -115,17 +115,39 @@ func (w GoImageWorker) decode(path string) (image.Image, AvatarMeta, error) {
 		img, err := bmp.Decode(f)
 		return img, meta, wrapDecode(err, "bmp")
 	case "gif":
-		g, err := gif.DecodeAll(f)
-		if err != nil || len(g.Image) == 0 {
-			return nil, AvatarMeta{}, fmt.Errorf("decode gif: %w", err)
+		// ★ 绝不能用 gif.DecodeAll ★
+		//
+		// 上面的像素上限校验用的是 DecodeConfig，而它只给**首帧**尺寸；
+		// DecodeAll 却会把每一帧都解成独立的 image.Paletted。
+		// 于是一个单帧仅 1M 像素（轻松过检）、但有几千帧的 GIF，
+		// 内存占用按帧数线性增长 —— 单个上传请求即可打爆进程。
+		// （头像链路的 MaxFrames=120 检查在 worker 返回**之后**才跑，拦不住；
+		// 相册链路连那道事后检查都没有。）
+		//
+		// 改为两步：先只扫结构数帧（不解像素、内存与帧数无关），
+		// 再用 gif.Decode 只解首帧 —— 首帧尺寸已经过了像素上限校验。
+		sum, err := scanGIF(f)
+		if err != nil {
+			if errors.Is(err, errGIFTooManyFrames) {
+				return nil, AvatarMeta{}, ErrAvatarTooManyFrames
+			}
+			// 截断的 GIF：结构扫描读到 EOF。首帧通常仍可解，
+			// 但既然文件本身不完整，直接按解码失败处理，让用户换一张。
+			return nil, AvatarMeta{}, fmt.Errorf("%w: scan gif: %v", errImageDecode, err)
 		}
-		meta.Frames = len(g.Image)
-		total := 0
-		for _, d := range g.Delay {
-			total += d // 单位 1/100 秒
+		if sum.Frames == 0 {
+			return nil, AvatarMeta{}, fmt.Errorf("%w: gif has no frames", errImageDecode)
 		}
-		meta.DurationSeconds = float64(total) / 100.0
-		return g.Image[0], meta, nil
+		if _, err := f.Seek(0, 0); err != nil {
+			return nil, AvatarMeta{}, err
+		}
+		img, err := gif.Decode(f) // 只解首帧
+		if err != nil {
+			return nil, AvatarMeta{}, wrapDecode(err, "gif")
+		}
+		meta.Frames = sum.Frames
+		meta.DurationSeconds = sum.DurationSeconds
+		return img, meta, nil
 	case "jpeg":
 		img, err := jpeg.Decode(f)
 		return img, meta, wrapDecode(err, "jpeg")

@@ -78,7 +78,20 @@
           minWidth: 160,
           formatter: (row) => `${row.name_b || '-'} (#${row.user_b_id})`
         },
-        { prop: 'invite_code', label: t('pairManage.table.inviteCode'), width: 140 },
+        // 只显示「有没有挂起的邀请」，不显示邀请码本身。
+        // 邀请码是"成为某人伴侣"的凭据，下发给后台等于让任何管理员都能拿它去绑定
+        // 陌生用户，从而读到对方全部私密内容（相册/状态/待办）。
+        {
+          prop: 'has_invite',
+          label: t('pairManage.table.inviteState'),
+          width: 120,
+          formatter: (row) =>
+            h(ElTag, { type: row.has_invite ? 'warning' : 'info' }, () =>
+              row.has_invite
+                ? t('pairManage.invite.pending')
+                : t('pairManage.invite.none')
+            )
+        },
         {
           prop: 'status',
           label: t('pairManage.table.status'),

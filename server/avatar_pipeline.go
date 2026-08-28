@@ -113,13 +113,27 @@ func processAvatar(in AvatarInput, limits AvatarLimits, worker AvatarWorker) (Av
 		return AvatarResult{}, ErrFormatNotDecodable
 	}
 
-	result, err := worker.Process(AvatarWorkerRequest{
-		Source:          in.Source,
-		OutputDimension: limits.MaxDimension,
-		ThumbDimension:  limits.ThumbSize,
-		Animated:        in.Probe.Animated,
-	})
-	if err != nil {
+	// Process 内部要解码并生成两档方图，峰值内存与像素数成正比（上限约 256MB），
+	// 故与相册上传共用同一个并发闸门（见 image_budget.go）。
+	// 两条路径共用一个闸门是有意的：它限的是**进程总内存**，
+	// 各自独立计数的话两条路加起来照样能超。
+	var result AvatarWorkerResult
+	if err := withImageBudget(func() error {
+		var err error
+		result, err = worker.Process(AvatarWorkerRequest{
+			Source:          in.Source,
+			OutputDimension: limits.MaxDimension,
+			ThumbDimension:  limits.ThumbSize,
+			Animated:        in.Probe.Animated,
+		})
+		return err
+	}); err != nil {
+		// 帧数/像素/损坏这些可诊断的失败要原样透出，让 handler 给出具体文案；
+		// 只有真正的未知故障才包成 ErrAvatarProcessingFailed（→ 500）。
+		if errors.Is(err, ErrAvatarTooManyFrames) || errors.Is(err, ErrAvatarTooLarge) ||
+			errors.Is(err, errImageDecode) || errors.Is(err, errImageBusy) {
+			return AvatarResult{}, err
+		}
 		return AvatarResult{}, fmt.Errorf("%w: %v", ErrAvatarProcessingFailed, err)
 	}
 

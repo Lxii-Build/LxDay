@@ -52,6 +52,9 @@ func (s *Store) ListAppVersions(platform string, limit, offset int) ([]AppVersio
 		}
 		out = append(out, *v)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
 	return out, total, nil
 }
 

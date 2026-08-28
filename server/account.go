@@ -121,27 +121,64 @@ func verifyCodeEmailHTML(code string, minutes int) string {
 </body></html>`, code, minutes)
 }
 
+// smtpTimeout 发信的整体超时。
+//
+// 原先 `tls.Dial` 与 `smtp.SendMail` 都不带超时，而它们是在**请求 goroutine 里同步跑的**：
+// SMTP 主机被防火墙丢包（不是拒绝，是黑洞）时 TCP 会一直重传，那条 HTTP 请求
+// 就永久悬挂、连带占住内存。发送冷却是按邮箱分桶的，换个邮箱即可再挂一条。
+const smtpTimeout = 20 * time.Second
+
 func sendMail(sc smtpConfig, to, subject, body string) error {
 	addr := net.JoinHostPort(sc.Host, sc.Port)
 	auth := smtp.PlainAuth("", sc.Username, sc.Password, sc.Host)
 	msg := buildMessage(sc.From, to, subject, body)
+	dialer := &net.Dialer{Timeout: smtpTimeout}
 	if !sc.SSL {
-		return smtp.SendMail(addr, auth, sc.From, []string{to}, msg)
+		// 587/25 明文起步 + STARTTLS。不能再用 smtp.SendMail：它内部自己 Dial，
+		// 没有任何注入超时的入口，只能改为手动建连后复用 negotiate 流程。
+		conn, err := dialer.Dial("tcp", addr)
+		if err != nil {
+			return err
+		}
+		// 连上之后的每一步也要有期限：握手完成但对端不再回话时，
+		// 上面的 Dial 超时已经用掉了，后续 Auth/Data 会无限等。
+		_ = conn.SetDeadline(time.Now().Add(smtpTimeout))
+		client, err := smtp.NewClient(conn, sc.Host)
+		if err != nil {
+			conn.Close()
+			return err
+		}
+		defer client.Close()
+		if ok, _ := client.Extension("STARTTLS"); ok {
+			if err := client.StartTLS(&tls.Config{ServerName: sc.Host}); err != nil {
+				return err
+			}
+		}
+		return sendMailBody(client, auth, sc.From, to, msg)
 	}
 	// 465 隐式 TLS：手动建立连接
-	conn, err := tls.Dial("tcp", addr, &tls.Config{ServerName: sc.Host})
+	conn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{ServerName: sc.Host})
 	if err != nil {
 		return err
 	}
+	_ = conn.SetDeadline(time.Now().Add(smtpTimeout))
 	client, err := smtp.NewClient(conn, sc.Host)
 	if err != nil {
+		conn.Close()
 		return err
 	}
 	defer client.Close()
+	return sendMailBody(client, auth, sc.From, to, msg)
+}
+
+// sendMailBody 走完 AUTH → MAIL → RCPT → DATA → QUIT。
+// 抽出来是因为 STARTTLS 与隐式 TLS 两条路径在这一步之后完全相同，
+// 各写一遍必然分叉（此前明文路径靠 smtp.SendMail、TLS 路径手写，两边行为就已经不一致）。
+func sendMailBody(client *smtp.Client, auth smtp.Auth, from, to string, msg []byte) error {
 	if err := client.Auth(auth); err != nil {
 		return err
 	}
-	if err := client.Mail(sc.From); err != nil {
+	if err := client.Mail(from); err != nil {
 		return err
 	}
 	if err := client.Rcpt(to); err != nil {
@@ -287,12 +324,13 @@ func handleLogin(c *gin.Context) {
 		fail(c, 400, 1002, "请输入账号")
 		return
 	}
-	// 登录失败限流：同一账号 10 分钟内最多 5 次失败，防暴力破解。
+	// 登录失败限流：同一账号在窗口内最多 N 次失败，防暴力破解。
+	// 读 UserLoginMaxFails —— 此前误读了 AdminLoginMaxFails（那是后台的项）。
+	set := settingsNow()
 	failKey := "login:fail:" + strings.ToLower(account)
-	loginWindow := time.Duration(settingsNow().LoginRateWindowMin) * time.Minute
-	if st.mem.count(failKey) >= int64(settingsNow().AdminLoginMaxFails) {
-		fail(c, 429, 1012, fmt.Sprintf("登录尝试过于频繁，请 %d 分钟后再试",
-			settingsNow().LoginRateWindowMin))
+	loginWindow := time.Duration(set.LoginRateWindowMin) * time.Minute
+	if st.mem.count(failKey) >= int64(set.UserLoginMaxFails) {
+		fail(c, 429, 1012, fmt.Sprintf("登录尝试过于频繁，请 %d 分钟后再试", set.LoginRateWindowMin))
 		return
 	}
 	u, err := st.GetUserByLogin(account)

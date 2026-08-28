@@ -116,6 +116,10 @@ func main() {
 	// runtimeSettingSpecs 里），所以这里必须单独预热一次。
 	warmSiteBaseCache()
 	startRequestLogWorker()
+	// 内存态清扫：限流计数与验证码等键此前只有惰性过期，
+	// 而「登录失败」「每日上传配额」这两类键按账号名/日期分桶、过期后再也不会被读到，
+	// 于是永远没人去触发那次惰性回收 —— 这是 0827 生产 OOM 的直接来源。
+	startMemStoreJanitor(st.mem)
 
 	// 生产默认 release 模式：debug 模式会打印全部路由表与详细报错，
 	// 属信息泄露面，也拖慢每次请求。可用 GIN_MODE=debug 临时覆盖排查问题。
@@ -184,29 +188,38 @@ func main() {
 	// 客户端配置下发：只读，不含密钥，未绑定用户也能拉（Q41=B）。
 	auth.GET("/client-config", handleClientConfig)
 
-	auth.GET("/albums", handleListAlbums)
-	auth.POST("/albums", handleCreateAlbum)
-	auth.GET("/albums/:id", handleAlbumByID) // :id=summary → 相册概要
-	auth.PUT("/albums/:id", handleUpdateAlbum)
-	auth.DELETE("/albums/:id", handleDeleteAlbum)
-	auth.GET("/albums/:id/photos", handleListAlbumPhotos)
-	auth.POST("/albums/:id/photos", handleAttachPhotos)
+	// 相册总开关 requireAlbumEnabled 挂在这一组上。
+	//
+	// 它此前**定义了却从未挂载过任何路由**（全仓零调用点），于是「相册功能总开关」
+	// 关掉后只有上传那一条被 handler 内部的检查挡住，建相册、改名、挂照片、
+	// 评论点赞照旧能写。管理员以为已经止损了，实际只关掉了入口的一半。
+	// 中间件按方法放行 GET，所以关掉之后用户仍能查看和导出已有照片。
+	album := auth.Group("", requireAlbumEnabled())
+	album.GET("/albums", handleListAlbums)
+	album.POST("/albums", handleCreateAlbum)
+	album.GET("/albums/:id", handleAlbumByID) // :id=summary → 相册概要
+	album.PUT("/albums/:id", handleUpdateAlbum)
+	album.DELETE("/albums/:id", handleDeleteAlbum)
+	album.GET("/albums/:id/photos", handleListAlbumPhotos)
+	album.POST("/albums/:id/photos", handleAttachPhotos)
 
-	auth.POST("/media", handleUploadMedia)
+	album.POST("/media", handleUploadMedia)
 
-	auth.GET("/photos/:id", handlePhotoByID) // :id=on-this-day / recycled → 见 handlePhotoByID
-	auth.PUT("/photos/:id", handleUpdatePhoto)
+	album.GET("/photos/:id", handlePhotoByID) // :id=on-this-day / recycled → 见 handlePhotoByID
+	album.PUT("/photos/:id", handleUpdatePhoto)
 	// :id=batch-delete / batch-move / purge-all → 由 handlePhotoActionByID 分派
 	// （gin 不允许同层静态段与通配段并存，故沿用既有的通配分派套路）。
-	auth.POST("/photos/:id", handlePhotoActionByID)
-	auth.DELETE("/photos/:id", handleDeletePhoto)
-	auth.POST("/photos/:id/restore", handleRestorePhoto)
+	album.POST("/photos/:id", handlePhotoActionByID)
+	album.DELETE("/photos/:id", handleDeletePhoto)
+	album.POST("/photos/:id/restore", handleRestorePhoto)
 	// 彻底删除（真删磁盘，不可恢复）
-	auth.DELETE("/photos/:id/purge", handlePurgePhoto)
-	auth.POST("/photos/:id/like", handleLikePhoto)
-	auth.DELETE("/photos/:id/like", handleUnlikePhoto)
-	auth.POST("/photos/:id/comments", handleCreatePhotoComment)
-	auth.DELETE("/photos/:id/comments/:cid", handleDeletePhotoComment)
+	album.DELETE("/photos/:id/purge", handlePurgePhoto)
+	// 评论/点赞再多一道 social 开关（同样是此前只有客户端隐藏、服务端零校验的一项）。
+	social := album.Group("", requireSocialEnabled())
+	social.POST("/photos/:id/like", handleLikePhoto)
+	social.DELETE("/photos/:id/like", handleUnlikePhoto)
+	social.POST("/photos/:id/comments", handleCreatePhotoComment)
+	social.DELETE("/photos/:id/comments/:cid", handleDeletePhotoComment)
 
 	// ---- 相册图片鉴权代理 ----
 	// 挂在根路径而非 /api/v1：对外图片 URL 就是 /media/<id>，与 netlog 的 skip 前缀对齐
@@ -240,7 +253,27 @@ func main() {
 	registerStatic(r)
 
 	log.Printf("林曦日记服务端启动 :%s", cfg.App.Port)
-	srv := &http.Server{Addr: ":" + cfg.App.Port, Handler: r}
+	// 超时必须显式设置：http.Server 的零值是**永不超时**，
+	// 于是一条只发了半行请求头就不动的连接会永久占着一个 goroutine 与其读写缓冲
+	//（slowloris）。生产上表现为内存与 goroutine 只涨不跌，且没有任何错误日志。
+	//
+	// 各值的取法：
+	//   - ReadHeaderTimeout 是这里**最要紧**的一个，请求头永远是小的，15s 足够慢网络送完；
+	//   - ReadTimeout / WriteTimeout 要覆盖最大的那次正常传输 —— 单张照片上限 20MB，
+	//     移动网络下传完可能要几分钟，所以给 5 分钟而不是常见的 30 秒，
+	//     否则弱网用户会在上传大图时被服务端掐断（表现和"上传总是失败"一模一样）；
+	//   - IdleTimeout 管的是 keep-alive 空闲连接，90s 与常见反代默认值同量级。
+	//
+	// WebSocket 不受影响：gorilla 在 Hijack 之后会 SetDeadline(零值) 清掉这些期限
+	//（server.go:251），此后由 hub 自己的 45s 读超时与写超时接管。
+	srv := &http.Server{
+		Addr:              ":" + cfg.App.Port,
+		Handler:           r,
+		ReadHeaderTimeout: 15 * time.Second,
+		ReadTimeout:       5 * time.Minute,
+		WriteTimeout:      5 * time.Minute,
+		IdleTimeout:       90 * time.Second,
+	}
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("listen: %v", err)

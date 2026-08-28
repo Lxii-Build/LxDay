@@ -204,6 +204,14 @@ func handleUploadMedia(c *gin.Context) {
 		case errors.Is(err, errImageDecode):
 			fail(c, http.StatusBadRequest, codeUploadCorrupted,
 				fmt.Sprintf("这张 %s 图片已损坏或被截断，无法解码", probe.Format.displayName()))
+		case errors.Is(err, ErrAvatarTooManyFrames):
+			fail(c, http.StatusBadRequest, codeUploadBadFormat,
+				fmt.Sprintf("这张动图的帧数超过 %d 帧上限，请换一张", maxGIFFrames))
+		case errors.Is(err, errImageBusy):
+			// 并发闸门超时：服务端在忙，不是这张图的问题。
+			// 明确告诉客户端可以重试——不这么说用户只会以为"上传又失败了"。
+			fail(c, http.StatusServiceUnavailable, codeUploadDiskFailed,
+				"服务器正忙，请稍后重试这张照片")
 		default:
 			slog.Error("store media failed", "err", err, "uid", uid, "pair_id", pair.ID)
 			fail(c, http.StatusInternalServerError, codeUploadDiskFailed, "照片保存失败，请重试")
@@ -223,23 +231,11 @@ func storeMediaFile(pairID, uid int64, tmp string, probe AvatarProbe, now time.T
 	}
 
 	worker := newImageWorker(dir)
-	// 先解码取真实尺寸（同时挡下解压炸弹：decode 内含 MaxPixels 校验）。
-	src, meta, err := worker.decodeSource(tmp)
-	if err != nil {
-		return nil, err
-	}
 
 	base := randomCode(24)
 	ext, mime := mediaExtMime(probe.Format)
 	rel := datePath + "/" + base + ext
 	full := filepath.Join(uploadDir, filepath.FromSlash(rel))
-
-	// 原图按原字节保存，不重新编码：重编码既损画质又会抹掉 EXIF，
-	// 而相册的原图就是用户的底片，必须逐字节保真。
-	size, err := movePreservingBytes(tmp, full)
-	if err != nil {
-		return nil, err
-	}
 
 	// 三档产物（Q23=B）：thumb 384（网格）/ preview 1080（大图页先显示）/ origin（双指放大才拉）。
 	//
@@ -251,29 +247,61 @@ func storeMediaFile(pairID, uid int64, tmp string, probe AvatarProbe, now time.T
 	if asJPEG {
 		derivExt = ".jpg"
 	}
-
 	thumbRel := datePath + "/" + base + "_thumb" + derivExt
 	thumbFull := filepath.Join(uploadDir, filepath.FromSlash(thumbRel))
-	if err := worker.writeFit(src, thumbFull, photoThumbEdge, asJPEG); err != nil {
-		_ = os.Remove(full)
+	previewRel := ""
+	previewFull := ""
+
+	var meta AvatarMeta
+	var size int64
+
+	// ★ 解码 + 两次派生图生成整段放进并发闸门（见 image_budget.go）★
+	//
+	// 闸门必须包住这一整段而不是只包 decodeSource：解出的 src 峰值可达数百 MB
+	// （64M 像素上限 × RGBA 4 字节 ≈ 256MB），而它要一直活到 preview 写完。
+	// 只在解码期间持闸的话，释放后 src 仍在内存里，N 个并发请求照样各持一份。
+	if err := withImageBudget(func() error {
+		// 先解码取真实尺寸（同时挡下解压炸弹：decode 内含 MaxPixels 校验）。
+		src, m, err := worker.decodeSource(tmp)
+		if err != nil {
+			return err
+		}
+		meta = m
+
+		// 原图按原字节保存，不重新编码：重编码既损画质又会抹掉 EXIF，
+		// 而相册的原图就是用户的底片，必须逐字节保真。
+		sz, err := movePreservingBytes(tmp, full)
+		if err != nil {
+			return err
+		}
+		size = sz
+
+		if err := worker.writeFit(src, thumbFull, photoThumbEdge, asJPEG); err != nil {
+			_ = os.Remove(full)
+			return err
+		}
+
+		// 预览图：源图长边本来就 <= 1080 时不必生成（writeFit 不放大，等于白占一份盘）。
+		if maxOf(meta.Width, meta.Height) > photoPreviewEdge {
+			previewRel = datePath + "/" + base + "_preview" + derivExt
+			previewFull = filepath.Join(uploadDir, filepath.FromSlash(previewRel))
+			if err := worker.writeFit(src, previewFull, photoPreviewEdge, asJPEG); err != nil {
+				// 预览图失败不该让整张上传失败：它只是加速手段，缺了回退原图即可。
+				// 只记 photo 尺寸与错误，**不记 rel** —— 那是真实磁盘相对路径，
+				// 按 AGENTS §6 不出服务端（docker logs 常被随手查看）。
+				slog.Warn("write preview failed, fallback to origin",
+					"err", err, "w", meta.Width, "h", meta.Height)
+				_ = os.Remove(previewFull)
+				previewRel, previewFull = "", ""
+			}
+		}
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 
-	// 预览图：源图长边本来就 <= 1080 时不必生成（writeFit 不放大，等于白占一份盘）。
-	previewRel := ""
-	previewFull := ""
-	if maxOf(meta.Width, meta.Height) > photoPreviewEdge {
-		previewRel = datePath + "/" + base + "_preview" + derivExt
-		previewFull = filepath.Join(uploadDir, filepath.FromSlash(previewRel))
-		if err := worker.writeFit(src, previewFull, photoPreviewEdge, asJPEG); err != nil {
-			// 预览图失败不该让整张上传失败：它只是加速手段，缺了回退原图即可。
-			slog.Warn("write preview failed, fallback to origin", "err", err, "rel", previewRel)
-			_ = os.Remove(previewFull)
-			previewRel, previewFull = "", ""
-		}
-	}
-
 	// EXIF 拍摄时间：只读文件头部，解析失败留空（拍摄时间是锦上添花，不该阻断上传）。
+	// 放在闸门外：只读文件头 512KB，与解码的内存量级完全不同。
 	takenAt := readTakenAt(full)
 
 	photo, err := st.CreatePhoto(pairID, uid, 0, rel, thumbRel, previewRel,

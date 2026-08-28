@@ -336,6 +336,13 @@ func handlePhotoActionByID(c *gin.Context) {
 func handlePhotoByID(c *gin.Context) {
 	switch c.Param("id") {
 	case "on-this-day":
+		// 「这一天」开关的服务端校验。此前只有客户端隐藏入口，
+		// 关掉之后接口照样返回数据——对旧版 App 与直接调接口的人完全无效。
+		// 这条是 GET，所以不能靠 requireAlbumEnabled（它放行全部 GET）来兜。
+		if !settingsNow().OnThisDayEnabled {
+			fail(c, http.StatusForbidden, codeUploadDisabled, "「这一天」功能当前已关闭")
+			return
+		}
 		handlePhotosOnThisDay(c)
 		return
 	case "recycled":

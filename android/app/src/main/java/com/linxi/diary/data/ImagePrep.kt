@@ -92,31 +92,59 @@ object ImagePrep {
                 }
             }.onFailure { Logs.i("ImagePrep", "EXIF unreadable, continuing without it") }
 
-            bitmap = applyOrientation(bitmap, orientation)
-            bitmap = scaleDown(bitmap)
+            // ★★ 从这里到 finally 之间的一切都必须保证 bitmap 被回收 ★★
+            //
+            // 原实现把 recycle() 写在正常流程的末尾，于是任何一处抛异常都会跳过它：
+            // 磁盘满导致 outputStream() 抛 IO、compress 失败、createScaledBitmap
+            // 在内存紧张时抛 OOM —— 每一次都留下一份 12.6MB 的 Bitmap 等 GC。
+            //
+            // 而这恰好构成一条**雪崩链**：PhotoUploader 把异常吞成 retryable=true，
+            // 用户看到"失败 N 张"就会点「重试失败项」，于是在内存已经紧张的情况下
+            // 又走一遍同样的路径、又漏一份 —— 每次重试都让下一次更容易 OOM。
+            // 用户侧的现象就是管理员报过的"照片会消失"。
+            //
+            // 注意 applyOrientation/scaleDown 内部已经各自回收了它们替换掉的中间图，
+            // 这里的 finally 只负责"当前 bitmap 变量指向的那一份"。
+            try {
+                // 旋正与缩放合并成一次 createBitmap，见 normalize 的注释。
+                bitmap = normalize(bitmap, orientation)
 
-            val ext = ImagePrepPolicy.extensionFor(targetMime)
-            val out = File(context.cacheDir, "upload_${System.currentTimeMillis()}.$ext")
-            val format = when (targetMime) {
-                "image/png" -> Bitmap.CompressFormat.PNG
-                "image/webp" -> if (android.os.Build.VERSION.SDK_INT >= 30) {
-                    Bitmap.CompressFormat.WEBP_LOSSY
-                } else {
-                    @Suppress("DEPRECATION") Bitmap.CompressFormat.WEBP
+                val ext = ImagePrepPolicy.extensionFor(targetMime)
+                val out = File(context.cacheDir, "upload_${System.currentTimeMillis()}.$ext")
+                val format = when (targetMime) {
+                    "image/png" -> Bitmap.CompressFormat.PNG
+                    "image/webp" -> if (android.os.Build.VERSION.SDK_INT >= 30) {
+                        Bitmap.CompressFormat.WEBP_LOSSY
+                    } else {
+                        @Suppress("DEPRECATION") Bitmap.CompressFormat.WEBP
+                    }
+                    else -> Bitmap.CompressFormat.JPEG
                 }
-                else -> Bitmap.CompressFormat.JPEG
-            }
-            out.outputStream().use { bitmap.compress(format, ImagePrepPolicy.JPEG_QUALITY, it) }
+                val w = bitmap.width
+                val h = bitmap.height
+                // 压缩失败要把半截文件删掉：留着它既占空间，
+                // 又可能被下面的 length() 判成"过大"从而给出误导性的错误文案。
+                val compressed = runCatching {
+                    out.outputStream().use { bitmap.compress(format, ImagePrepPolicy.JPEG_QUALITY, it) }
+                }.getOrElse {
+                    out.delete()
+                    throw it
+                }
+                if (!compressed) {
+                    out.delete()
+                    error("图片编码失败，请换一张")
+                }
 
-            val w = bitmap.width
-            val h = bitmap.height
-            bitmap.recycle()
-
-            if (out.length() > ImagePrepPolicy.MAX_UPLOAD_BYTES) {
-                out.delete()
-                error("图片过大（处理后仍超过 20MB）")
+                if (out.length() > ImagePrepPolicy.MAX_UPLOAD_BYTES) {
+                    out.delete()
+                    error("图片过大（处理后仍超过 20MB）")
+                }
+                Prepared(file = out, mime = targetMime, width = w, height = h, takenAtMs = takenAtMs)
+            } finally {
+                // 已被 applyOrientation/scaleDown 回收过的那些不会走到这里
+                //（bitmap 已指向新对象）；isRecycled 判断只是防御重复回收。
+                if (!bitmap.isRecycled) bitmap.recycle()
             }
-            Prepared(file = out, mime = targetMime, width = w, height = h, takenAtMs = takenAtMs)
         }
     }
 
@@ -157,23 +185,47 @@ object ImagePrep {
         return Prepared(out, mime, bounds.outWidth, bounds.outHeight, null)
     }
 
-    private fun applyOrientation(src: Bitmap, exifOrientation: Int): Bitmap {
+    /**
+     * EXIF 旋正 + 缩到长边上限，**合并为一次 [Bitmap.createBitmap]**。
+     *
+     * ## 为什么必须合并（内存）
+     *
+     * `createBitmap(src, ..., matrix, true)` 在返回之前源图与目标图同时驻留堆上，
+     * 这是 API 语义决定的、无法规避。原实现拆成 applyOrientation + scaleDown 两次调用，
+     * 于是这个双份峰值要走两遍：
+     *
+     *   解码 12.6MB → 旋正峰值约 25MB → 再缩放又一次峰值
+     *
+     * 而 orientation=6（竖着拿手机拍）是**常态而非边缘情况**，
+     * 且一次最多选 100 张、逐张串行处理，每张都撞一次。
+     * 合并后只有一次双份峰值，且缩放通常无需发生（解码期的 density 缩放已经到位）。
+     *
+     * ## 顺序
+     *
+     * 先按缩放系数 postScale，再 postRotate：Matrix 的变换是左乘叠加，
+     * 两者都作用于同一次采样，先后不影响结果，但缩放写在前面更直观
+     * —— 系数是按「旋转后的尺寸」算的（见 swapsDimensions），
+     * 因为长边上限约束的是最终产物。
+     */
+    private fun normalize(src: Bitmap, exifOrientation: Int): Bitmap {
         val t = ImagePrepPolicy.orientationTransform(exifOrientation)
-        if (t.isIdentity) return src
+        // 缩放系数按旋转后的尺寸计算：90°/270° 会让宽高互换，
+        // 用旋转前的尺寸算会把约束加在错误的那条边上。
+        val rotatedW = if (ImagePrepPolicy.swapsDimensions(exifOrientation)) src.height else src.width
+        val rotatedH = if (ImagePrepPolicy.swapsDimensions(exifOrientation)) src.width else src.height
+        val scale = ImagePrepPolicy.scaleFactor(rotatedW, rotatedH)
+
+        // 既不用转也不用缩：直接返回原图，一次分配都不做。
+        // 解码期已按 density 缩到目标尺寸，所以这是最常见的分支。
+        if (t.isIdentity && scale == 1f) return src
+
         val m = Matrix().apply {
+            if (scale != 1f) postScale(scale, scale)
             if (t.rotationDegrees != 0f) postRotate(t.rotationDegrees)
             if (t.flipHorizontal) postScale(-1f, 1f)
         }
-        val rotated = Bitmap.createBitmap(src, 0, 0, src.width, src.height, m, true)
-        if (rotated !== src) src.recycle()
-        return rotated
-    }
-
-    private fun scaleDown(src: Bitmap): Bitmap {
-        val (tw, th) = ImagePrepPolicy.targetSize(src.width, src.height)
-        if (tw == src.width && th == src.height) return src
-        val scaled = Bitmap.createScaledBitmap(src, tw, th, true)
-        if (scaled !== src) src.recycle()
-        return scaled
+        val out = Bitmap.createBitmap(src, 0, 0, src.width, src.height, m, true)
+        if (out !== src) src.recycle()
+        return out
     }
 }

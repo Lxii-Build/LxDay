@@ -139,6 +139,12 @@ func diaryImageURLs(diaryID int64) []string {
 		}
 		out = append(out, u)
 	}
+	// 导出是一次性留档，遍历出错时少列几张图就永久少了 —— 至少要留痕。
+	// 这里不返回 error：调用方把图片当锦上添花处理（拿不到就不列），
+	// 为它中断整个导出反而更糟。
+	if err := rows.Err(); err != nil {
+		slog.Error("iterate diary_image for export failed", "err", err, "diary_id", diaryID)
+	}
 	return out
 }
 

@@ -78,6 +78,11 @@ func handleAdminListAlbums(c *gin.Context) {
 			"photo_count": photoCount, "size_bytes": bytes,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		slog.Error("iterate admin album rows failed", "err", err)
+		afail(c, 500, 500, "查询失败")
+		return
+	}
 	pageResp(c, out, total, current, size)
 }
 
@@ -146,6 +151,13 @@ func handleAdminStorageStats(c *gin.Context) {
 		totalCount += u.PhotoCount
 		totalRecycled += u.Recycled
 		totalRecycledB += u.RecycledB
+	}
+	// 这里的截断会直接体现为**错误的统计数字**：合计字节/张数是循环里累加出来的，
+	// 少几行就是少算几行，而页面上完全看不出这是个不完整的结果。
+	if err := rows.Err(); err != nil {
+		slog.Error("iterate storage stat rows failed", "err", err)
+		afail(c, 500, 500, "查询失败")
+		return
 	}
 
 	// 真实磁盘占用（含缩略图与预览图，库里的 size_bytes 只统计原图）。

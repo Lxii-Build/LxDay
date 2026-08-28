@@ -286,15 +286,19 @@
     "disableSuccess": "User disabled"
   },
   "pairManage": {
-    "searchPlaceholder": "Search by nickname or invite code",
+    "searchPlaceholder": "Search by nickname",
     "empty": "No pairs yet",
     "table": {
       "id": "ID",
       "userA": "User A",
       "userB": "User B",
-      "inviteCode": "Invite code",
+      "inviteState": "Invite",
       "status": "Status",
       "createdAt": "Paired at"
+    },
+    "invite": {
+      "pending": "Pending invite",
+      "none": "None"
     },
     "status": {
       "bound": "Paired",

@@ -34,11 +34,16 @@ func afail(c *gin.Context, httpCode, bizCode int, msg string) {
 
 // ---------- 管理员 JWT ----------
 
-// adminTokenTTL 后台 token 有效期。
+// adminTokenTTL 后台 token 有效期，读后台配置（security.admin_token_ttl_hours，默认 2 小时）。
 //
-// 与 App 端（720h）不同，后台是高价值目标：一旦 token 泄露，攻击者可读取全站用户资料、
-// 群发通知、删除内容。故有效期压到 2 小时，配合 token_ver 做即时撤销。
-const adminTokenTTL = 2 * time.Hour
+// 与 App 端（默认 720h）不同，后台是高价值目标：一旦 token 泄露，攻击者可读取全站用户资料、
+// 群发通知、删除内容。故默认压到 2 小时，配合 token_ver 做即时撤销。
+//
+// 此前这里是 `const adminTokenTTL = 2 * time.Hour`，而后台页面上摆着「后台登录有效期(小时)」
+// 这一项 —— 管理员改它没有任何效果，属于比"没有这个开关"更糟的状态。
+func adminTokenTTL() time.Duration {
+	return time.Duration(settingsNow().AdminTokenTTLHours) * time.Hour
+}
 
 func signAdminToken(aid int64, role string, mustChange bool, tokenVer int64) (string, error) {
 	claims := jwt.MapClaims{
@@ -47,7 +52,7 @@ func signAdminToken(aid int64, role string, mustChange bool, tokenVer int64) (st
 		"scope": "admin",
 		"mc":    mustChange,
 		"tv":    tokenVer,
-		"exp":   time.Now().Add(adminTokenTTL).Unix(),
+		"exp":   time.Now().Add(adminTokenTTL()).Unix(),
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.App.JWTSecret))
 }
@@ -332,24 +337,29 @@ func handleAdminLogin(c *gin.Context) {
 		afail(c, 400, 400, "参数错误")
 		return
 	}
-	// 登录失败限流：同一账号 10 分钟内最多 5 次失败。
+	// 登录失败限流。窗口与次数读后台配置——此前这两个数字写死为 5 / 10 分钟，
+	// 而后台上明明摆着「后台登录失败上限」这一项，改了却毫无作用。
 	uname := strings.TrimSpace(req.Username)
-	failKey := "adminlogin:fail:" + uname
-	if st.mem.count(failKey) >= 5 {
-		afail(c, 429, 429, "登录尝试过于频繁，请 10 分钟后再试")
+	set := settingsNow()
+	failKey := "adminlogin:fail:" + strings.ToLower(uname)
+	failWindow := time.Duration(set.LoginRateWindowMin) * time.Minute
+	if st.mem.count(failKey) >= int64(set.AdminLoginMaxFails) {
+		afail(c, 429, 429, fmt.Sprintf("登录尝试过于频繁，请 %d 分钟后再试", set.LoginRateWindowMin))
 		return
 	}
 	a, hash, err := st.GetAdminForLogin(uname)
-	if err != nil || !checkPassword(hash, req.Password) {
-		st.mem.incr(failKey, 10*time.Minute)
+	// 封禁校验必须与密码校验合并成同一个分支。
+	//
+	// 原先是"先验密码，验过了再看 status"，于是两种失败的响应不同（400 vs 403）：
+	// 攻击者拿一个已被禁用的账号爆破，403 就等于"这个口令是对的"。
+	// 账号被禁用往往正是因为它已经不可信（离职/疑似泄露），
+	// 而这里恰好把它的口令校验结果免费告诉了外面。
+	if err != nil || !checkPassword(hash, req.Password) || a.Status != 1 {
+		st.mem.incr(failKey, failWindow)
 		afail(c, 400, 400, "账号或密码错误")
 		return
 	}
 	st.mem.del(failKey)
-	if a.Status != 1 {
-		afail(c, 403, 403, "账号已被禁用")
-		return
-	}
 	st.TouchAdminLogin(a.ID)
 	st.AddAudit(a.ID, a.Username, "login", "", c.ClientIP())
 	token, err := signAdminTokenFor(a)
@@ -490,6 +500,11 @@ func (s *Store) DashboardStats() gin.H {
 			}
 			daily = append(daily, gin.H{"date": d, "count": c})
 		}
+		if err := rows.Err(); err != nil {
+			// 仪表盘折线图少一天不影响可用性，但要留痕：
+			// 否则"某天新增为 0"分不清是真没人注册还是遍历断了。
+			slog.Error("iterate dashboard_daily failed", "err", err)
+		}
 	}
 	return gin.H{
 		"users":        q("SELECT COUNT(*) FROM `user`"),
@@ -558,6 +573,9 @@ func (s *Store) ListUsers(keyword string, limit, offset int) ([]AdminUserRow, in
 		}
 		out = append(out, u)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
 	return out, total, nil
 }
 
@@ -612,8 +630,22 @@ func (s *Store) ListPairs(limit, offset int) ([]gin.H, int, error) {
 	if err := s.DB.QueryRow("SELECT COUNT(*) FROM pair").Scan(&total); err != nil {
 		return nil, 0, err
 	}
+	// ★★ 绝对不要把 invite_code 下发给后台 ★★
+	//
+	// 挂起的邀请码就是"成为某个用户的伴侣"的凭据本身。它下发之后，
+	// 任何一个普通 admin（这张列表对普通 admin 开放）都能：
+	// 挑一条 user_b_id=0 且 status=1 的挂起邀请 → 抄走码 → 在 App 注册个账号 →
+	// 调 /pair/bind 填上去。BindPair 只拦"两个槽都满"，空位会被顺利填上。
+	// 绑定完成即成为对方的合法伴侣，从此相册、/media/<id>、待办、
+	// 状态历史（含 WiFi SSID 与前台应用）全部合法可读——
+	// 而相册与日记导出这些接口早就特意收敛到超管了，这条口子等于把那些收敛全部绕过。
+	//
+	// 后台真正需要的只是「这条邀请还挂着没人用」，那是一个布尔值，不是那串码。
+	// 也不能下发前几位之类的"部分脱敏"：邀请码只有 8 位，泄露任何一段都在
+	// 成倍缩小爆破空间（invite.go 把它从 6 位数字加长到 8 位混合字符正是为了这个）。
 	rows, err := s.DB.Query(
-		"SELECT p.id,p.user_a_id,p.user_b_id,COALESCE(ua.nickname,''),COALESCE(ub.nickname,''),p.status,p.invite_code,p.created_at "+
+		"SELECT p.id,p.user_a_id,p.user_b_id,COALESCE(ua.nickname,''),COALESCE(ub.nickname,''),p.status,"+
+			"CASE WHEN p.invite_code IS NOT NULL AND p.invite_code<>'' THEN 1 ELSE 0 END,p.created_at "+
 			"FROM pair p LEFT JOIN `user` ua ON ua.id=p.user_a_id LEFT JOIN `user` ub ON ub.id=p.user_b_id "+
 			"ORDER BY p.id DESC LIMIT ? OFFSET ?", limit, offset)
 	if err != nil {
@@ -623,16 +655,21 @@ func (s *Store) ListPairs(limit, offset int) ([]gin.H, int, error) {
 	out := []gin.H{}
 	for rows.Next() {
 		var id, ua, ub int64
-		var na, nb, code string
-		var status int
+		var na, nb string
+		var status, hasCode int
 		var created time.Time
-		if err := rows.Scan(&id, &ua, &ub, &na, &nb, &status, &code, &created); err != nil {
+		if err := rows.Scan(&id, &ua, &ub, &na, &nb, &status, &hasCode, &created); err != nil {
 			// 坏行跳过并留痕：忽略 Scan 错误会让 NULL 列静默变成零值。
 			slog.Error("scan pair_row failed", "err", err)
 			continue
 		}
 		out = append(out, gin.H{"id": id, "user_a_id": ua, "user_b_id": ub, "name_a": na, "name_b": nb,
-			"status": status, "invite_code": code, "created_at": created})
+			"status": status, "has_invite": hasCode == 1, "created_at": created})
+	}
+	// 遍历中途出错时 rows.Next() 会返回 false，与"正常读完"无法区分。
+	// 不检查就等于把"少了几行的结果"当成功返回，而分页页面上看不出任何异常。
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
 	}
 	return out, total, nil
 }
@@ -716,6 +753,9 @@ func (s *Store) ListTodosAll(keyword string, limit, offset int) ([]gin.H, int, e
 			"status": status, "pair_id": pid,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
 	return out, total, nil
 }
 
@@ -797,6 +837,9 @@ func (s *Store) ListAudit(limit, offset int) ([]gin.H, int, error) {
 		out = append(out, gin.H{"id": id, "admin_id": aid, "admin_name": name, "action": action,
 			"detail": detail, "ip": ip, "created_at": created})
 	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
 	return out, total, nil
 }
 
@@ -827,6 +870,9 @@ func (s *Store) ListAdmins() ([]AdminUser, error) {
 			continue
 		}
 		out = append(out, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -970,6 +1016,27 @@ var settingKeys = []string{
 	"smtp.host", "smtp.port", "smtp.username", "smtp.password", "smtp.from", "smtp.ssl",
 }
 
+// auditPublicSettingKeys 是敏感设置里**可以把具体值写进审计日志**的白名单。
+//
+// 审计日志页对普通 admin 开放，而 GET /settings 已收敛到超管；
+// 若审计里明文记下 smtp.host / smtp.username，那次收敛就被绕过了
+// （超管每改一次配置，普通 admin 就能从审计表里读到）。
+//
+// 这里只放"本来就公开可见"的站点展示项：站点名、LOGO、描述在后台顶栏
+// 与登录页都直接显示，记进审计不增加任何暴露面。
+// site.url 也在内——它就是用户访问的地址本身。
+//
+// 白名单之外的一切（含将来新增的键）默认脱敏。
+var auditPublicSettingKeys = map[string]bool{
+	"site.name":        true,
+	"site.url":         true,
+	"site.logo":        true,
+	"site.description": true,
+	"storage.driver":   true,
+	"smtp.ssl":         true,
+	"smtp.port":        true,
+}
+
 // handleAdminSiteInfo 只回站点展示信息（名称/LOGO/描述），任何已登录管理员可读。
 //
 // 为什么要单独开一个：站点名与 LOGO 是后台每次加载都要用的展示数据，
@@ -1053,17 +1120,35 @@ func handleAdminUpdateSettings(c *gin.Context) {
 				afail(c, 500, 500, "保存失败")
 				return
 			}
-			// 密钥类脱敏后再进审计：审计日志本身也可能被导出/截图。
-			if strings.Contains(k, "password") || strings.Contains(k, "secret") ||
-				strings.Contains(k, "access_key") {
-				changes = append(changes, k+": ***→***")
-			} else {
+			// 敏感键一律只记「改过了」，不记值。
+			//
+			// 原先的脱敏只匹配 password/secret/access_key 三个词，于是
+			// `smtp.host`、`smtp.username`、`smtp.from` 走 else 分支被**明文写进审计**。
+			// 而审计日志页对普通 admin 开放，GET /settings 之所以收敛到超管，
+			// 理由正是"SMTP 主机与账号本身就是攻击面"——超管每改一次 SMTP，
+			// 那两个值就落进普通 admin 能翻的表里，收敛因此形同虚设。
+			//
+			// 判定改为白名单：只有明确可公开的 site.* 展示项才记具体值，
+			// 其余敏感键全部脱敏。用白名单而不是继续往黑名单里补词，
+			// 是因为将来新增的敏感键（比如某个第三方 token）默认会落进"要脱敏"那侧，
+			// 而黑名单的默认行为是"明文记下来"，漏一个就泄露一个。
+			if auditPublicSettingKeys[k] {
 				changes = append(changes, fmt.Sprintf("%s: %q→%q", k, old, v))
+			} else {
+				changes = append(changes, k+": ***→***")
 			}
 			if strings.HasPrefix(k, "site.") {
 				siteTouched = true
 			}
 		case isRuntimeSettingKey(k):
+			// 运行参数整体"不含密钥所以放给普通 admin"，但其中两组不能放：
+			//   - retention.*：调小即触发不可逆清理（回收站那条连磁盘文件一起真删）；
+			//   - security.*：往松的方向调等于削弱爆破防护。
+			// 这两组标了 Super，与 SMTP 同级限超管。
+			if isSuperOnlySettingKey(k) && !isSuper {
+				afail(c, 403, 403, "修改「"+k+"」需要超级管理员权限")
+				return
+			}
 			old, _ := st.GetSetting(k)
 			if old == v {
 				continue
@@ -1127,6 +1212,9 @@ func (s *Store) ListNotifyTemplates() ([]gin.H, error) {
 		}
 		out = append(out, gin.H{"id": id, "code": code, "title": title, "body": body, "enabled": enabled, "updated_at": updated})
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
@@ -1176,6 +1264,9 @@ func (s *Store) ListNotifyRecords(limit, offset int) ([]gin.H, int, error) {
 		out = append(out, gin.H{"id": id, "template_code": code, "title": title, "body": body,
 			"target": target, "sent_count": sent, "created_at": created})
 	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
 	return out, total, nil
 }
 
@@ -1194,6 +1285,12 @@ func (s *Store) AllUserIDs() ([]int64, error) {
 			continue
 		}
 		out = append(out, id)
+	}
+	// ★ 这一处的静默截断后果最直接：群发通知用它取收件人列表。
+	// 遍历中途出错 → 少了一批用户 → 那些人收不到通知，
+	// 而后台仍然显示"已发送 N 条"（N 就是截断后的条数），成功回执与事实不符。
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return out, nil
 }

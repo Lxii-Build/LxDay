@@ -219,6 +219,9 @@ func (s *Store) ListRequestLogs(method, path string, status, limit, offset int) 
 		r.CreatedAt = created.Format("2006-01-02 15:04:05")
 		out = append(out, r)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
 	return out, total, nil
 }
 

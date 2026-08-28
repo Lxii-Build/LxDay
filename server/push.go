@@ -40,6 +40,11 @@ func (p *PushGateway) Send(uid int64, eventType string, data interface{}) {
 		}
 		tokens = append(tokens, tk)
 	}
+	// 截断在这里等于「该收推送的设备被漏掉」，而下面只会打一句
+	// "no push token, skip" —— 与"用户确实没注册过推送"完全无法区分。
+	if err := rows.Err(); err != nil {
+		slog.Error("iterate push_token rows failed", "err", err, "uid", uid)
+	}
 	if len(tokens) == 0 {
 		log.Printf("[push] user=%d no push token, skip", uid)
 		return

@@ -103,7 +103,13 @@ declare namespace Api {
       name_a: string
       name_b: string
       status: number
-      invite_code: string
+      /**
+       * 是否存在挂起的邀请码。
+       * 刻意**不**下发邀请码本身：它是"成为某人伴侣"的凭据，
+       * 任何拿到它的管理员都能绑定陌生用户，进而合法读取对方
+       * 相册、状态历史与待办（那些接口本身早已收敛到超管）。
+       */
+      has_invite: boolean
       created_at: string
     }
     type PairList = Api.Common.PaginatedResponse<PairItem>
@@ -183,6 +189,14 @@ declare namespace Api {
       min: number
       max: number
       label: string
+      /**
+       * 该项是否只有超管可写（retention.* 与 security.* 全部为 true）。
+       *
+       * 前端应据此把非超管的输入框置灰。但**置灰只是提示**：
+       * 真正的拦截在服务端 handleAdminUpdateSettings，非超管改这些键一律 403。
+       * retention.recycle_bin_days 尤其危险——调小它会让定时清理真删磁盘上的照片。
+       */
+      super: boolean
     }
 
     /** GET /runtime-settings 的响应 */

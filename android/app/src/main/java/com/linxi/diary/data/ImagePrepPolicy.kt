@@ -132,6 +132,37 @@ object ImagePrepPolicy {
     }
 
     /**
+     * 缩放系数（1f = 无需缩放），供「旋转 + 缩放合并成一次 createBitmap」使用。
+     *
+     * ## 为什么要合并
+     *
+     * `Bitmap.createBitmap(src, ..., matrix, true)` 在返回前，**源图与目标图同时在堆上**，
+     * 这是 API 决定的、无法避免。原实现把旋正与缩放拆成两次调用，
+     * 于是这个双份峰值要经历两遍：
+     *
+     *   解码 12.6MB → applyOrientation 峰值 25MB → scaleDown 又一次峰值
+     *
+     * 而 EXIF orientation=6（手机竖拍）是**绝大多数照片的常态**，不是边缘情况；
+     * 一次选图上限 100 张，每张都撞一次这个峰值。
+     *
+     * 合并成一个 Matrix 之后只有一次双份峰值。
+     *
+     * @param width 旋转**之后**的宽（90°/270° 时需先与高交换，见调用点）
+     */
+    fun scaleFactor(width: Int, height: Int, maxEdge: Int = MAX_EDGE): Float {
+        if (width <= 0 || height <= 0) return 1f
+        val longEdge = maxOf(width, height)
+        if (longEdge <= maxEdge) return 1f
+        return maxEdge.toFloat() / longEdge.toFloat()
+    }
+
+    /** 旋转角度是否会让宽高互换（90° / 270°）。 */
+    fun swapsDimensions(exifOrientation: Int): Boolean {
+        val deg = orientationTransform(exifOrientation).rotationDegrees
+        return deg == 90f || deg == 270f
+    }
+
+    /**
      * EXIF orientation 值 → 需要旋转的角度与是否镜像。
      * 参考 ExifInterface.ORIENTATION_* 常量取值（1..8）。
      */

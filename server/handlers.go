@@ -255,11 +255,27 @@ func signToken(uid int64) (string, error) {
 	return signTokenWithVer(uid, tv)
 }
 
+// userTokenTTL APP 端 token 有效期，读后台配置（security.user_token_ttl_hours，默认 720 小时）。
+//
+// 原先读的是 `cfg.App.TokenTTLHours`（配置文件 / 环境变量），
+// 于是后台那一项「APP 登录有效期(小时)」改了完全无效。
+// 配置文件里的值现在作为「后台从未配置过时的兜底」：settingsNow() 在未配置时
+// 返回默认 720，若管理员在 config.yaml 里显式写过别的值，以他写的为准。
+func userTokenTTL() time.Duration {
+	if p := runtimeCache.Load(); p != nil && p.UserTokenTTLHours > 0 {
+		return time.Duration(p.UserTokenTTLHours) * time.Hour
+	}
+	if cfg != nil && cfg.App.TokenTTLHours > 0 {
+		return time.Duration(cfg.App.TokenTTLHours) * time.Hour
+	}
+	return time.Duration(defaultRuntimeSettings().UserTokenTTLHours) * time.Hour
+}
+
 func signTokenWithVer(uid int64, tokenVer int64) (string, error) {
 	claims := jwt.MapClaims{
 		"uid": uid,
 		"tv":  tokenVer,
-		"exp": time.Now().Add(time.Duration(cfg.App.TokenTTLHours) * time.Hour).Unix(),
+		"exp": time.Now().Add(userTokenTTL()).Unix(),
 	}
 	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return t.SignedString([]byte(cfg.App.JWTSecret))

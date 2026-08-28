@@ -242,6 +242,12 @@ func (s *Store) ListTodos(pairID int64, status int) ([]Todo, error) {
 		}
 		out = append(out, t)
 	}
+	// rows.Err() 必须检查：遍历中途出错时 Next() 返回 false，
+	// 与"正常读完"在代码上完全无法区分。不检查等于把「少了几条的列表」
+	// 当成功返回 —— 用户看到的是待办凭空消失，而日志里一片干净。
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
@@ -331,6 +337,13 @@ func (s *Store) DueTodos(now time.Time) ([]Todo, error) {
 			continue
 		}
 		out = append(out, t)
+	}
+	// 这里漏掉 rows.Err() 的后果比列表页更隐蔽：DueTodos 供定时扫描推送使用，
+	// 遍历中途出错就意味着**这一分钟里有一部分待办不会提醒**，
+	// 而下一分钟 remind_at 仍然满足条件、又会被重新扫到，
+	// 所以现象是"提醒偶尔迟到一分钟"，几乎不可能被人工发现。
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -498,33 +511,39 @@ func (s *Store) IsOnline(uid int64) bool {
 
 // ---------- 响铃冷却 ----------
 
+// RingCooldown 响铃限频：窗口内计数 <= 上限返回 true(放行)。
+//
+// ★ 窗口与次数必须读 settingsNow()，不能读 cfg。
+// 这两个值会通过 /client-config **下发给客户端**用于置灰按钮，
+// 而服务端此前按 cfg（即 config.yaml/默认 600s）判定：管理员在后台把冷却改成 60s 后，
+// 客户端按 60s 解禁按钮、服务端仍按 600s 拒绝 —— 用户点了就报"对方 10 分钟内已被响铃 3 次"。
+// 一个配置项被两边用不同的值解释，比它压根不生效更难排查。
 func (s *Store) RingCooldown(pairID int64) bool {
-	// 限频窗口与次数读配置（ring_cooldown_seconds / ring_cooldown_limit），留空回退 600s / 3 次。
-	window := 600
-	limit := 3
-	if cfg != nil {
-		if cfg.App.RingCooldownSeconds > 0 {
-			window = cfg.App.RingCooldownSeconds
-		}
-		if cfg.App.RingCooldownLimit > 0 {
-			limit = cfg.App.RingCooldownLimit
-		}
+	set := settingsNow()
+	window := set.RingCooldownSec
+	limit := set.RingCooldownLimit
+	// 窗口配 0 表示不限频（spec 的 Min 就是 0），此时直接放行，
+	// 不能拿 0 去做 TTL —— 那会让计数器立刻过期，行为上等于"每次都是第一次"，
+	// 虽然结果也是放行，但语义靠巧合成立，改动一次就会破。
+	if window <= 0 {
+		return true
 	}
 	cnt := s.mem.incr(keyRingCool(pairID), time.Duration(window)*time.Second)
 	return cnt <= int64(limit)
 }
 
-// interactionCooldownWindow/Limit 为安抚(comfort)/冷静(calm)等轻量互动的默认限频：
-// 7 秒内至多 1 次，与客户端「7 秒进行中态」呼应；相比响铃(默认 600s/3 次)更短，避免误伤正常连点，
-// 又能挡住刷屏骚扰。独立于响铃计数，且 comfort、calm 各自分桶。
-const (
-	interactionCooldownWindow = 7 // 秒
-	interactionCooldownLimit  = 1
-)
+// interactionCooldownLimit 安抚(comfort)/冷静(calm)在窗口内的次数上限。
+// 窗口秒数已改为后台可配（interaction.light_cooldown_sec，默认 7s，
+// 与客户端「7 秒进行中态」呼应）；次数保持 1 不放开——放开它等于允许刷屏。
+const interactionCooldownLimit = 1
 
 // InteractionCooldown 按类型独立限频：窗口内计数 <= 上限返回 true(放行)，超频返回 false(丢弃)。
 // kind 用互动消息类型（如 comfort_request / calm_request），保证各类型独立分桶。
 func (s *Store) InteractionCooldown(pairID int64, kind string) bool {
-	cnt := s.mem.incr(keyInteractionCool(pairID, kind), interactionCooldownWindow*time.Second)
+	window := settingsNow().InteractionCooldownSec
+	if window <= 0 {
+		return true
+	}
+	cnt := s.mem.incr(keyInteractionCool(pairID, kind), time.Duration(window)*time.Second)
 	return cnt <= int64(interactionCooldownLimit)
 }

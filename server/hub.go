@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -82,9 +83,27 @@ type wsClient struct {
 	mu   sync.Mutex
 }
 
+// wsWriteTimeout 单次 WS 写的期限。
+//
+// ★ 不设它的后果远比"某条消息发不出去"严重：TCP 发送缓冲被对端填满时
+// （客户端进程被冻结、手机进隧道、或恶意客户端故意不读），WriteMessage 会**永久阻塞**，
+// 并且一直持有 c.mu。于是：
+//
+//   - `scanDueTodos` 是**全站唯一**一条待办提醒协程，它串行遍历到点待办逐个 route，
+//     卡在任意一个接收者身上 → 所有人的待办提醒从此彻底停止，且没有任何报错；
+//   - 后台群发每次起一条协程串行遍历全部用户，卡住即协程与整份用户 ID 切片一起悬挂，
+//     管理员每点一次群发就多泄露一条，永不回收。
+//
+// 10 秒对正常客户端是绰绰有余的（业务帧都远小于 64KB，一次 write 就是往内核缓冲拷一下）；
+// 写超时即视为连接已坏，由 route 降级进离线补偿队列，语义上和"用户离线"一致。
+const wsWriteTimeout = 10 * time.Second
+
 func (c *wsClient) write(b []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if err := c.conn.SetWriteDeadline(time.Now().Add(wsWriteTimeout)); err != nil {
+		return err
+	}
 	return c.conn.WriteMessage(websocket.TextMessage, b)
 }
 
@@ -237,7 +256,12 @@ func (h *Hub) handleIncoming(from int64, data []byte) {
 		case MsgRingRequest:
 			if !h.store.RingCooldown(pair.ID) {
 				slog.Warn("ring rejected by cooldown", "pair_id", pair.ID, "uid", from)
-				h.rejectAction(from, m.Type, "对方 10 分钟内已被响铃 3 次，请稍后再试")
+				// 文案按当前配置生成，不能写死"10 分钟 3 次"：
+				// 管理员改了后台的响铃冷却之后，写死的数字就变成了错误信息，
+				// 而用户只能看到这句话，会照着它等一个根本不对的时长。
+				set := settingsNow()
+				h.rejectAction(from, m.Type, fmt.Sprintf("对方 %d 分钟内已被响铃 %d 次，请稍后再试",
+					set.RingCooldownSec/60, set.RingCooldownLimit))
 				return
 			}
 		case MsgComfortRequest, MsgCalmRequest:
@@ -290,7 +314,13 @@ func (h *Hub) route(to int64, m WsMessage) {
 		if err := client.write(b); err == nil {
 			return
 		}
-		// 写失败（连接已坏）：降级为离线补偿
+		// 写失败（连接已坏，含写超时）：降级为离线补偿。
+		//
+		// 同时主动关掉这条连接。gorilla 在写超时后会把连接标记为永久损坏
+		//（后续所有写都直接失败），若不关，它会一直留在 conns 里、
+		// 且 SetOnline 仍是 true —— 用户显示"在线"但收不到任何东西，
+		// 直到 45s 读超时把读循环踢出来才被清理。关掉能让读循环立刻返回。
+		client.conn.Close()
 	}
 	// 瞬时事件（撤回/回执/拒绝）不入队：迟到送达无意义，重连后突然收到一小时前的
 	// "对方撤回了响铃"只会造成困惑，而彼时本地响铃早已由 7s 定时器自行结束。

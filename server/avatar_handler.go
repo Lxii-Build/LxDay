@@ -183,8 +183,11 @@ func removeOldAvatar(rawURL string) {
 
 func mapAvatarError(c *gin.Context, err error) {
 	switch {
+	// ErrAvatarTooLarge 同时代表"文件超 15MB"与"像素数超上限"两种来源
+	//（processAvatar 与 worker.decode 各返回一处），文案要把两者都说到：
+	// 否则用户传一张 5MB 但一亿像素的图，会收到"超过 15MB"这种明显对不上的提示。
 	case errors.Is(err, ErrAvatarTooLarge):
-		fail(c, http.StatusBadRequest, 1002, "头像文件超过 15MB")
+		fail(c, http.StatusBadRequest, 1002, "头像文件超过 15MB 或图片像素数过大，请换一张")
 	case errors.Is(err, ErrAvatarTooLong):
 		fail(c, http.StatusBadRequest, 1002, "动态头像不能超过 10 秒")
 	case errors.Is(err, ErrAvatarTooManyFrames):
@@ -195,6 +198,12 @@ func mapAvatarError(c *gin.Context, err error) {
 		fail(c, http.StatusBadRequest, 1002, "暂不支持动态 HEIF/AVIF，请改用 GIF 或动态 WebP")
 	case errors.Is(err, ErrFormatNotDecodable):
 		fail(c, http.StatusBadRequest, 1002, "暂不支持该图片格式（HEIC/AVIF），请改用 JPG、PNG、WebP 或 GIF")
+	case errors.Is(err, errImageDecode):
+		fail(c, http.StatusBadRequest, 1002, "这张图片已损坏或被截断，无法解码")
+	// 并发闸门超时：服务端在忙，与这张图无关，必须让用户知道可以重试。
+	// 不单列就会落进 default 的 500「头像处理失败」，用户只会以为图有问题。
+	case errors.Is(err, errImageBusy):
+		fail(c, http.StatusServiceUnavailable, 1010, "服务器正忙，请稍后重试")
 	default:
 		fail(c, http.StatusInternalServerError, 1010, "头像处理失败，已保留原头像")
 	}

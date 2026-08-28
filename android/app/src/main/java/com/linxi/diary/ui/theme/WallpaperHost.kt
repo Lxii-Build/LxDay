@@ -33,7 +33,7 @@ fun WallpaperHost(
         val path = wallpaper?.processedPath
         value = if (path == null) null else withContext(Dispatchers.IO) {
             runCatching {
-                File(path).takeIf { it.isFile }?.let { BitmapFactory.decodeFile(it.absolutePath)?.asImageBitmap() }
+                File(path).takeIf { it.isFile }?.let { decodeWallpaper(it) }
             }.getOrNull()
         }
     }
@@ -57,4 +57,29 @@ fun WallpaperHost(
         Box(Modifier.fillMaxSize().background(scrimColor))
         content()
     }
+}
+
+/**
+ * 解码壁纸文件：先探边界，再按需降采样。
+ *
+ * ★ 原实现是裸的 `BitmapFactory.decodeFile(path)` ★
+ * 无边界探测、无降采样、无尺寸上限，而 path 来自 SharedPreferences、
+ * 尺寸不受本代码任何约束（[WallpaperCropPolicy] 的 MAX_OUTPUT_* 在 main 源码里
+ * 没有生产者）。解出来的 ImageBitmap 挂在**根 composable** 上、
+ * 整个进程生命周期常驻，按 1440×3200 算就是 18.4MB 一直不还。
+ *
+ * 它与 Coil 的内存缓存（堆的 25%）叠加，直接吃掉相册解码的可用余量 ——
+ * 相册那边一旦 OOM，用户看到的是"照片上传失败/消失"，
+ * 而根因在一个八竿子打不着的壁纸功能里，极难联想。
+ *
+ * 壁纸最终 `ContentScale.Crop` 铺满屏幕，解到超过屏幕尺寸没有任何收益。
+ */
+private fun decodeWallpaper(file: File): ImageBitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(file.absolutePath, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    val opts = BitmapFactory.Options().apply {
+        inSampleSize = WallpaperCropPolicy.decodeSampleSize(bounds.outWidth, bounds.outHeight)
+    }
+    return BitmapFactory.decodeFile(file.absolutePath, opts)?.asImageBitmap()
 }
