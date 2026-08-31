@@ -3,7 +3,7 @@ FROM node:22-alpine AS build
 WORKDIR /app
 ENV npm_config_registry=https://registry.npmmirror.com
 COPY package*.json ./
-RUN npm install
+RUN npm ci
 COPY . .
 RUN npm run build
 

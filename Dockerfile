@@ -6,9 +6,12 @@
 FROM node:22-alpine AS web
 WORKDIR /admin
 ENV npm_config_registry=https://registry.npmmirror.com
+COPY admin/package.json admin/package-lock.json ./
+# lockfile 是唯一依赖真源；npm install 会在构建时重新解析 ^ 版本，导致同一提交
+# 在不同日期构出不同前端。先只拷依赖清单，缓存也能跨源码改动复用。
+RUN npm ci
 COPY admin/ ./
-# 清掉可能被拷入的本地 node_modules/dist（避免跨平台二进制污染），再干净安装并构建
-RUN rm -rf node_modules dist && npm install && npm run build
+RUN npm run build
 
 # ---- 阶段②：编译 Go 服务端（内嵌前端 dist） ----
 # Go 1.25：HEIC/AVIF 解码器（gen2brain/heic|avif，底层 wazero）要求 go >= 1.25。
@@ -17,14 +20,14 @@ RUN rm -rf node_modules dist && npm install && npm run build
 FROM golang:1.25-alpine AS build
 WORKDIR /src
 ENV GOPROXY=https://goproxy.cn,direct
+COPY server/go.mod server/go.sum ./
+RUN go mod download
 COPY server/ ./
 # 用真实 admin dist 覆盖占位 webdist/（//go:embed all:webdist）
 RUN rm -rf webdist
 COPY --from=web /admin/dist/ ./webdist/
-# 解析依赖（含 modernc.org/sqlite 及其间接依赖），补全 go.sum 并剔除已弃用的 mysql/redis
-RUN go mod tidy
 # modernc.org/sqlite 为纯 Go 实现，可在 CGO_ENABLED=0 下静态编译
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w" -o /out/linxi-server .
+RUN CGO_ENABLED=0 GOOS=linux go build -mod=readonly -trimpath -ldflags "-s -w" -o /out/linxi-server .
 
 # ---- 阶段③：运行时（非 root；命名卷首次挂载会继承下方目录权限） ----
 FROM alpine:3.20

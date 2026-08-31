@@ -1235,19 +1235,31 @@ func handleBatteryCurve(c *gin.Context) {
 // ================= 待办到点提醒定时扫描 =================
 // 每分钟检查一次「到点未完成」的待办，通知 assignee（在线 WS / 离线入队）。
 
-func scanDueTodos() {
+// startDueTodoScanner 启动待办提醒扫描，并把生命周期纳入进程根 context。
+func startDueTodoScanner(ctx context.Context, wg *sync.WaitGroup) {
+	wg.Add(1)
+	go scanDueTodos(ctx, wg)
+}
+
+func scanDueTodos(ctx context.Context, wg *sync.WaitGroup) {
+	defer wg.Done()
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
-	for range ticker.C {
-		// 单次扫描包 recover：单条待办或一次 WS 写异常不应杀死整个提醒扫描 goroutine。
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					log.Printf("scanDueTodos panic recovered: %v", r)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// 单次扫描包 recover：单条待办或一次 WS 写异常不应杀死整个提醒扫描 goroutine。
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("scanDueTodos panic recovered: %v", r)
+					}
 				}
+				scanDueOnce(time.Now())
 			}()
-			scanDueOnce(time.Now())
-		}()
+		}
 	}
 }
 

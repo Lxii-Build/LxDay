@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -46,18 +48,32 @@ var reqLogCh = make(chan RequestLog, 1024)
 // PLACEHOLDER_NETLOG
 
 // startRequestLogWorker 单消费者异步落库（避免每请求起 goroutine）；并周期跑数据保留清理。
-func startRequestLogWorker() {
+// 两个 worker 都受进程根 context 管理，停机时先退出再关闭 SQLite。
+func startRequestLogWorker(ctx context.Context, wg *sync.WaitGroup) {
+	wg.Add(2)
 	go func() {
-		for rl := range reqLogCh {
-			st.InsertRequestLog(rl)
+		defer wg.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case rl := <-reqLogCh:
+				st.InsertRequestLog(rl)
+			}
 		}
 	}()
 	go func() {
+		defer wg.Done()
 		t := time.NewTicker(6 * time.Hour)
 		defer t.Stop()
 		runRetentionCleanup()
-		for range t.C {
-			runRetentionCleanup()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				runRetentionCleanup()
+			}
 		}
 	}()
 }

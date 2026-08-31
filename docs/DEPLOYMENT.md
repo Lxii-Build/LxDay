@@ -4,7 +4,7 @@
 
 **架构要点（去 Nginx / 单容器）**：Go 服务端已内嵌运营后台前端并自托管 后台静态(`/`) / API(`/api`) / WebSocket(`/ws`) / 上传文件(`/uploads`)；数据库用**内嵌 SQLite**、缓存与在线态/离线队列改**进程内存**。因此容器编排**只有一个 `app` 容器**（无 MySQL、无 Redis、无 Nginx）。**容器内外端口统一为 `7740`**（宝塔容器列表显示 7740 → 7740）；**HTTPS/WSS 的 TLS 由外部反向代理（宝塔面板 / Nginx / Caddy）终止**。默认对外域名 `https://love.lxii.cc`。
 
-镜像：`ghcr.io/lxii-build/lxday`（由 `build-server.yml` 工作流构建推送，可见性随仓库）。
+镜像：`ghcr.io/lxii-build/lxday`（由 `build-server.yml` 工作流构建推送，提供 `linux/amd64` 与 `linux/arm64`）。
 
 ---
 
@@ -28,7 +28,7 @@
 3. 访问（容器直连，验证用）：
    - 后台管理：`http://<服务器IP>:7740/`
    - 客户端 API：`http://<服务器IP>:7740/api/v1/...`，WebSocket：`ws://<服务器IP>:7740/ws`
-   - 健康检查：`http://<服务器IP>:7740/healthz`（compose 已配 healthcheck）
+   - 存活检查：`http://<服务器IP>:7740/healthz`；就绪检查：`http://<服务器IP>:7740/readyz`（数据库与两类媒体目录均可写才返回 200）。
 4. 常用运维：
    ```bash
    docker compose logs -f app        # 服务端日志（不输出超管初始口令）
@@ -116,7 +116,11 @@ npm install && npm run build           # 产物在 admin/dist
 - `release.yml`：手动触发的发行版 → Release APK + 带版本 tag 的镜像 + GitHub Release（附 APK、关联 `CHANGELOG.md`）。
 - 生产更新：不自动部署，服务器 `docker compose pull && docker compose up -d` 手动升级。
 
-## 六、初始账号与安全清单
+## 六、备份与恢复演练
+
+SQLite 数据库与公开/私密媒体都在 Docker 卷中，升级不会替代备份。执行方法、SHA-256 校验和隔离恢复演练见 [BACKUP.md](BACKUP.md)。
+
+## 七、初始账号与安全清单
 - 超级管理员：用户名 `admin`，随机初始口令见 `/app/data/initial-admin-password.txt`，**首次登录强制改账号+密码+绑定邮箱**（改密前后端会拦截其它管理操作）。不要在文档、日志或工单中写死口令。
 - 上线前务必：在 `.env` 设好强随机 `JWT_SECRET`（缺省/占位会拒绝启动）；配置反代 HTTPS；如需通讯密钥则两侧设好 `APP_KEY`（服务端环境变量 + 安卓构建注入一致）；后台填好 SMTP；确认 `/app/uploads` 与 `/app/uploads-private` 卷可写。
 - 后台「网络日志」记录 API 请求（方法/路径/状态码/耗时/IP/UA），默认保留 7 天，仅管理员可见。

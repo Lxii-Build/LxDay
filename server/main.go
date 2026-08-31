@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -120,11 +121,13 @@ func main() {
 	// 注意 reloadRuntimeSettings 不覆盖 site.url（它属于 settingKeys，不在
 	// runtimeSettingSpecs 里），所以这里必须单独预热一次。
 	warmSiteBaseCache()
-	startRequestLogWorker()
+	workerCtx, stopWorkers := context.WithCancel(context.Background())
+	var workerWG sync.WaitGroup
+	startRequestLogWorker(workerCtx, &workerWG)
 	// 内存态清扫：限流计数与验证码等键此前只有惰性过期，
 	// 而「登录失败」「每日上传配额」这两类键按账号名/日期分桶、过期后再也不会被读到，
 	// 于是永远没人去触发那次惰性回收 —— 这是 0827 生产 OOM 的直接来源。
-	startMemStoreJanitor(st.mem)
+	startMemStoreJanitor(workerCtx, &workerWG, st.mem)
 
 	// 生产默认 release 模式：debug 模式会打印全部路由表与详细报错，
 	// 属信息泄露面，也拖慢每次请求。可用 GIN_MODE=debug 临时覆盖排查问题。
@@ -264,7 +267,7 @@ func main() {
 	})
 
 	// 待办到点提醒定时扫描
-	go scanDueTodos()
+	startDueTodoScanner(workerCtx, &workerWG)
 
 	// ---- 后台管理路由 /api/admin ----
 	registerAdminRoutes(r)
@@ -304,9 +307,24 @@ func main() {
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 	<-quit
 	slog.Info("server shutting down")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	_ = srv.Shutdown(ctx)
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelShutdown()
+	_ = srv.Shutdown(shutdownCtx)
+	// 先停止所有会访问数据库的常驻任务，再关闭连接。否则 SIGTERM 后 ticker
+	// 仍可能在 DB.Close 之后触发，导致退出日志噪声或测试中的数据竞争。
+	stopWorkers()
+	workersDone := make(chan struct{})
+	go func() {
+		workerWG.Wait()
+		close(workersDone)
+	}()
+	workerShutdownCtx, cancelWorkers := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelWorkers()
+	select {
+	case <-workersDone:
+	case <-workerShutdownCtx.Done():
+		slog.Warn("background workers did not stop before shutdown deadline")
+	}
 	if st != nil && st.DB != nil {
 		st.DB.Close()
 	}

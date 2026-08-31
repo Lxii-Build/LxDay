@@ -85,7 +85,7 @@ jobs:
 
       # ---------- 构建 Release APK ----------
       - name: 配置 JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '21'
@@ -136,10 +136,10 @@ jobs:
           go vet ./...
           go test -timeout 600s ./...
 
-      - name: 安卓单元测试
+      - name: 安卓单元测试与 Release Lint
         working-directory: android
         run: |
-          ./gradlew :app:testDebugUnitTest --no-daemon \
+          ./gradlew :app:testDebugUnitTest :app:lintRelease --no-daemon \
             -PBASE_URL="$IN_BASE_URL" \
             -PWS_URL="$IN_WS_URL" \
             -PAPP_KEY="$IN_APP_KEY" \
@@ -192,6 +192,9 @@ jobs:
           fi
 
       # ---------- 构建并推送服务端镜像（tag = version）----------
+      - name: 配置 ARM 构建模拟器
+        uses: docker/setup-qemu-action@v3
+
       - name: 配置 Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -209,6 +212,7 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: ghcr.io/lxii-build/lxday:${{ inputs.version }}
 
       # 私有仓库国内拉取不便：导出镜像 tar，随 Release 附件下发，可 `docker load` 直接导入
@@ -217,6 +221,7 @@ jobs:
           IMAGE="ghcr.io/lxii-build/lxday:${{ inputs.version }}"
           docker pull "$IMAGE"
           docker save "$IMAGE" | gzip > lxday-server-${{ inputs.version }}.tar.gz
+          sha256sum lxday-server-${{ inputs.version }}.tar.gz > lxday-server-${{ inputs.version }}.tar.gz.sha256
           ls -lh lxday-server-${{ inputs.version }}.tar.gz
 
       # ---------- 创建 GitHub Release ----------
@@ -234,6 +239,7 @@ jobs:
             android/app/build/outputs/apk/**/*.apk
             android/app/build/outputs/mapping/**/mapping.txt
             lxday-server-${{ inputs.version }}.tar.gz
+            lxday-server-${{ inputs.version }}.tar.gz.sha256
           body: |
             ## 林曦日记 ${{ inputs.version }}
 
@@ -253,9 +259,10 @@ jobs:
             对应 GHCR 镜像 tag：`ghcr.io/lxii-build/lxday:${{ inputs.version }}`
 
             ```bash
-            # 方式一：从 GHCR 拉取（需登录私有仓库）
+            # 方式一：从 GHCR 拉取（固定版本 tag，公开读取）
             docker pull ghcr.io/lxii-build/lxday:${{ inputs.version }}
             # 方式二：国内直接导入本 Release 附件里的镜像 tar（免拉取）
+            sha256sum -c lxday-server-${{ inputs.version }}.tar.gz.sha256
             gunzip -c lxday-server-${{ inputs.version }}.tar.gz | docker load
             ```
 

@@ -1,0 +1,72 @@
+name: 质量门禁
+
+on:
+  pull_request:
+    paths:
+      - 'server/**'
+      - 'admin/**'
+      - 'android/**'
+      - '.github/workflows/**'
+      - 'Dockerfile'
+  push:
+    branches: [ main ]
+    paths:
+      - 'server/**'
+      - 'admin/**'
+      - 'android/**'
+      - '.github/workflows/**'
+      - 'Dockerfile'
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    name: 服务端质量门禁
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: server/go.sum
+      - working-directory: server
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test -timeout 400s ./...
+
+  admin:
+    name: 后台类型检查与构建
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+      - working-directory: admin
+        run: |
+          npm ci
+          npm run build
+
+  android:
+    name: 安卓编译、单测与 Lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.7.0'
+      - run: gradle wrapper --gradle-version 9.7.0 --no-daemon
+      - run: ./gradlew :app:compileDebugKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon

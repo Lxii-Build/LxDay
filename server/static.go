@@ -1,12 +1,16 @@
 package main
 
 import (
+	"context"
 	"embed"
+	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -18,12 +22,23 @@ import (
 var webDistFS embed.FS
 
 // registerStatic 去 Nginx 后由 Go 自托管静态资源：
-//   - GET /healthz 健康检查
+//   - GET /healthz 存活检查、GET /readyz 依赖就绪检查
 //   - /upload/*  日期分区公开上传（头像/日记图片，disk: uploadDir/upload/年/月/日/...），禁用目录列举
 //   - /uploads/* 兼容旧路径（历史头像 / 后台 APK·LOGO，disk: uploadDir/*），禁用目录列举
-//   - 其余非 /api、/ws、/upload(s)、/healthz 的 GET/HEAD 请求交给内嵌 SPA（命中静态文件直返，否则回退 index.html）
+//   - 其余非 /api、/ws、/upload(s)、/healthz、/readyz 的 GET/HEAD 请求交给内嵌 SPA（命中静态文件直返，否则回退 index.html）
 func registerStatic(r *gin.Engine) {
 	r.GET("/healthz", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
+	// /healthz 只回答进程是否存活；容器编排应使用 /readyz 判断数据库与
+	// 两类媒体目录是否仍可用。将二者混为一谈会掩盖只读卷、磁盘满等故障。
+	r.GET("/readyz", func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+		defer cancel()
+		if err := readinessCheck(ctx); err != nil {
+			c.String(http.StatusServiceUnavailable, "not ready")
+			return
+		}
+		c.String(http.StatusOK, "ready")
+	})
 
 	// 上传目录安全响应头：禁用 MIME 嗅探；非图片强制下载，缓解上传 html/svg 的存储型 XSS。
 	r.Use(func(c *gin.Context) {
@@ -62,7 +77,7 @@ func registerStatic(r *gin.Engine) {
 		p := req.URL.Path
 		// 已有显式路由的前缀（未命中即真 404），不回退到 SPA
 		if strings.HasPrefix(p, "/api") || strings.HasPrefix(p, "/ws") ||
-			strings.HasPrefix(p, "/upload") || strings.HasPrefix(p, "/uploads") || p == "/healthz" {
+			strings.HasPrefix(p, "/upload") || strings.HasPrefix(p, "/uploads") || p == "/healthz" || p == "/readyz" {
 			c.Status(http.StatusNotFound)
 			return
 		}
@@ -84,4 +99,39 @@ func registerStatic(r *gin.Engine) {
 		}
 		c.Status(http.StatusNotFound)
 	})
+}
+
+// readinessCheck 验证请求会命中的关键依赖：SQLite 必须能取得写锁，公开/私密
+// 存储根目录必须可创建临时探针。UPDATE ... WHERE 1=0 不改变业务数据，却会在
+// 只读数据库、满盘或无法取得写锁时失败，正好覆盖“进程活着但不能服务”的场景。
+func readinessCheck(ctx context.Context) error {
+	if st == nil || st.DB == nil {
+		return fmt.Errorf("store unavailable")
+	}
+	if _, err := st.DB.ExecContext(ctx, "UPDATE app_setting SET value=value WHERE 1=0"); err != nil {
+		return fmt.Errorf("database not writable: %w", err)
+	}
+	if err := checkWritableDirectory(uploadDir, 0o755); err != nil {
+		return fmt.Errorf("public storage unavailable: %w", err)
+	}
+	if err := checkWritableDirectory(privateMediaDir(), 0o700); err != nil {
+		return fmt.Errorf("private storage unavailable: %w", err)
+	}
+	return nil
+}
+
+func checkWritableDirectory(dir string, mode fs.FileMode) error {
+	if err := os.MkdirAll(dir, mode); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(dir, ".lxday-readyz-")
+	if err != nil {
+		return err
+	}
+	name := f.Name()
+	if err := f.Close(); err != nil {
+		_ = os.Remove(name)
+		return err
+	}
+	return os.Remove(name)
 }

@@ -176,6 +176,25 @@ func TestMigrateFreshDB(t *testing.T) {
 	}
 }
 
+// 迁移记账必须在同一事务里提交：新库跑完只记录一次；重复启动不再重复执行整套
+// DDL。这个断言防止未来又把 runMigrations 退回“每次启动碰碰运气跑一遍”。
+func TestMigrationBaselineIsRecordedOnce(t *testing.T) {
+	db := openTempDB(t)
+	if err := runMigrations(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := runMigrations(db); err != nil {
+		t.Fatal(err)
+	}
+	var count, version int
+	if err := db.QueryRow(`SELECT COUNT(*), MAX(version) FROM schema_migrations`).Scan(&count, &version); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 || version != schemaBaselineVersion {
+		t.Fatalf("ledger count=%d version=%d, want one v%d row", count, version, schemaBaselineVersion)
+	}
+}
+
 // schema.sql 里**任何**引用「后加列」的索引，都必须在补列之后才执行。
 //
 // 这条断言是为了防止同类问题再犯：日后有人又在 schema.sql 里加一条

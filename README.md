@@ -60,6 +60,7 @@ lx/
 | 文档 | 内容 |
 |---|---|
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 三种部署（Compose 为主 / 单容器 / 前后端分离）+ 反代 TLS + 通讯密钥 + 初始账号 |
+| [docs/BACKUP.md](docs/BACKUP.md) | 三卷一致性备份、校验与隔离恢复演练 |
 | [docs/SIGNING.md](docs/SIGNING.md) | **安卓签名**：固定签名密钥的生成、CI Secret 配置、指纹校验与轮换 |
 | [docs/ALBUM.md](docs/ALBUM.md) | 相册接口文档：数据模型、全部接口、`/media` 鉴权代理、上传配额 |
 | [docs/APP_INTRO.md](docs/APP_INTRO.md) | 应用介绍（首发文案） |

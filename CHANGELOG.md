@@ -9,6 +9,31 @@
 
 （暂无）
 
+## [1.0.5] - 2026-08-31
+
+### 部署、恢复与可靠性
+
+- 新增 `/readyz` 就绪检查：除进程存活外，实际验证 SQLite 可写、公开媒体目录与私密媒体目录可写；
+  数据卷只读、磁盘满等故障会明确返回 503，避免被 `/healthz` 的“进程仍活着”掩盖。
+- 后台请求日志、数据保留清理、内存缓存清扫与待办提醒扫描纳入统一停机流程，先停止 worker、
+  再关闭 SQLite，避免容器退出期间继续访问已关闭数据库。
+- 新增不改编排文件的 Docker 卷备份与隔离恢复演练脚本，随附校验清单与操作文档；备份文件采用
+  `umask 077` 创建，恢复演练不会接触生产卷。
+- 独立服务端镜像也兼容历史 root 属主的数据卷，并在 CI 中覆盖此回归场景。
+
+### 构建、测试与发布
+
+- 新增服务端、后台与 Android 的自动质量工作流：依赖锁定、格式化、静态检查、单元测试、后台类型检查与构建
+  与 Android Debug 编译/测试/lint 均进入合并门禁。
+- Android lint 改为阻断发布构建；服务端测试增加明确超时，依赖漂移会在 CI 中失败。
+- Docker 构建固定使用 `npm ci`、`go mod download` 和 `-mod=readonly`，减少“本机能构建、CI 不可复现”。
+- 服务端镜像同时发布 `linux/amd64` 与 `linux/arm64` 清单；镜像 tar 产物与发行版资产附带 SHA-256 校验文件。
+
+### 数据与安全
+
+- SQLite 初始化迁移引入 `schema_migrations` 版本账本，后续升级可按版本追加并阻止新程序误写入更高版本数据库。
+- 后台图标组件不再把远程 SVG 文本注入 DOM，改由受浏览器安全模型约束的图片资源加载。
+
 ## [1.0.4] - 2026-08-31
 
 ### 部署与可靠性
@@ -551,7 +576,8 @@ GIF 帧炸弹与提前中止、旋正缩放合并前后产物尺寸一致、壁�
   含「本机代理会造成假 502」的排查警告）、[docs/SELFTEST_0821.md](docs/SELFTEST_0821.md)
   （真机自测清单，含「我已验证 / 我无法验证」的分界）。
 
-[Unreleased]: https://github.com/Lxii-Build/LxDay/compare/v1.0.4...HEAD
+[Unreleased]: https://github.com/Lxii-Build/LxDay/compare/v1.0.5...HEAD
+[1.0.5]: https://github.com/Lxii-Build/LxDay/releases/tag/v1.0.5
 [1.0.4]: https://github.com/Lxii-Build/LxDay/releases/tag/v1.0.4
 [1.0.3]: https://github.com/Lxii-Build/LxDay/releases/tag/v1.0.3
 [1.0.2]: https://github.com/Lxii-Build/LxDay/releases/tag/v1.0.2

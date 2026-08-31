@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"log/slog"
@@ -403,13 +404,20 @@ const memStoreSweepInterval = time.Minute
 //
 // 故意**不在 newMemStore 里起**：测试会创建几十个 store，
 // 每个都拖一条永不退出的协程反而是另一种泄露。生产由 main 显式起一条。
-func startMemStoreJanitor(m *memStore) {
+func startMemStoreJanitor(ctx context.Context, wg *sync.WaitGroup, m *memStore) {
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		t := time.NewTicker(memStoreSweepInterval)
 		defer t.Stop()
-		for range t.C {
-			if n := m.sweep(); n > 0 {
-				slog.Debug("memstore swept", "removed", n)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if n := m.sweep(); n > 0 {
+					slog.Debug("memstore swept", "removed", n)
+				}
 			}
 		}
 	}()

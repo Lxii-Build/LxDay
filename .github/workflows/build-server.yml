@@ -32,9 +32,11 @@ jobs:
         with:
           go-version: '1.25'
 
-      - name: 解析依赖（go mod tidy，补全 modernc.org/sqlite 等）
+      - name: 校验依赖锁定文件
         working-directory: server
-        run: go mod tidy
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
 
       # 格式统一：避免不同人/不同工具产出的排版差异污染 diff
       - name: 格式检查（gofmt）
@@ -53,9 +55,12 @@ jobs:
 
       - name: 单元测试（go test）
         working-directory: server
-        run: go test ./...
+        run: go test -timeout 400s ./...
 
       # 测试通过后再构建并推送镜像
+      - name: 配置 ARM 构建模拟器
+        uses: docker/setup-qemu-action@v3
+
       - name: 配置 Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -91,6 +96,7 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           # OCI 标签：生产上能一眼核对当前跑的镜像对应哪个 commit
           labels: |
@@ -99,27 +105,57 @@ jobs:
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.created=${{ github.event.repository.updated_at }}
 
-      # 冒烟测试：镜像能不能起来、/healthz 是否 200。
+      # 冒烟测试：镜像能不能起来、/readyz 是否确认数据库和两类存储目录可用。
       # 此前完全没有这一步——推出去的镜像若启动即崩，只有你在生产 docker compose pull
       # 之后才会发现。宁可在 CI 里多花 30 秒。
-      - name: 冒烟测试（容器启动 + /healthz）
+      - name: 冒烟测试（容器启动 + /readyz）
         run: |
           IMAGE="ghcr.io/lxii-build/lxday:${GITHUB_SHA::7}"
           docker run -d --name lxday-smoke -p 7740:7740 \
             -e JWT_SECRET=smoke-test-only-not-a-real-secret \
             "$IMAGE"
           for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:7740/healthz >/dev/null 2>&1; then
-              echo "healthz OK (第 ${i} 次尝试)"
+            if curl -fsS http://127.0.0.1:7740/readyz >/dev/null 2>&1; then
+              echo "readyz OK (第 ${i} 次尝试)"
               docker rm -f lxday-smoke >/dev/null
               exit 0
             fi
             sleep 2
           done
-          echo "::error::容器在 60s 内未通过 /healthz 健康检查，镜像可能启动即崩。以下是容器日志："
+          echo "::error::容器在 60s 内未通过 /readyz 健康检查，以下是容器日志："
           docker logs lxday-smoke || true
           docker rm -f lxday-smoke >/dev/null || true
           exit 1
+
+      # 旧镜像曾以 root 写入命名卷；升级到非 root 镜像后 SQLite 变只读。
+      # 这条集成测试故意造三个 root-owned 卷，验证入口脚本能修复旧环境，
+      # 且业务进程仍以 uid 10001 写入，不依赖 docker-compose 改动。
+      - name: 回归测试（历史 root 卷自动修复）
+        run: |
+          IMAGE="ghcr.io/lxii-build/lxday:${GITHUB_SHA::7}"
+          VOLUMES=(lxday-legacy-db lxday-legacy-public lxday-legacy-private)
+          cleanup() {
+            docker rm -f lxday-legacy-permissions >/dev/null 2>&1 || true
+            for volume in "${VOLUMES[@]}"; do docker volume rm "$volume" >/dev/null 2>&1 || true; done
+          }
+          trap cleanup EXIT
+          for volume in "${VOLUMES[@]}"; do
+            docker volume create "$volume" >/dev/null
+            docker run --rm -v "$volume":/target alpine:3.20 sh -ec 'touch /target/legacy-root-file && chown -R 0:0 /target'
+          done
+          docker run -d --name lxday-legacy-permissions -p 7741:7740 \
+            -e JWT_SECRET=smoke-test-only-not-a-real-secret \
+            -v lxday-legacy-db:/app/data \
+            -v lxday-legacy-public:/app/uploads \
+            -v lxday-legacy-private:/app/uploads-private \
+            "$IMAGE"
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:7741/readyz >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:7741/readyz >/dev/null
+          docker exec --user 10001 lxday-legacy-permissions sh -ec \
+            'touch /app/data/app-write /app/uploads/public-write /app/uploads-private/private-write'
 
       # 仓库私有、国内直接拉取不便：额外导出镜像 tar 作为工作流产物，可下载后 `docker load` 直接导入。
       # 保存为 :latest 标签，与 docker-compose 默认 image 对齐，导入后可直接 `docker compose up -d`（无需再 pull）。
@@ -129,13 +165,15 @@ jobs:
           docker pull "$IMAGE"
           docker tag "$IMAGE" ghcr.io/lxii-build/lxday:latest
           docker save ghcr.io/lxii-build/lxday:latest | gzip > lxday-image.tar.gz
+          sha256sum lxday-image.tar.gz > lxday-image.tar.gz.sha256
           ls -lh lxday-image.tar.gz
 
       - name: 上传镜像 tar 产物
         uses: actions/upload-artifact@v4
         with:
           name: lxday-server-image
-          path: lxday-image.tar.gz
+          path: |
+            lxday-image.tar.gz
+            lxday-image.tar.gz.sha256
           if-no-files-found: error
           retention-days: 14
-

@@ -134,8 +134,8 @@ body `{"ref":"main","inputs":{...}}`，返回 204 即成功。
 
 ## 六、数据库
 
-- schema 唯一真源是 `server/sql/schema.sql`，启动时 `go:embed` 后自动执行
-  （`CREATE TABLE IF NOT EXISTS`，幂等）
+- schema 唯一真源是 `server/sql/schema.sql`；首次升级会在事务内执行基线并写入
+  `schema_migrations`，以后新增迁移必须追加版本，不能把回填或删数据塞进既有基线
 - 老库补列走 `migrations.go` 的 `schemaAddedColumns`
   （SQLite 的 `ALTER TABLE ADD COLUMN` 不支持 `IF NOT EXISTS`，
   所以要先查 `PRAGMA table_info`）

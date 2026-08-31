@@ -13,7 +13,19 @@ import (
 //go:embed sql/schema.sql
 var baseSchemaSQL string
 
-// runMigrations 执行内嵌建表脚本（全部 IF NOT EXISTS，幂等）并补齐老库缺的列。
+// schemaBaselineVersion 是现有“建表 + 补列 + 建索引”迁移的编号。历史数据库首次
+// 升级到此版本时会安全地跑这套幂等逻辑并记账；之后不再每次启动重复扫描 schema。
+const schemaBaselineVersion = 1
+
+// migrationExecutor 是 sql.DB 与 sql.Tx 的共同子集，让建表、补列、建索引能在同一
+// 事务内完成。迁移失败时不会留下“只建了一半索引却已标记成功”的状态。
+type migrationExecutor interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	Query(query string, args ...any) (*sql.Rows, error)
+}
+
+// runMigrations 执行有版本记录的内嵌迁移。现有 schema 是 v1 基线；以后新增迁移
+// 必须追加新版本，不能把数据回填或破坏性 DDL 偷塞回这条基线。
 //
 // **执行顺序必须是「建表 → 补列 → 建索引」，不能一趟走完。**
 //
@@ -25,6 +37,41 @@ var baseSchemaSQL string
 // 新库不会暴露这个问题（CREATE TABLE 自带新列），所以只用全新临时库做测试
 // 永远测不到这条升级路径 —— 见 migrations_upgrade_test.go 的回归测试。
 func runMigrations(db *sql.DB) error {
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+		version INTEGER PRIMARY KEY,
+		applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		return fmt.Errorf("create migration ledger failed: %w", err)
+	}
+	var current sql.NullInt64
+	if err := db.QueryRow(`SELECT MAX(version) FROM schema_migrations`).Scan(&current); err != nil {
+		return fmt.Errorf("read migration ledger failed: %w", err)
+	}
+	if current.Valid && current.Int64 > schemaBaselineVersion {
+		return fmt.Errorf("database schema version %d is newer than this server supports", current.Int64)
+	}
+	if current.Valid && current.Int64 == schemaBaselineVersion {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin migration transaction failed: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := applySchemaBaseline(tx); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT INTO schema_migrations(version) VALUES(?)`, schemaBaselineVersion); err != nil {
+		return fmt.Errorf("record baseline migration failed: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit migration transaction failed: %w", err)
+	}
+	return nil
+}
+
+func applySchemaBaseline(db migrationExecutor) error {
 	tableStmts, indexStmts := splitSchemaByKind(baseSchemaSQL)
 
 	// ① 建表：新库一次建全，老库为空操作
@@ -133,7 +180,7 @@ func DropRetiredTables(db *sql.DB) map[string]int {
 }
 
 // addColumns 幂等补列：已存在则跳过，不存在才 ALTER，保证重复启动不报错。
-func addColumns(db *sql.DB) error {
+func addColumns(db migrationExecutor) error {
 	for _, ac := range schemaAddedColumns {
 		has, err := columnExists(db, ac.table, ac.column)
 		if err != nil {
@@ -152,7 +199,7 @@ func addColumns(db *sql.DB) error {
 }
 
 // columnExists 通过 PRAGMA table_info 判断列是否已存在（表不存在时返回 false，不报错）。
-func columnExists(db *sql.DB, table, column string) (bool, error) {
+func columnExists(db migrationExecutor, table, column string) (bool, error) {
 	rows, err := db.Query(fmt.Sprintf(`PRAGMA table_info("%s")`, table))
 	if err != nil {
 		return false, err

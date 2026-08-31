@@ -109,8 +109,11 @@ android {
     }
 
     lint {
-        abortOnError = false
-        checkReleaseBuilds = false
+        // Lint 是发布前的静态质量门禁，不允许 Release 靠“只报告不阻断”带着
+        // 已知问题出包。若以后出现历史存量，先显式建立并逐项清理 baseline，
+        // 不要重新关闭这个开关。
+        abortOnError = true
+        checkReleaseBuilds = true
     }
 
     compileOptions {

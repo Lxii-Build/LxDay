@@ -53,7 +53,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: 配置 JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '21'
@@ -86,9 +86,9 @@ jobs:
           fi
           echo "available=true" >> "$GITHUB_OUTPUT"
 
-      - name: 运行单元测试
+      - name: 运行单元测试与 Lint
         run: |
-          ./gradlew :app:testDebugUnitTest --no-daemon \
+          ./gradlew :app:testDebugUnitTest :app:lint${{ inputs.build_type }} --no-daemon \
             -PBASE_URL="$IN_BASE_URL" \
             -PWS_URL="$IN_WS_URL" \
             -PAPP_KEY="$IN_APP_KEY" \
