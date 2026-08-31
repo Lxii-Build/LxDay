@@ -3,6 +3,8 @@ package com.linxi.diary.data
 import android.content.Context
 import android.net.Uri
 import com.linxi.diary.util.Logs
+import kotlinx.coroutines.CancellationException
+import java.util.UUID
 
 /**
  * 一次上传失败的可展示原因。
@@ -19,6 +21,7 @@ data class UploadOutcome(
     val message: String,
     val retryable: Boolean,
     val uri: Uri?,
+    val idempotencyKey: String,
 )
 
 /**
@@ -34,30 +37,40 @@ object PhotoUploader {
      *
      * @param albumId 目标相册；0 表示保持「未归类」，无需挂接
      */
-    suspend fun uploadOne(context: Context, uri: Uri, albumId: Long): UploadOutcome? {
+    suspend fun uploadOne(
+        context: Context,
+        uri: Uri,
+        albumId: Long,
+        idempotencyKey: String = UUID.randomUUID().toString(),
+    ): UploadOutcome? {
         // ① 本地预处理：EXIF 旋正 + 解码期缩放到长边 2048 + 按目标 MIME 重编码。
-        val preparedResult = ImagePrep.prepare(context, uri)
+        val preparedResult = ImagePrep.prepare(
+            context, uri, maxUploadBytes = ClientRuntimeConfig.photoMaxBytes,
+        )
         val prepared = preparedResult.getOrNull()
         if (prepared == null) {
             val cause = preparedResult.exceptionOrNull()
+            rethrowCancellation(cause)
             Logs.w("Upload", "prepare failed for $uri", cause)
             return UploadOutcome(
                 message = prepareFailureMessage(cause),
                 // 解码失败/OOM 换个时机重试有可能成功（内存压力是瞬时的）。
                 retryable = true,
                 uri = uri,
+                idempotencyKey = idempotencyKey,
             )
         }
 
         // ② 上传
         val uploadResult = runCatching {
-            ApiClient.uploadMedia(prepared.file, prepared.mime, prepared.takenAtMs)
+            ApiClient.uploadMedia(prepared.file, prepared.mime, prepared.takenAtMs, idempotencyKey)
         }
         prepared.file.delete()
 
         val media = uploadResult.getOrNull()
         if (media == null) {
             val cause = uploadResult.exceptionOrNull()
+            rethrowCancellation(cause)
             Logs.w("Upload", "upload failed for $uri", cause)
             val bizCode = (cause as? ApiException)?.bizCode ?: -1
             return UploadOutcome(
@@ -65,6 +78,7 @@ object PhotoUploader {
                 message = cause?.message?.takeIf { it.isNotBlank() } ?: "上传失败",
                 retryable = isRetryableUploadCode(bizCode),
                 uri = uri,
+                idempotencyKey = idempotencyKey,
             )
         }
 
@@ -81,11 +95,14 @@ object PhotoUploader {
         if (albumId != 0L && photoId > 0) {
             val attach = runCatching { ApiClient.attachPhotos(albumId, listOf(photoId)) }
             if (attach.isFailure) {
-                Logs.w("Album", "attach photo failed", attach.exceptionOrNull())
+                val cause = attach.exceptionOrNull()
+                rethrowCancellation(cause)
+                Logs.w("Album", "attach photo failed", cause)
                 return UploadOutcome(
                     message = "已上传，但没能放进这个相册（现在在「未归类」里）",
                     retryable = false, // 照片已在服务器上，重传会产生重复
                     uri = null,
+                    idempotencyKey = idempotencyKey,
                 )
             }
         }
@@ -104,17 +121,17 @@ object PhotoUploader {
 
     /**
      * 哪些服务端业务码值得重试。
-     * 与 server/album_media.go 的 codeUpload* 常量一一对应。
+     *
+     * 判定本体在 [UploadRetryPolicy]：`BuildConfig` 与 Android 类型在 JVM 单测里
+     * 不可用，把这份映射留在这里等于永远测不到，而它与服务端常量的一致性
+     * 恰恰是出过 bug 的地方（见 UploadRetryPolicy 的注释）。
      */
-    private fun isRetryableUploadCode(bizCode: Int): Boolean = when (bizCode) {
-        1021 -> false // 超过单张上限：重试无意义
-        1022 -> false // 魔数不认识
-        1023 -> false // 无解码器（HEIC/AVIF）
-        1024 -> false // 文件损坏
-        1025 -> false // 像素数超限
-        1027 -> false // 相册功能被关闭
-        1020 -> false // 当日配额用尽：今天重试也没用
-        1026 -> true  // 服务端落盘失败：值得重试
-        else -> true  // 网络异常等
+    private fun isRetryableUploadCode(bizCode: Int): Boolean =
+        UploadRetryPolicy.isRetryable(bizCode)
+
+    // 协程取消不是业务失败。若把 CancellationException 塞进 Result，
+    // 批量上传会在用户离开页面后继续处理后续照片，造成无法停止的后台工作。
+    private fun rethrowCancellation(cause: Throwable?) {
+        if (cause is CancellationException) throw cause
     }
 }

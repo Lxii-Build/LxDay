@@ -200,7 +200,7 @@ GET  /api/v1/status/history?date=YYYY-MM-DD&page=   # 历史时间线分页
 GET  /api/v1/status/history/battery?date=YYYY-MM-DD # 24h 电量曲线序列
 GET  /api/v1/usage?date=              # 当日各 App 时长
 POST /api/v1/push/register-token      # 预留（暂不接推送，接口占位）
-WS   /ws?token=JWT
+WS   /ws（Authorization: Bearer JWT）
 ```
 
 统一响应 `{"code":0,"message":"ok","data":{...}}`；错误码沿用骨架（1001-1011）。

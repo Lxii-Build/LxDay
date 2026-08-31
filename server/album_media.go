@@ -27,6 +27,7 @@ const (
 	photoPreviewEdge = 1080
 	// quotaTTL 略大于一天：键名已按日期分桶，TTL 只负责回收过期键。
 	quotaTTL = 25 * time.Hour
+	maxUploadIdempotencyKeyLen = 128
 )
 
 // 单张上限 / 每日配额已改为后台可配（settings.go），此处提供读取入口。
@@ -34,7 +35,27 @@ const (
 // 这是防刷盘的护栏，不是计费，宁可偶尔放宽也不要为它引入外部存储。
 func maxPhotoBytesNow() int64 { return settingsNow().PhotoMaxBytes }
 
+func normalizeUploadIdempotencyKey(raw string) (string, error) {
+	key := strings.TrimSpace(raw)
+	if key == "" {
+		return "", nil
+	}
+	if len(key) > maxUploadIdempotencyKeyLen {
+		return "", errors.New("幂等键过长")
+	}
+	for i := 0; i < len(key); i++ {
+		b := key[i]
+		if (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') ||
+			(b >= '0' && b <= '9') || b == '-' || b == '_' || b == '.' {
+			continue
+		}
+		return "", errors.New("幂等键格式不正确")
+	}
+	return key, nil
+}
+
 var errQuotaExceeded = errors.New("上传配额已用尽")
+var errUploadIdempotent = errors.New("upload already completed")
 
 func photoCountKey(uid int64, day string) string {
 	return "media:cnt:" + day + ":" + strconv.FormatInt(uid, 10)
@@ -128,6 +149,13 @@ const (
 	codeUploadQuotaFull  = 1020 // 当日配额用尽
 	codeUploadDiskFailed = 1026 // 落盘/入库失败
 	codeUploadDisabled   = 1027 // 相册功能被后台关闭
+	// codeUploadInFlight 该账号同时在传的张数到顶。
+	//
+	// **必须与 1020（当日配额用尽）分开**：客户端的 isRetryableUploadCode
+	// 把 1020 判为不可重试（"今天重试也没用"），而"等前面几张传完"
+	// 恰恰是**等一下就能成功**的。复用 1020 会让批量上传里被这条挡下的照片
+	// 全部变成不可重试的永久失败，用户只能重新选图 —— 又一次"照片会消失"。
+	codeUploadInFlight = 1028
 )
 
 func handleUploadMedia(c *gin.Context) {
@@ -143,10 +171,43 @@ func handleUploadMedia(c *gin.Context) {
 	}
 	limit := s.PhotoMaxBytes
 	limitMB := limit / (1024 * 1024)
-
-	// 先限死请求体：不这么做的话，超大 body 会在 file.Size 检查之前就把内存/磁盘吃掉。
-	// slack 与头像上传一致，给 multipart 边界与表单字段留余量。
+	idempotencyKey, err := normalizeUploadIdempotencyKey(c.GetHeader("Idempotency-Key"))
+	if err != nil {
+		fail(c, http.StatusBadRequest, 1002, err.Error())
+		return
+	}
+	// 幂等键重试可以在解析 multipart 前直接命中已存在的照片，避免重复解码和落盘。
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit+bytesHeaderSlack)
+	if idempotencyKey != "" {
+		existing, lookupErr := st.GetPhotoByUploadIdempotencyKey(uid, idempotencyKey)
+		if lookupErr != nil {
+			fail(c, http.StatusInternalServerError, codeUploadDiskFailed, "读取上传状态失败，请重试")
+			return
+		}
+		if existing != nil {
+			// 已经成功落库但客户端没收到响应时，直接返回原照片，避免重传产生副本。
+			drainRequestBody(c)
+			ok(c, existing)
+			return
+		}
+	}
+
+	// 必须在 FormFile 之前占槽：Gin 的 FormFile 会先解析整个 multipart，
+	// 若把用户级图片闸门放在后面，攻击者仍可在解析阶段并发占住内存。
+	releaseUserSlot, slotOK := acquireUserSlot(uid)
+	if !slotOK {
+		fail(c, http.StatusTooManyRequests, codeUploadInFlight,
+			"你有多张照片正在上传中，请等前面几张完成再试")
+		return
+	}
+	defer releaseUserSlot()
+	releaseMultipartSlot, parseOK := acquireMultipartParseSlot()
+	if !parseOK {
+		rejectMultipartBusy(c, false)
+		return
+	}
+	defer releaseMultipartSlot()
+	defer releaseParsedMultipartForm(c)
 
 	file, err := c.FormFile("file")
 	if err != nil {
@@ -179,6 +240,7 @@ func handleUploadMedia(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, codeUploadDiskFailed, "临时存储失败，请重试")
 		return
 	}
+	releaseParsedMultipartForm(c)
 	defer os.Remove(tmp)
 
 	// 魔数白名单：不看扩展名、不做内容嗅探。JPEG 必须支持——手机相册九成是 JPG。
@@ -194,8 +256,14 @@ func handleUploadMedia(c *gin.Context) {
 		return
 	}
 
-	photo, err := storeMediaFile(pair.ID, uid, tmp, probe, now)
+	photo, err := storeMediaFile(pair.ID, uid, tmp, probe, now, idempotencyKey)
 	if err != nil {
+		if errors.Is(err, errUploadIdempotent) && photo != nil {
+			// 另一条并发请求已经用同一个幂等键完成；本次预占的配额
+			// 由 defer 回退，重试不应再消耗一张照片额度。
+			ok(c, photo)
+			return
+		}
 		// 分辨"图坏了"与"盘/库出问题"：前者用户换张图就行，后者是服务端故障。
 		switch {
 		case errors.Is(err, ErrAvatarTooLarge):
@@ -223,19 +291,22 @@ func handleUploadMedia(c *gin.Context) {
 }
 
 // storeMediaFile 把临时文件转成正式照片：落盘 + 缩略图 + EXIF + 落库。
-func storeMediaFile(pairID, uid int64, tmp string, probe AvatarProbe, now time.Time) (*Photo, error) {
-	datePath := uploadDatePath(now)
-	dir := filepath.Join(uploadDir, filepath.FromSlash(datePath))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+func storeMediaFile(pairID, uid int64, tmp string, probe AvatarProbe, now time.Time, idempotencyKey string) (*Photo, error) {
+	datePath := privateMediaDatePath(now)
+	dir := filepath.Join(privateMediaDir(), filepath.FromSlash(datePath))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
 
 	worker := newImageWorker(dir)
 
 	base := randomCode(24)
+	if base == "" {
+		return nil, errors.New("secure random source unavailable")
+	}
 	ext, mime := mediaExtMime(probe.Format)
 	rel := datePath + "/" + base + ext
-	full := filepath.Join(uploadDir, filepath.FromSlash(rel))
+	full := filepath.Join(privateMediaDir(), filepath.FromSlash(rel))
 
 	// 三档产物（Q23=B）：thumb 384（网格）/ preview 1080（大图页先显示）/ origin（双指放大才拉）。
 	//
@@ -248,7 +319,7 @@ func storeMediaFile(pairID, uid int64, tmp string, probe AvatarProbe, now time.T
 		derivExt = ".jpg"
 	}
 	thumbRel := datePath + "/" + base + "_thumb" + derivExt
-	thumbFull := filepath.Join(uploadDir, filepath.FromSlash(thumbRel))
+	thumbFull := filepath.Join(privateMediaDir(), filepath.FromSlash(thumbRel))
 	previewRel := ""
 	previewFull := ""
 
@@ -257,8 +328,8 @@ func storeMediaFile(pairID, uid int64, tmp string, probe AvatarProbe, now time.T
 
 	// ★ 解码 + 两次派生图生成整段放进并发闸门（见 image_budget.go）★
 	//
-	// 闸门必须包住这一整段而不是只包 decodeSource：解出的 src 峰值可达数百 MB
-	// （64M 像素上限 × RGBA 4 字节 ≈ 256MB），而它要一直活到 preview 写完。
+	// 闸门必须包住这一整段而不是只包 decodeSource：解出的 src 就有数十 MB
+	// （12M 像素上限 × RGBA 4 字节 ≈ 48MB），而它要一直活到 preview 写完。
 	// 只在解码期间持闸的话，释放后 src 仍在内存里，N 个并发请求照样各持一份。
 	if err := withImageBudget(func() error {
 		// 先解码取真实尺寸（同时挡下解压炸弹：decode 内含 MaxPixels 校验）。
@@ -284,7 +355,7 @@ func storeMediaFile(pairID, uid int64, tmp string, probe AvatarProbe, now time.T
 		// 预览图：源图长边本来就 <= 1080 时不必生成（writeFit 不放大，等于白占一份盘）。
 		if maxOf(meta.Width, meta.Height) > photoPreviewEdge {
 			previewRel = datePath + "/" + base + "_preview" + derivExt
-			previewFull = filepath.Join(uploadDir, filepath.FromSlash(previewRel))
+			previewFull = filepath.Join(privateMediaDir(), filepath.FromSlash(previewRel))
 			if err := worker.writeFit(src, previewFull, photoPreviewEdge, asJPEG); err != nil {
 				// 预览图失败不该让整张上传失败：它只是加速手段，缺了回退原图即可。
 				// 只记 photo 尺寸与错误，**不记 rel** —— 那是真实磁盘相对路径，
@@ -304,14 +375,22 @@ func storeMediaFile(pairID, uid int64, tmp string, probe AvatarProbe, now time.T
 	// 放在闸门外：只读文件头 512KB，与解码的内存量级完全不同。
 	takenAt := readTakenAt(full)
 
-	photo, err := st.CreatePhoto(pairID, uid, 0, rel, thumbRel, previewRel,
-		meta.Width, meta.Height, size, mime, takenAt)
+	photo, err := st.CreatePhotoWithIdempotency(pairID, uid, 0, rel, thumbRel, previewRel,
+		meta.Width, meta.Height, size, mime, takenAt, idempotencyKey)
 	if err != nil {
 		// 入库失败就把盘上产物清掉，避免刷出无主文件占满磁盘。
 		_ = os.Remove(full)
 		_ = os.Remove(thumbFull)
 		if previewFull != "" {
 			_ = os.Remove(previewFull)
+		}
+		if idempotencyKey != "" {
+			// 并发请求可能由另一方先完成同一个幂等键；返回已有照片，
+			// 让客户端把这次请求视为成功，而不是产生重复照片；
+			// 用专用错误通知 handler 回退本次重复请求预占的配额。
+			if existing, lookupErr := st.GetPhotoByUploadIdempotencyKey(uid, idempotencyKey); lookupErr == nil && existing != nil {
+				return existing, errUploadIdempotent
+			}
 		}
 		return nil, err
 	}
@@ -336,32 +415,51 @@ func mediaExtMime(f ImageFormat) (string, string) {
 		return ".gif", "image/gif"
 	case FormatWebP:
 		return ".webp", "image/webp"
+	case FormatBMP:
+		return ".bmp", "image/bmp"
+	case FormatHEIF:
+		return ".heic", "image/heic"
+	case FormatAVIF:
+		return ".avif", "image/avif"
 	default:
 		return ".bin", "application/octet-stream"
 	}
 }
 
 // movePreservingBytes 把临时文件移到目标路径并返回字节数。
-// 优先 rename（同卷零拷贝）；跨卷时回退复制——容器里 tmp 与目标同在 uploadDir 卷，正常走 rename。
+// 优先 rename（同存储卷零拷贝）；跨卷时回退复制——容器里 tmp 与目标通常同卷，正常走 rename。
 func movePreservingBytes(src, dst string) (int64, error) {
 	if err := os.Rename(src, dst); err == nil {
 		if fi, err := os.Stat(dst); err == nil {
 			return fi.Size(), nil
 		}
-		return 0, nil
+		return 0, fmt.Errorf("stat renamed file %q: %w", dst, err)
 	}
 	in, err := os.Open(src)
 	if err != nil {
 		return 0, err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	out, err := os.Create(dst)
 	if err != nil {
 		return 0, err
 	}
-	defer out.Close()
 	n, err := io.Copy(out, in)
 	if err != nil {
+		_ = out.Close()
+		_ = os.Remove(dst)
+		return 0, err
+	}
+	if err := out.Sync(); err != nil {
+		_ = out.Close()
+		_ = os.Remove(dst)
+		return 0, err
+	}
+	if err := out.Close(); err != nil {
+		_ = os.Remove(dst)
+		return 0, err
+	}
+	if err := os.Remove(src); err != nil {
 		_ = os.Remove(dst)
 		return 0, err
 	}
@@ -415,6 +513,18 @@ func handleGetMediaPreview(c *gin.Context) {
 	serveMedia(c, variantPreview)
 }
 
+func canServeMediaVariant(status int, variant mediaVariant, hasThumb bool) bool {
+	switch status {
+	case 1:
+		return true
+	case 2:
+		// 回收站仅允许已有缩略图，绝不以原图作为缩略图的回退。
+		return variant == variantThumb && hasThumb
+	default:
+		return false
+	}
+}
+
 func serveMedia(c *gin.Context, variant mediaVariant) {
 	pair, okP := mustPair(c)
 	if !okP {
@@ -429,6 +539,12 @@ func serveMedia(c *gin.Context, variant mediaVariant) {
 	if err != nil || photo == nil || photo.PairID != pair.ID {
 		// 归属不符与不存在返回同一个响应：区别对待等于给出「该 id 存在」的探测信号。
 		fail(c, http.StatusForbidden, 1017, "无权访问该照片")
+		return
+	}
+	// 回收站列表只需要缩略图；原图和预览图在软删后都不应继续可下载。
+	// 缩略图缺失时也不能回退到原图，否则历史照片会绕过这条隐私边界。
+	if !canServeMediaVariant(photo.Status, variant, photo.diskThumb != "") {
+		fail(c, http.StatusNotFound, 1010, "照片不存在")
 		return
 	}
 	// 档位选择，缺失一律回退原图：历史照片没有 preview，不能因此 404。
@@ -464,17 +580,41 @@ func serveMedia(c *gin.Context, variant mediaVariant) {
 	h.Set("Cache-Control", "private, max-age=2592000, immutable")
 	// ETag 让客户端在缓存过期后也能用 304 省下整张图的流量。
 	// 用 id+档位+文件大小+修改时间：任一变化都会得到新的 ETag。
-	h.Set("ETag", fmt.Sprintf(`"p%d-v%d-%d-%d"`, photo.ID, variant, fi.Size(), fi.ModTime().Unix()))
+	etag := fmt.Sprintf(`"p%d-v%d-%d-%d"`, photo.ID, variant, fi.Size(), fi.ModTime().Unix())
+	h.Set("ETag", etag)
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Content-Disposition", "inline")
 	if photo.Mime != "" && variant == variantOrigin {
 		h.Set("Content-Type", photo.Mime)
 	}
+	// net/http 的 File/ServeContent 不会拿自定义 ETag 自动完成 If-None-Match
+	// 比较；只设置 ETag 而不处理请求头会让客户端每次都重新传完整图片。
+	if etagMatches(c.GetHeader("If-None-Match"), etag) {
+		c.Status(http.StatusNotModified)
+		return
+	}
 	c.File(full)
 }
 
-// safeUploadPath 把库里的相对路径映射为 uploadDir 下的绝对路径，并防路径穿越。
-// 即便库值被写坏（或历史脏数据带 ../），也不能让请求读到 uploadDir 之外的文件。
+// etagMatches 实现 GET/HEAD 所需的 If-None-Match 弱比较。
+// 代理可能发送逗号分隔的多个值或 W/ 前缀，不能只做字符串全等。
+func etagMatches(header, current string) bool {
+	for _, candidate := range strings.Split(header, ",") {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "*" {
+			return true
+		}
+		candidate = strings.TrimPrefix(candidate, "W/")
+		if candidate == current {
+			return true
+		}
+	}
+	return false
+}
+
+// safeUploadPath 把库里的相对路径映射到对应的公开或私密根目录，并防路径穿越。
+// media/ 只允许映射到 privateMediaDir；upload/ 等历史公开路径仍映射到 uploadDir，
+// 以便迁移期间和旧头像/后台资源继续可用。
 func safeUploadPath(rel string) (string, bool) {
 	rel = strings.TrimSpace(rel)
 	if rel == "" || strings.Contains(rel, "..") || strings.HasPrefix(rel, "/") ||
@@ -485,7 +625,12 @@ func safeUploadPath(rel string) (string, bool) {
 	if clean == "." || strings.HasPrefix(clean, "..") || filepath.IsAbs(clean) {
 		return "", false
 	}
-	return filepath.Join(uploadDir, clean), true
+	root := uploadDir
+	cleanSlash := filepath.ToSlash(clean)
+	if cleanSlash == "media" || strings.HasPrefix(cleanSlash, "media/") {
+		root = privateMediaDir()
+	}
+	return filepath.Join(root, clean), true
 }
 
 // photoIDFromMediaURL 从 /media/<id> 或 /media/<id>/thumb 形态的 URL 取出照片 id。

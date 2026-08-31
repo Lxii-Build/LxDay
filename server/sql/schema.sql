@@ -91,12 +91,17 @@ CREATE TABLE IF NOT EXISTS photo (
   -- preview_path: 长边 1080 的中间尺寸，让"点开大图"秒出（三档 thumb 384/preview 1080/origin）
   preview_path TEXT,
   -- deleted_at: 进回收站的时刻，供「N 天后自动彻底删除」与剩余天数展示
-  deleted_at   DATETIME
+  deleted_at   DATETIME,
+  -- upload_idempotency_key: 客户端上传重试的幂等键，避免弱网超时造成重复照片
+  upload_idempotency_key TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_photo_pair_album_status ON photo(pair_id, album_id, status);
 CREATE INDEX IF NOT EXISTS idx_photo_pair_taken ON photo(pair_id, taken_at);
 -- 回收站定时清理按 status + deleted_at 扫描
 CREATE INDEX IF NOT EXISTS idx_photo_status_deleted ON photo(status, deleted_at);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_photo_upload_idempotency
+  ON photo(uploader_id, upload_idempotency_key)
+  WHERE upload_idempotency_key IS NOT NULL AND upload_idempotency_key <> '';
 
 CREATE TABLE IF NOT EXISTS photo_comment (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -231,5 +236,4 @@ CREATE TABLE IF NOT EXISTS request_log (
 CREATE INDEX IF NOT EXISTS idx_reqlog_created ON request_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_reqlog_path ON request_log(path);
 CREATE INDEX IF NOT EXISTS idx_reqlog_status ON request_log(status);
-
 

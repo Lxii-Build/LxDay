@@ -26,7 +26,15 @@ import (
 // handleAdminListAlbums 按 pair 列出相册，含张数与占用空间。
 func handleAdminListAlbums(c *gin.Context) {
 	limit, offset, current, size := pageParams(c)
-	pairFilter, _ := strconv.ParseInt(c.Query("pair_id"), 10, 64)
+	pairFilter := int64(0)
+	if raw := strings.TrimSpace(c.Query("pair_id")); raw != "" {
+		var err error
+		pairFilter, err = strconv.ParseInt(raw, 10, 64)
+		if err != nil || pairFilter <= 0 {
+			afail(c, 400, 400, "pair_id 参数错误")
+			return
+		}
+	}
 	keyword := strings.TrimSpace(c.Query("keyword"))
 
 	where := "WHERE a.status=1"
@@ -88,7 +96,11 @@ func handleAdminListAlbums(c *gin.Context) {
 
 // handleAdminDeleteAlbum 后台删相册（软删，照片退回未归类）。
 func handleAdminDeleteAlbum(c *gin.Context) {
-	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		afail(c, 400, 400, "参数错误")
+		return
+	}
 	var pairID int64
 	if err := st.DB.QueryRow(`SELECT pair_id FROM album WHERE id=?`, id).Scan(&pairID); err != nil {
 		afail(c, 404, 404, "相册不存在")
@@ -162,6 +174,9 @@ func handleAdminStorageStats(c *gin.Context) {
 
 	// 真实磁盘占用（含缩略图与预览图，库里的 size_bytes 只统计原图）。
 	diskBytes, fileCount := dirUsage(uploadDir)
+	privateBytes, privateFiles := dirUsage(privateMediaDir())
+	diskBytes += privateBytes
+	fileCount += privateFiles
 
 	aok(c, gin.H{
 		"pairs": list,
@@ -202,8 +217,8 @@ func dirUsage(root string) (bytes int64, files int64) {
 
 // handleAdminPurgeRecycleBin 后台清空某 pair 的回收站（真删磁盘）。
 func handleAdminPurgeRecycleBin(c *gin.Context) {
-	pairID, _ := strconv.ParseInt(c.Param("id"), 10, 64)
-	if pairID <= 0 {
+	pairID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || pairID <= 0 {
 		afail(c, 400, 400, "参数错误")
 		return
 	}
@@ -223,7 +238,11 @@ func handleAdminPurgeRecycleBin(c *gin.Context) {
 // 但看不清细节，比暴露原图的隐私面小得多。
 // 每次调用都写审计——管理员看了谁的哪张照片必须留痕，包括他自己。
 func handleAdminPhotoThumb(c *gin.Context) {
-	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		afail(c, 400, 400, "参数错误")
+		return
+	}
 	photo, err := st.GetPhoto(id)
 	if err != nil || photo == nil {
 		afail(c, 404, 404, "照片不存在")

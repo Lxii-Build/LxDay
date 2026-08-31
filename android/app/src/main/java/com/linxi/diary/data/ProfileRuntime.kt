@@ -39,6 +39,9 @@ object ProfileRuntime {
     fun refreshAsync() {
         if (!com.linxi.diary.sync.ProfileSyncPolicy.canConnectNow()) return
         scope.launch {
+            runCatching { ApiClient.clientConfig() }
+                .onSuccess { ClientRuntimeConfig.apply(it) }
+                .onFailure { Logs.w("Config", "客户端运行配置刷新失败，继续使用上次快照", it) }
             runCatching { repository.refresh() }
                 .onSuccess { result ->
                     ProfileRefreshAction.fromResult(result)?.let { action ->

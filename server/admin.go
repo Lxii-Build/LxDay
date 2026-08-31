@@ -21,6 +21,8 @@ import (
 
 const adminCodeOK = 200
 
+var errLastSuperAdmin = errors.New("cannot remove last active super admin")
+
 func aok(c *gin.Context, data interface{}) {
 	c.JSON(http.StatusOK, gin.H{"code": adminCodeOK, "msg": "success", "data": data})
 }
@@ -100,7 +102,7 @@ func AdminAuth() gin.HandlerFunc {
 		"/api/admin/site-info": true,
 	}
 	return func(c *gin.Context) {
-		token := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
+		token := bearerToken(c.GetHeader("Authorization"))
 		aid, tv, err := parseAdminToken(token)
 		if err != nil {
 			afail(c, http.StatusUnauthorized, 401, "登录已失效，请重新登录")
@@ -168,8 +170,13 @@ type AdminUser struct {
 }
 
 func (s *Store) EnsureSuperAdmin() error {
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 	var n int
-	if err := s.DB.QueryRow("SELECT COUNT(*) FROM admin_user").Scan(&n); err != nil {
+	if err := tx.QueryRow("SELECT COUNT(*) FROM admin_user").Scan(&n); err != nil {
 		return err
 	}
 	if n > 0 {
@@ -177,7 +184,12 @@ func (s *Store) EnsureSuperAdmin() error {
 	}
 	// 安全：不使用公开可知的默认口令（admin/123456 会被抢注接管），改为随机初始口令。
 	pw := randomPassword(16)
-	_, err := s.DB.Exec(
+	if pw == "" {
+		return errors.New("secure random source unavailable")
+	}
+	// 先在事务中写入数据库，文件写失败时回滚，避免留下一个没有可取回
+	// 初始口令的管理员账号，导致后续启动永远跳过初始化。
+	if _, err = tx.Exec(
 		"INSERT INTO admin_user(username,password_hash,role,must_change) VALUES(?,?,?,1)",
 		"admin", hashPassword(pw), "super")
 	if err != nil {
@@ -192,10 +204,13 @@ func (s *Store) EnsureSuperAdmin() error {
 		"初始口令: " + pw + "\r\n\r\n" +
 		"请立即登录后台完成首登强制改密，改密后请删除本文件。\r\n"
 	if werr := os.WriteFile(pwPath, []byte(content), 0o600); werr != nil {
-		// 写文件失败时只能退回日志，否则管理员将永远无法登录。
-		slog.Warn("初始口令文件写入失败，仅此一次打印到日志，请立即登录改密并清理日志",
-			"path", pwPath, "err", werr, "username", "admin", "password", pw)
-		return nil
+		// 绝不能把口令退回日志：日志通常会被持久化或转发到第三方。
+		// 文件写失败时让启动失败，避免留下一个没人能安全取回口令的管理员。
+		return fmt.Errorf("write initial admin password file %s: %w", pwPath, werr)
+	}
+	if err := tx.Commit(); err != nil {
+		_ = os.Remove(pwPath)
+		return err
 	}
 	slog.Warn("已创建初始超级管理员，口令写入文件（未打印到日志）；登录并改密后请删除该文件",
 		"username", "admin", "password_file", pwPath)
@@ -221,16 +236,29 @@ func (s *Store) GetAdminByID(id int64) (*AdminUser, error) {
 }
 
 func (s *Store) TouchAdminLogin(id int64) {
-	s.DB.Exec("UPDATE admin_user SET last_login_at=datetime('now') WHERE id=?", id)
+	if _, err := s.DB.Exec("UPDATE admin_user SET last_login_at=datetime('now') WHERE id=?", id); err != nil {
+		// 登录已经成功，时间戳更新失败不应把用户踢出，但必须留痕便于发现数据库异常。
+		slog.Error("touch admin login failed", "admin_id", id, "err", err)
+	}
 }
 
 func (s *Store) UpdateAdminCredentials(id int64, username, hash string, email *string) error {
 	// 改凭据即令旧 token 全部失效（token_ver+1）：否则改完密码，
 	// 泄露的旧 token 仍能用满整个有效期。
-	_, err := s.DB.Exec(
+	res, err := s.DB.Exec(
 		"UPDATE admin_user SET username=?, password_hash=?, email=?, must_change=0, token_ver=token_ver+1 WHERE id=?",
 		username, hash, email, id)
-	return err
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // ---------- 管理员 token 撤销 ----------
@@ -245,35 +273,103 @@ func (s *Store) AdminTokenVer(id int64) (int64, error) {
 // BumpAdminTokenVer 令该管理员所有已签发 token 立即失效
 // （重置密码、禁用、改角色、删除时调用）。
 func (s *Store) BumpAdminTokenVer(id int64) error {
-	_, err := s.DB.Exec("UPDATE admin_user SET token_ver=token_ver+1 WHERE id=?", id)
-	return err
+	res, err := s.DB.Exec("UPDATE admin_user SET token_ver=token_ver+1 WHERE id=?", id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // ---------- 管理员管理（角色/状态/密码/删除） ----------
 
 func (s *Store) UpdateAdminRole(id int64, role string) error {
 	// 角色变更必须撤销旧 token，否则降级后的管理员仍持有 super 权限的 token。
-	_, err := s.DB.Exec(
-		"UPDATE admin_user SET role=?, token_ver=token_ver+1 WHERE id=?", role, id)
-	return err
+	res, err := s.DB.Exec(
+		`UPDATE admin_user
+		 SET role=?, token_ver=token_ver+1
+		 WHERE id=?
+		   AND (role<>'super' OR status<>1 OR ?='super' OR
+		        (SELECT COUNT(*) FROM admin_user other
+		          WHERE other.role='super' AND other.status=1 AND other.id<>?)>0)`,
+		role, id, role, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return errLastSuperAdmin
+	}
+	return nil
 }
 
 func (s *Store) UpdateAdminStatus(id int64, status int) error {
-	_, err := s.DB.Exec(
-		"UPDATE admin_user SET status=?, token_ver=token_ver+1 WHERE id=?", status, id)
-	return err
+	res, err := s.DB.Exec(
+		`UPDATE admin_user
+		 SET status=?, token_ver=token_ver+1
+		 WHERE id=?
+		   AND (role<>'super' OR status<>1 OR ?<>2 OR
+		        (SELECT COUNT(*) FROM admin_user other
+		          WHERE other.role='super' AND other.status=1 AND other.id<>?)>0)`,
+		status, id, status, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return errLastSuperAdmin
+	}
+	return nil
 }
 
 func (s *Store) ResetAdminPassword(id int64, hash string) error {
 	// 重置密码后旧 token 必须失效，否则「重置密码」形同虚设。
-	_, err := s.DB.Exec(
+	res, err := s.DB.Exec(
 		"UPDATE admin_user SET password_hash=?, token_ver=token_ver+1 WHERE id=?", hash, id)
-	return err
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (s *Store) DeleteAdmin(id int64) error {
-	_, err := s.DB.Exec("DELETE FROM admin_user WHERE id=?", id)
-	return err
+	res, err := s.DB.Exec(
+		`DELETE FROM admin_user
+		 WHERE id=?
+		   AND (role<>'super' OR status<>1 OR
+		        (SELECT COUNT(*) FROM admin_user other
+		          WHERE other.role='super' AND other.status=1 AND other.id<>?)>0)`,
+		id, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return errLastSuperAdmin
+	}
+	return nil
 }
 
 // CountActiveSuperAdmins 统计仍启用的超管数量，用于阻止把最后一个超管删掉/降级/禁用
@@ -311,7 +407,8 @@ func (s *Store) ListAdminsPaged(keyword string, limit, offset int) ([]AdminUser,
 	for rows.Next() {
 		var a AdminUser
 		if err := rows.Scan(&a.ID, &a.Username, &a.Email, &a.Role, &a.MustChange, &a.Status); err != nil {
-			return nil, 0, err
+			slog.Error("scan admin_user row failed", "err", err)
+			continue
 		}
 		out = append(out, a)
 	}
@@ -319,9 +416,39 @@ func (s *Store) ListAdminsPaged(keyword string, limit, offset int) ([]AdminUser,
 }
 
 func (s *Store) AddAudit(adminID int64, name, action, detail, ip string) {
-	s.DB.Exec(
+	if _, err := s.DB.Exec(
 		"INSERT INTO admin_audit_log(admin_id,admin_name,action,detail,ip) VALUES(?,?,?,?,?)",
-		adminID, name, action, detail, ip)
+		adminID, name, action, detail, ip); err != nil {
+		slog.Error("write admin audit failed", "admin_id", adminID, "action", action, "err", err)
+	}
+}
+
+func validateAdminUsername(raw string) (string, error) {
+	username := strings.TrimSpace(raw)
+	if len([]byte(username)) < 3 || len([]byte(username)) > 64 {
+		return "", errors.New("用户名长度 3-64")
+	}
+	return username, nil
+}
+
+func normalizeAdminEmail(raw string) (*string, error) {
+	email := strings.ToLower(strings.TrimSpace(raw))
+	if email == "" {
+		return nil, nil
+	}
+	if len([]byte(email)) > maxEmailBytes || !reEmail.MatchString(email) {
+		return nil, errors.New("邮箱格式不正确")
+	}
+	return &email, nil
+}
+
+// adminSettingValue 把「尚未配置」视为空值，但不吞掉真正的数据库故障。
+func adminSettingValue(key string) (string, error) {
+	v, err := st.GetSetting(key)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return v, err
 }
 
 // APPEND-ADMIN-2
@@ -345,6 +472,11 @@ func handleAdminLogin(c *gin.Context) {
 	failWindow := time.Duration(set.LoginRateWindowMin) * time.Minute
 	if st.mem.count(failKey) >= int64(set.AdminLoginMaxFails) {
 		afail(c, 429, 429, fmt.Sprintf("登录尝试过于频繁，请 %d 分钟后再试", set.LoginRateWindowMin))
+		return
+	}
+	if len([]byte(uname)) > 64 || len([]byte(req.Password)) > maxPasswordBytes {
+		st.mem.incr(failKey, failWindow)
+		afail(c, 400, 400, "账号或密码错误")
 		return
 	}
 	a, hash, err := st.GetAdminForLogin(uname)
@@ -405,11 +537,11 @@ func handleAdminChangeCredentials(c *gin.Context) {
 	}
 	username := a.Username
 	if u := strings.TrimSpace(req.Username); u != "" {
-		if len(u) < 3 || len(u) > 64 {
-			afail(c, 400, 400, "用户名长度 3-64")
+		var err error
+		if username, err = validateAdminUsername(u); err != nil {
+			afail(c, 400, 400, err.Error())
 			return
 		}
-		username = u
 	}
 	newHash := hash
 	// 首登强制改密不可绕过：此前 Password 允许为空，攻击者只要带着 old_password
@@ -430,9 +562,13 @@ func handleAdminChangeCredentials(c *gin.Context) {
 		}
 		newHash = hashPassword(req.Password)
 	}
-	var email *string
-	if e := strings.TrimSpace(req.Email); e != "" {
-		email = &e
+	email := a.Email
+	if req.Email != "" {
+		var err error
+		if email, err = normalizeAdminEmail(req.Email); err != nil {
+			afail(c, 400, 400, err.Error())
+			return
+		}
 	} else {
 		email = a.Email
 	}
@@ -448,7 +584,11 @@ func handleAdminChangeCredentials(c *gin.Context) {
 		afail(c, 500, 500, "签发登录凭据失败")
 		return
 	}
-	newToken, _ := signAdminToken(aid, a.Role, false, tv)
+	newToken, err := signAdminToken(aid, a.Role, false, tv)
+	if err != nil {
+		afail(c, 500, 500, "签发登录凭据失败")
+		return
+	}
 	aok(c, gin.H{"ok": true, "token": newToken, "refreshToken": newToken})
 }
 
@@ -580,8 +720,23 @@ func (s *Store) ListUsers(keyword string, limit, offset int) ([]AdminUserRow, in
 }
 
 func (s *Store) SetUserStatus(id int64, status int) error {
-	_, err := s.DB.Exec("UPDATE `user` SET status=? WHERE id=?", status, id)
-	return err
+	if status != 1 && status != 2 {
+		return fmt.Errorf("invalid user status %d", status)
+	}
+	res, err := s.DB.Exec(
+		"UPDATE `user` SET status=?, token_ver=token_ver+1 WHERE id=?",
+		status, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func handleAdminListUsers(c *gin.Context) {
@@ -645,7 +800,7 @@ func (s *Store) ListPairs(limit, offset int) ([]gin.H, int, error) {
 	// 成倍缩小爆破空间（invite.go 把它从 6 位数字加长到 8 位混合字符正是为了这个）。
 	rows, err := s.DB.Query(
 		"SELECT p.id,p.user_a_id,p.user_b_id,COALESCE(ua.nickname,''),COALESCE(ub.nickname,''),p.status,"+
-			"CASE WHEN p.invite_code IS NOT NULL AND p.invite_code<>'' THEN 1 ELSE 0 END,p.created_at "+
+			"CASE WHEN p.status=1 AND p.user_a_id>0 AND p.user_b_id=0 AND p.invite_code IS NOT NULL AND p.invite_code<>'' THEN 1 ELSE 0 END,p.created_at "+
 			"FROM pair p LEFT JOIN `user` ua ON ua.id=p.user_a_id LEFT JOIN `user` ub ON ub.id=p.user_b_id "+
 			"ORDER BY p.id DESC LIMIT ? OFFSET ?", limit, offset)
 	if err != nil {
@@ -690,7 +845,11 @@ func handleAdminListPairs(c *gin.Context) {
 }
 
 func handleAdminUnbindPair(c *gin.Context) {
-	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		afail(c, 400, 400, "参数错误")
+		return
+	}
 	if err := st.UnbindPair(id); err != nil {
 		afail(c, 500, 500, "操作失败")
 		return
@@ -771,8 +930,15 @@ func handleAdminListTodos(c *gin.Context) {
 }
 
 func handleAdminDeleteTodo(c *gin.Context) {
-	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
-	st.DeleteTodo(id)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		afail(c, 400, 400, "参数错误")
+		return
+	}
+	if err := st.DeleteTodo(id); err != nil {
+		afail(c, 500, 500, "删除失败")
+		return
+	}
 	st.AddAudit(c.GetInt64("aid"), "", "delete_todo", "todo="+strconv.FormatInt(id, 10), c.ClientIP())
 	aok(c, gin.H{"ok": true})
 }
@@ -783,7 +949,15 @@ func handleAdminDeleteTodo(c *gin.Context) {
 // 只回元数据，不回图片 URL——见 Store.ListPhotosAll 的说明。
 func handleAdminListPhotos(c *gin.Context) {
 	limit, offset, current, size := pageParams(c)
-	pairID, _ := strconv.ParseInt(c.DefaultQuery("pair_id", "0"), 10, 64)
+	pairID := int64(0)
+	if raw := strings.TrimSpace(c.DefaultQuery("pair_id", "0")); raw != "" && raw != "0" {
+		var err error
+		pairID, err = strconv.ParseInt(raw, 10, 64)
+		if err != nil || pairID <= 0 {
+			afail(c, 400, 400, "pair_id 参数错误")
+			return
+		}
+	}
 	list, total, err := st.ListPhotosAll(strings.TrimSpace(c.Query("keyword")), pairID, limit, offset)
 	if err != nil {
 		afail(c, 500, 500, "查询失败")
@@ -922,11 +1096,17 @@ func handleAdminCreateAdmin(c *gin.Context) {
 		afail(c, 400, 400, "角色只能是 admin 或 super")
 		return
 	}
-	var email *string
-	if e := strings.TrimSpace(req.Email); e != "" {
-		email = &e
+	username, err := validateAdminUsername(req.Username)
+	if err != nil {
+		afail(c, 400, 400, err.Error())
+		return
 	}
-	id, err := st.CreateAdmin(strings.TrimSpace(req.Username), hashPassword(req.Password), role, email)
+	email, err := normalizeAdminEmail(req.Email)
+	if err != nil {
+		afail(c, 400, 400, err.Error())
+		return
+	}
+	id, err := st.CreateAdmin(username, hashPassword(req.Password), role, email)
 	if err != nil {
 		afail(c, 400, 400, "用户名已被占用")
 		return
@@ -986,6 +1166,10 @@ func handleAdminSetVersionStatus(c *gin.Context) {
 		return
 	}
 	if err := st.SetAppVersionStatus(id, req.Status); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			afail(c, 404, 404, "版本不存在")
+			return
+		}
 		afail(c, 500, 500, "操作失败")
 		return
 	}
@@ -993,8 +1177,19 @@ func handleAdminSetVersionStatus(c *gin.Context) {
 }
 
 func handleAdminDeleteVersion(c *gin.Context) {
-	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
-	st.DeleteAppVersion(id)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		afail(c, 400, 400, "参数错误")
+		return
+	}
+	if err := st.DeleteAppVersion(id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			afail(c, 404, 404, "版本不存在")
+			return
+		}
+		afail(c, 500, 500, "删除失败")
+		return
+	}
 	aok(c, gin.H{"ok": true})
 }
 
@@ -1044,11 +1239,21 @@ var auditPublicSettingKeys = map[string]bool{
 // —— 若前端继续用它取站点名，普通 admin 会吃 403、后台顶栏连站点名都显示不出来。
 // 同时它也在首登强制改密的白名单里：改密页自己也要显示站点名与 LOGO。
 func handleAdminSiteInfo(c *gin.Context) {
-	get := func(k string) string { v, _ := st.GetSetting(k); return v }
+	get := func(k string) (string, bool) {
+		v, err := adminSettingValue(k)
+		return v, err == nil
+	}
+	name, okName := get("site.name")
+	logo, okLogo := get("site.logo")
+	description, okDescription := get("site.description")
+	if !okName || !okLogo || !okDescription {
+		afail(c, 500, 500, "读取站点配置失败")
+		return
+	}
 	aok(c, gin.H{
-		"site.name":        get("site.name"),
-		"site.logo":        get("site.logo"),
-		"site.description": get("site.description"),
+		"site.name":        name,
+		"site.logo":        logo,
+		"site.description": description,
 	})
 }
 
@@ -1061,7 +1266,11 @@ func handleAdminSiteInfo(c *gin.Context) {
 func handleAdminGetSettings(c *gin.Context) {
 	m := map[string]string{}
 	for _, k := range settingKeys {
-		v, _ := st.GetSetting(k)
+		v, err := adminSettingValue(k)
+		if err != nil {
+			afail(c, 500, 500, "读取配置失败")
+			return
+		}
 		if k == "smtp.password" && v != "" {
 			v = "__set__" // 不回传明文
 		}
@@ -1096,9 +1305,14 @@ func handleAdminUpdateSettings(c *gin.Context) {
 		sensitive[k] = true
 	}
 
-	// 审计要记「键名: 旧值→新值」而非只记条数（Q42=C）。
-	// 此前只写 `keys=3`，真出问题时完全查不出是谁把配额改成了 0。
-	changes := make([]string, 0, len(in))
+	// 先收集并校验全部变更，最后一次事务提交。不能边遍历边写：map 遍历顺序不稳定，
+	// 如果请求里混入了无权限键或中途数据库故障，旧实现会留下半套配置。
+	type settingChange struct {
+		key, value string
+		audit           string
+		runtime, site   bool
+	}
+	pending := make([]settingChange, 0, len(in))
 	runtimeTouched := false
 	siteTouched := false
 
@@ -1112,13 +1326,13 @@ func handleAdminUpdateSettings(c *gin.Context) {
 			if k == "smtp.password" && v == "__set__" {
 				continue // 占位符表示不修改
 			}
-			old, _ := st.GetSetting(k)
+			old, err := adminSettingValue(k)
+			if err != nil {
+				afail(c, 500, 500, "读取配置失败")
+				return
+			}
 			if old == v {
 				continue
-			}
-			if err := st.SetSetting(k, v); err != nil {
-				afail(c, 500, 500, "保存失败")
-				return
 			}
 			// 敏感键一律只记「改过了」，不记值。
 			//
@@ -1132,14 +1346,11 @@ func handleAdminUpdateSettings(c *gin.Context) {
 			// 其余敏感键全部脱敏。用白名单而不是继续往黑名单里补词，
 			// 是因为将来新增的敏感键（比如某个第三方 token）默认会落进"要脱敏"那侧，
 			// 而黑名单的默认行为是"明文记下来"，漏一个就泄露一个。
+			audit := k + ": ***→***"
 			if auditPublicSettingKeys[k] {
-				changes = append(changes, fmt.Sprintf("%s: %q→%q", k, old, v))
-			} else {
-				changes = append(changes, k+": ***→***")
+				audit = fmt.Sprintf("%s: %q→%q", k, old, v)
 			}
-			if strings.HasPrefix(k, "site.") {
-				siteTouched = true
-			}
+			pending = append(pending, settingChange{key: k, value: v, audit: audit, site: strings.HasPrefix(k, "site.")})
 		case isRuntimeSettingKey(k):
 			// 运行参数整体"不含密钥所以放给普通 admin"，但其中两组不能放：
 			//   - retention.*：调小即触发不可逆清理（回收站那条连磁盘文件一起真删）；
@@ -1149,20 +1360,46 @@ func handleAdminUpdateSettings(c *gin.Context) {
 				afail(c, 403, 403, "修改「"+k+"」需要超级管理员权限")
 				return
 			}
-			old, _ := st.GetSetting(k)
+			old, err := adminSettingValue(k)
+			if err != nil {
+				afail(c, 500, 500, "读取配置失败")
+				return
+			}
 			if old == v {
 				continue
 			}
-			if err := st.SetSetting(k, v); err != nil {
-				afail(c, 500, 500, "保存失败")
-				return
-			}
-			changes = append(changes, fmt.Sprintf("%s: %q→%q", k, old, v))
-			runtimeTouched = true
+			pending = append(pending, settingChange{key: k, value: v, audit: fmt.Sprintf("%s: %q→%q", k, old, v), runtime: true})
 		default:
 			// 不认识的键静默忽略（白名单语义），不因此让整个请求失败。
 			continue
 		}
+	}
+	if len(pending) > 0 {
+		tx, err := st.DB.Begin()
+		if err != nil {
+			afail(c, 500, 500, "保存失败")
+			return
+		}
+		defer tx.Rollback()
+		for _, change := range pending {
+			if _, err := tx.Exec(
+				"INSERT INTO app_setting(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
+				change.key, change.value); err != nil {
+				_ = tx.Rollback()
+				afail(c, 500, 500, "保存失败")
+				return
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			afail(c, 500, 500, "保存失败")
+			return
+		}
+	}
+	changes := make([]string, 0, len(pending))
+	for _, change := range pending {
+		changes = append(changes, change.audit)
+		runtimeTouched = runtimeTouched || change.runtime
+		siteTouched = siteTouched || change.site
 	}
 
 	if siteTouched {
@@ -1234,8 +1471,10 @@ func (s *Store) DeleteNotifyTemplate(id int64) error {
 }
 
 func (s *Store) AddNotifyRecord(code, title, body, target string, sent int) {
-	s.DB.Exec("INSERT INTO notify_record(template_code,title,body,target,sent_count) VALUES(?,?,?,?,?)",
-		code, title, body, target, sent)
+	if _, err := s.DB.Exec("INSERT INTO notify_record(template_code,title,body,target,sent_count) VALUES(?,?,?,?,?)",
+		code, title, body, target, sent); err != nil {
+		slog.Error("insert notify record failed", "template_code", code, "err", err)
+	}
 }
 
 func (s *Store) ListNotifyRecords(limit, offset int) ([]gin.H, int, error) {
@@ -1411,6 +1650,19 @@ func resolveNotifyTargets(target string) ([]int64, error) {
 // ---------- 通用文件上传（APK / LOGO 等，落存储抽象层） ----------
 
 func handleAdminUpload(c *gin.Context) {
+	releaseMultipartSlot, parseOK := acquireMultipartParseSlot()
+	if !parseOK {
+		rejectMultipartBusy(c, true)
+		return
+	}
+	defer releaseMultipartSlot()
+	defer releaseParsedMultipartForm(c)
+
+	// 先限制整个请求体，再让 FormFile 解析；否则 file.Size 检查之前就可能
+	// 把任意大的请求写入内存或临时盘。300MB 是业务上限，额外空间只留给 multipart 头。
+	const adminUploadMaxBytes = 300*1024*1024 + bytesHeaderSlack
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, adminUploadMaxBytes)
+
 	file, err := c.FormFile("file")
 	if err != nil {
 		afail(c, 400, 400, "缺少文件字段 file")
@@ -1428,7 +1680,12 @@ func handleAdminUpload(c *gin.Context) {
 		afail(c, 400, 400, "不支持的文件类型")
 		return
 	}
-	rel := "upload/" + randomCode(20) + ext
+	base := randomCode(20)
+	if base == "" {
+		afail(c, 500, 500, "安全随机源不可用")
+		return
+	}
+	rel := "upload/" + base + ext
 	dst := filepath.Join(uploadDir, filepath.FromSlash(rel))
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		afail(c, 500, 500, "存储目录创建失败")
@@ -1438,6 +1695,7 @@ func handleAdminUpload(c *gin.Context) {
 		afail(c, 500, 500, "保存失败")
 		return
 	}
+	releaseParsedMultipartForm(c)
 	url := newStorage().PublicURL(rel)
 	st.AddAudit(c.GetInt64("aid"), "", "upload", rel, c.ClientIP())
 	aok(c, gin.H{"url": url, "apk_url": url})
@@ -1486,12 +1744,21 @@ func handleAdminUpdateAdminRole(c *gin.Context) {
 	}
 	// 把最后一个启用的超管降级 = 系统再无人可管理设置与管理员。
 	if target.Role == "super" && req.Role != "super" {
-		if n, _ := st.CountActiveSuperAdmins(id); n == 0 {
+		n, err := st.CountActiveSuperAdmins(id)
+		if err != nil {
+			afail(c, 500, 500, "检查超级管理员失败")
+			return
+		}
+		if n == 0 {
 			afail(c, 400, 400, "至少需要保留一个启用状态的超级管理员")
 			return
 		}
 	}
 	if err := st.UpdateAdminRole(id, req.Role); err != nil {
+		if errors.Is(err, errLastSuperAdmin) {
+			afail(c, 400, 400, "至少需要保留一个启用状态的超级管理员")
+			return
+		}
 		afail(c, 500, 500, "更新失败")
 		return
 	}
@@ -1518,12 +1785,21 @@ func handleAdminSetAdminStatus(c *gin.Context) {
 		return
 	}
 	if req.Status == 2 && target.Role == "super" {
-		if n, _ := st.CountActiveSuperAdmins(id); n == 0 {
+		n, err := st.CountActiveSuperAdmins(id)
+		if err != nil {
+			afail(c, 500, 500, "检查超级管理员失败")
+			return
+		}
+		if n == 0 {
 			afail(c, 400, 400, "至少需要保留一个启用状态的超级管理员")
 			return
 		}
 	}
 	if err := st.UpdateAdminStatus(id, req.Status); err != nil {
+		if errors.Is(err, errLastSuperAdmin) {
+			afail(c, 400, 400, "至少需要保留一个启用状态的超级管理员")
+			return
+		}
 		afail(c, 500, 500, "更新失败")
 		return
 	}
@@ -1573,12 +1849,21 @@ func handleAdminDeleteAdmin(c *gin.Context) {
 		return
 	}
 	if target.Role == "super" {
-		if n, _ := st.CountActiveSuperAdmins(id); n == 0 {
+		n, err := st.CountActiveSuperAdmins(id)
+		if err != nil {
+			afail(c, 500, 500, "检查超级管理员失败")
+			return
+		}
+		if n == 0 {
 			afail(c, 400, 400, "至少需要保留一个启用状态的超级管理员")
 			return
 		}
 	}
 	if err := st.DeleteAdmin(id); err != nil {
+		if errors.Is(err, errLastSuperAdmin) {
+			afail(c, 400, 400, "至少需要保留一个启用状态的超级管理员")
+			return
+		}
 		afail(c, 500, 500, "删除失败")
 		return
 	}

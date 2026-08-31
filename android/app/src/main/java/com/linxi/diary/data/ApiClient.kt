@@ -34,6 +34,15 @@ object ApiClient {
             .build()
     }
 
+    private val uploadClient by lazy {
+        client.newBuilder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.MINUTES)
+            .writeTimeout(5, TimeUnit.MINUTES)
+            .callTimeout(5, TimeUnit.MINUTES)
+            .build()
+    }
+
     private fun request(method: String, path: String, body: RequestBody?): Request.Builder {
         val b = Request.Builder().url(BASE + path)
         UserPrefs.token?.let { b.header("Authorization", "Bearer $it") }
@@ -148,7 +157,7 @@ object ApiClient {
             .setType(MultipartBody.FORM)
             .addFormDataPart("file", file.name, file.asRequestBody(media))
             .build()
-        val resp = client.newCall(request("POST", path, mb).build()).execute()
+        val resp = uploadClient.newCall(request("POST", path, mb).build()).execute()
         val text = resp.body?.string().orEmpty()
         if (!resp.isSuccessful) throw ApiException(-1, "HTTP ${resp.code}")
         check(text).optJSONObject("data")?.optString("url") ?: ""
@@ -229,7 +238,7 @@ object ApiClient {
                 file.asRequestBody("application/octet-stream".toMediaType()),
             )
             .build()
-        val resp = client.newCall(request("POST", "/profile/avatar", mb).build()).execute()
+        val resp = uploadClient.newCall(request("POST", "/profile/avatar", mb).build()).execute()
         val text = resp.body?.string().orEmpty()
         // 走统一的失败处理：服务端会返回中文原因（如"暂不支持该图片格式"），
         // 此前直接抛 "HTTP 400" 把有用信息丢掉了。
@@ -243,7 +252,12 @@ object ApiClient {
      * @param mime 真实 MIME（客户端已把 HEIC 转成 JPEG，见 ImagePrepPolicy）
      * @param takenAtMs 客户端读到的 EXIF 拍摄时间；服务端也会自己解析，两者取其一即可
      */
-    suspend fun uploadMedia(file: File, mime: String, takenAtMs: Long?): JSONObject =
+    suspend fun uploadMedia(
+        file: File,
+        mime: String,
+        takenAtMs: Long?,
+        idempotencyKey: String? = null,
+    ): JSONObject =
         withContext(Dispatchers.IO) {
             netCall {
                 val builder = MultipartBody.Builder()
@@ -252,7 +266,12 @@ object ApiClient {
                 if (takenAtMs != null && takenAtMs > 0) {
                     builder.addFormDataPart("taken_at", takenAtMs.toString())
                 }
-                val resp = client.newCall(request("POST", "/media", builder.build()).build()).execute()
+                val req = request("POST", "/media", builder.build()).apply {
+                    if (!idempotencyKey.isNullOrBlank()) {
+                        header("Idempotency-Key", idempotencyKey)
+                    }
+                }.build()
+                val resp = uploadClient.newCall(req).execute()
                 val text = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
                 check(text).optJSONObject("data") ?: JSONObject()

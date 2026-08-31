@@ -67,8 +67,15 @@ func TestBatteryCurveWithNullColumns(t *testing.T) {
 	s := withTestStore(t)
 	pair, uidA, _ := seedPair(t, s, "bca", "bcb", "NULLCURV")
 
-	day := time.Now().Format("2006-01-02")
-	base := time.Now().Truncate(5 * time.Minute)
+	// 基准锚到**当日本地正午**，而不是 time.Now().Truncate(5*time.Minute)。
+	//
+	// 原写法在本地时间 00:00~00:10 之间必红：base 会落到 00:00/00:05，
+	// 减 10 分钟就跨到前一天 23:55，而 BatteryCurve 按 parseDayRange 只查当日
+	// → 只剩 2 点。这与被测逻辑无关，纯粹是测试自身的时刻依赖
+	//（0829 00:09 实测撞上）。正午前后各 10 分钟一定同属一天，与运行时刻无关。
+	now := time.Now()
+	base := time.Date(now.Year(), now.Month(), now.Day(), 12, 0, 0, 0, time.Local)
+	day := base.Format("2006-01-02")
 	for i := 0; i < 3; i++ {
 		if _, err := s.DB.Exec(
 			`INSERT INTO status_history

@@ -197,11 +197,15 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request, uid int64) {
 	}
 
 	h.mu.Lock()
-	if h.conns[uid] == client {
+	wasCurrent := h.conns[uid] == client
+	if wasCurrent {
 		delete(h.conns, uid)
 	}
 	h.mu.Unlock()
-	h.store.SetOnline(uid, false)
+	// 旧连接在新连接建立后会被 Close 唤醒；它不能把新连接的在线状态误清掉。
+	if wasCurrent {
+		h.store.SetOnline(uid, false)
+	}
 }
 
 // 处理客户端上行消息

@@ -26,6 +26,14 @@ func handleUploadAvatar(c *gin.Context) {
 	}
 
 	limits := defaultAvatarLimits()
+	releaseMultipartSlot, parseOK := acquireMultipartParseSlot()
+	if !parseOK {
+		rejectMultipartBusy(c, false)
+		return
+	}
+	defer releaseMultipartSlot()
+	defer releaseParsedMultipartForm(c)
+
 	// 在解析 multipart 之前限制请求体，避免超大 body 在 file.Size 检查前耗尽资源。
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limits.MaxBytes+bytesHeaderSlack)
 
@@ -51,6 +59,7 @@ func handleUploadAvatar(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, 1010, "临时存储失败")
 		return
 	}
+	releaseParsedMultipartForm(c)
 	defer os.Remove(tmp)
 
 	probe, valid := probeUploadedFile(tmp)
@@ -107,10 +116,16 @@ func parseCropParams(c *gin.Context) (CropParams, error) {
 }
 
 func saveTempUpload(c *gin.Context, file *multipart.FileHeader) (string, error) {
-	if err := os.MkdirAll(filepath.Join(uploadDir, "tmp"), 0o755); err != nil {
+	// 临时原图也不能落在 /uploads 静态根下：处理期间或进程崩溃后，
+	// 只要拿到随机路径就会绕过 /media 鉴权。私密临时目录与正式媒体同根。
+	if err := os.MkdirAll(filepath.Join(privateMediaDir(), "tmp"), 0o700); err != nil {
 		return "", err
 	}
-	tmp := filepath.Join(uploadDir, "tmp", randomCode(24))
+	base := randomCode(24)
+	if base == "" {
+		return "", errors.New("secure random source unavailable")
+	}
+	tmp := filepath.Join(privateMediaDir(), "tmp", base)
 	if err := c.SaveUploadedFile(file, tmp); err != nil {
 		return "", err
 	}

@@ -113,19 +113,47 @@ object AvatarCropper {
             offsetY = offsetY,
         )
 
-        // 原图尺寸
+        // 原图尺寸与 EXIF 方向。预览页显示的是旋正后的图，裁剪框也因此处于
+        // "旋正坐标系"；BitmapRegionDecoder 却只能按原始像素读取，必须把矩形映回去。
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) error("无法读取图片尺寸")
+        val boundsOpened = resolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, bounds)
+            true
+        } ?: false
+        if (!boundsOpened || bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+            error("无法读取图片尺寸")
+        }
+        val orientation = runCatching {
+            resolver.openInputStream(uri)?.use { input ->
+                ExifInterface(input).getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL
+                )
+            } ?: ExifInterface.ORIENTATION_NORMAL
+        }.getOrElse {
+            Logs.i("AvatarCropper", "EXIF unreadable, continuing", it)
+            ExifInterface.ORIENTATION_NORMAL
+        }
 
-        // 预览 → 原图 的比例
-        val ratioX = bounds.outWidth.toFloat() / previewBitmap.width
-        val ratioY = bounds.outHeight.toFloat() / previewBitmap.height
-        val inOrigin = Rect(
+        // 先在旋正坐标系按预览比例换算，再映回原始像素坐标。
+        val (orientedWidth, orientedHeight) = ImagePrepPolicy.orientedSize(
+            bounds.outWidth, bounds.outHeight, orientation
+        )
+        val ratioX = orientedWidth.toFloat() / previewBitmap.width
+        val ratioY = orientedHeight.toFloat() / previewBitmap.height
+        val orientedRect = ImagePrepPolicy.PixelRect(
             (inPreview.left * ratioX).toInt(),
             (inPreview.top * ratioY).toInt(),
             (inPreview.right * ratioX).toInt(),
             (inPreview.bottom * ratioY).toInt(),
+        )
+        val rawRect = ImagePrepPolicy.orientedRectToRaw(
+            orientedRect, bounds.outWidth, bounds.outHeight, orientation
+        )
+        val inOrigin = Rect(
+            rawRect.left,
+            rawRect.top,
+            rawRect.right,
+            rawRect.bottom,
         )
         val safe = clampSquare(inOrigin, bounds.outWidth, bounds.outHeight)
 
@@ -159,46 +187,46 @@ object AvatarCropper {
                 }
             }
         }
-        val region: Bitmap = decoded ?: error("无法解码所选区域")
-
-        // EXIF 旋正（相机直出的竖拍图必须转，否则头像躺倒）
-        var bmp: Bitmap = region
-        runCatching {
-            resolver.openInputStream(uri)?.use { input ->
-                val exif = ExifInterface(input)
-                val orientation = exif.getAttributeInt(
-                    ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL
-                )
-                val t = ImagePrepPolicy.orientationTransform(orientation)
-                if (!t.isIdentity) {
-                    val m = android.graphics.Matrix().apply {
-                        if (t.rotationDegrees != 0f) postRotate(t.rotationDegrees)
-                        if (t.flipHorizontal) postScale(-1f, 1f)
-                    }
-                    val rotated = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
-                    if (rotated !== bmp) {
-                        bmp.recycle()
-                        bmp = rotated
-                    }
+        var bmp: Bitmap = decoded ?: error("无法解码所选区域")
+        var output: File? = null
+        var succeeded = false
+        try {
+            // EXIF 旋正（相机直出的竖拍图必须转，否则头像躺倒）。这里使用与
+            // 裁剪矩形映射相同的 orientation，避免“取对了区域但旋错了图”。
+            val t = ImagePrepPolicy.orientationTransform(orientation)
+            if (!t.isIdentity) {
+                val m = android.graphics.Matrix().apply {
+                    if (t.rotationDegrees != 0f) postRotate(t.rotationDegrees)
+                    if (t.flipHorizontal) postScale(-1f, 1f)
+                }
+                val rotated = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
+                if (rotated !== bmp) {
+                    bmp.recycle()
+                    bmp = rotated
                 }
             }
-        }.onFailure { Logs.i("AvatarCropper", "EXIF unreadable, continuing") }
 
-        // 缩到输出尺寸
-        val finalBmp = if (bmp.width != OUTPUT_SIZE || bmp.height != OUTPUT_SIZE) {
-            val scaled = Bitmap.createScaledBitmap(bmp, OUTPUT_SIZE, OUTPUT_SIZE, true)
-            if (scaled !== bmp) bmp.recycle()
-            scaled
-        } else {
-            bmp
-        }
+            // 缩到输出尺寸
+            if (bmp.width != OUTPUT_SIZE || bmp.height != OUTPUT_SIZE) {
+                val scaled = Bitmap.createScaledBitmap(bmp, OUTPUT_SIZE, OUTPUT_SIZE, true)
+                if (scaled !== bmp) {
+                    bmp.recycle()
+                    bmp = scaled
+                }
+            }
 
-        val out = File(context.cacheDir, "avatar_${System.currentTimeMillis()}.jpg")
-        out.outputStream().use {
-            finalBmp.compress(Bitmap.CompressFormat.JPEG, 92, it)
+            output = File(context.cacheDir, "avatar_${System.currentTimeMillis()}.jpg")
+            output!!.outputStream().use {
+                if (!bmp.compress(Bitmap.CompressFormat.JPEG, 92, it)) {
+                    error("图片编码失败")
+                }
+            }
+            succeeded = true
+            output!!
+        } finally {
+            if (!bmp.isRecycled) bmp.recycle()
+            if (!succeeded) output?.delete()
         }
-        finalBmp.recycle()
-        out
     }.getOrElse {
         Logs.w("AvatarCropper", "crop failed", it)
         null

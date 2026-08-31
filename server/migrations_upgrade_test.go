@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// oldSchemaSubset 是 0821 之前的老库形态（**不含**本轮新增的三列）。
+// oldSchemaSubset 是 0821 之前的老库形态（**不含**本轮新增的四列）。
 //
 // 只建与本轮迁移相关的表，够用即可：迁移逻辑是按表逐个补列的，
 // 其余表存不存在不影响这条路径的验证。
@@ -81,7 +81,7 @@ func TestMigrateFromOldSchema(t *testing.T) {
 	}
 
 	// 确认老库确实没有新列（否则这个测试就是自欺欺人）
-	for _, col := range []string{"preview_path", "deleted_at"} {
+	for _, col := range []string{"preview_path", "deleted_at", "upload_idempotency_key"} {
 		has, err := columnExists(db, "photo", col)
 		if err != nil {
 			t.Fatal(err)
@@ -100,6 +100,7 @@ func TestMigrateFromOldSchema(t *testing.T) {
 	for _, tc := range []struct{ table, col string }{
 		{"photo", "preview_path"},
 		{"photo", "deleted_at"},
+		{"photo", "upload_idempotency_key"},
 		{"pair", "unclassified_name"},
 	} {
 		has, err := columnExists(db, tc.table, tc.col)

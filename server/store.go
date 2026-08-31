@@ -41,13 +41,13 @@ func (s *Store) CreateUser(username, email, nickname, hash string) (int64, error
 	return res.LastInsertId()
 }
 
-// GetUserByLogin 按用户名或邮箱查用户（登录用），带 password_hash。
+// GetUserByLogin 按用户名或邮箱查用户（登录用），带 password_hash 与实时 status。
 func (s *Store) GetUserByLogin(account string) (*User, error) {
 	u := &User{}
 	err := s.DB.QueryRow(
-		"SELECT id,nickname,avatar_url,avatar_thumbnail_url,password_hash FROM `user` WHERE username=? OR email=? LIMIT 1",
+		"SELECT id,nickname,avatar_url,avatar_thumbnail_url,status,password_hash FROM `user` WHERE username=? OR email=? LIMIT 1",
 		account, account).
-		Scan(&u.ID, &u.Nickname, &u.AvatarURL, &u.AvatarThumbnailURL, &u.PasswordHash)
+		Scan(&u.ID, &u.Nickname, &u.AvatarURL, &u.AvatarThumbnailURL, &u.Status, &u.PasswordHash)
 	return u, err
 }
 
@@ -126,8 +126,9 @@ func (s *Store) GetPairByUserID(uid int64) (*Pair, error) {
 	p := &Pair{}
 	err := s.DB.QueryRow(
 		`SELECT id,user_a_id,user_b_id,invite_code,anniversary_date FROM pair
-		 WHERE status=1 AND (user_a_id=? OR user_b_id=?)
-		 ORDER BY (user_a_id>0 AND user_b_id>0) DESC, id DESC LIMIT 1`, uid, uid).Scan(
+		 WHERE status=1 AND user_a_id>0 AND user_b_id>0
+		   AND (user_a_id=? OR user_b_id=?)
+		 ORDER BY id DESC LIMIT 1`, uid, uid).Scan(
 		&p.ID, &p.UserAID, &p.UserBID, &p.InviteCode, &p.AnniversaryDate)
 	return p, err
 }
@@ -144,47 +145,83 @@ func (s *Store) PartnerID(p *Pair, me int64) int64 {
 	return p.UserAID
 }
 
-// BindPair 用邀请码把 uid 填入 pair 空位。
+// BindPair 用邀请码原子地把 uid 填入 pair 空位。
 // code 改为字符串：邀请码已从 6 位纯数字升级为 8 位混合字符，不再能用 int64 承载。
 func (s *Store) BindPair(code string, uid int64) (int64, error) {
-	var pairID int64
-	err := s.DB.QueryRow(
-		`SELECT id FROM pair WHERE invite_code=? AND status=1 LIMIT 1`, code).Scan(&pairID)
-	if err != nil {
-		return 0, errors.New("邀请码无效或已失效")
-	}
-	// 判断是 A 还是 B。
-	//
-	// **这里的 Scan 错误绝不能忽略**：忽略了 userA/userB 就保持零值，于是既跳过
-	// 下面「不能和自己绑定」的校验，又会走进 `userA == 0` 那条分支，
-	// 用 UPDATE 把已存在的 user_a_id **覆盖掉** —— 直接冲掉别人的情侣关系。
-	// 这不是展示不一致，是不可逆的数据破坏。
-	var userA, userB int64
-	if err := s.DB.QueryRow(
-		`SELECT user_a_id,user_b_id FROM pair WHERE id=?`, pairID,
-	).Scan(&userA, &userB); err != nil {
-		return 0, fmt.Errorf("读取绑定关系失败: %w", err)
-	}
-	if userA == uid || userB == uid {
-		return 0, errors.New("不能和自己绑定")
-	}
-	if userB != 0 && userA != 0 {
-		return 0, errors.New("该绑定关系已满，仅支持双人")
-	}
-	// 将当前用户填到空位（创建者为 A，绑定者为 B）
-	if userA == 0 {
-		_, err = s.DB.Exec(`UPDATE pair SET user_a_id=? WHERE id=?`, uid, pairID)
-	} else {
-		_, err = s.DB.Exec(`UPDATE pair SET user_b_id=? WHERE id=?`, uid, pairID)
-	}
+	tx, err := s.DB.Begin()
 	if err != nil {
 		return 0, err
 	}
+	defer tx.Rollback()
+
+	// 先在同一事务里确认绑定方没有既有关系；真正写入时还会在 UPDATE
+	// 里再次用 NOT EXISTS 检查，防止两个邀请码并发竞争时绕过这次读取。
+	var existingID int64
+	if err := tx.QueryRow(
+		`SELECT id FROM pair
+		 WHERE status=1 AND user_a_id>0 AND user_b_id>0
+		   AND (user_a_id=? OR user_b_id=?) LIMIT 1`, uid, uid,
+	).Scan(&existingID); err == nil {
+		return 0, errors.New("已绑定")
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("检查已有绑定失败: %w", err)
+	}
+
+	var pairID int64
+	var userA, userB int64
+	err = tx.QueryRow(
+		`SELECT id,user_a_id,user_b_id FROM pair WHERE invite_code=? AND status=1 LIMIT 1`, code,
+	).Scan(&pairID, &userA, &userB)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, errors.New("邀请码无效或已失效")
+	}
+	if err != nil {
+		return 0, fmt.Errorf("读取绑定关系失败: %w", err)
+	}
+	// 邀请记录必须是“创建者 A + 空 B”的合法形态；不能让脏数据触发覆盖已有成员。
+	if userA == uid || userB == uid {
+		return 0, errors.New("不能和自己绑定")
+	}
+	if userA <= 0 || userB != 0 {
+		return 0, errors.New("该绑定关系已满，仅支持双人")
+	}
+
+	// 条件更新是并发闸门：同一个邀请码只有一个请求能把 B 从 0 改成 uid；
+	// NOT EXISTS 同时保证同一个 uid 不会在两个邀请码上各占一个 pair。
+	res, err := tx.Exec(
+		`UPDATE pair
+		 SET user_b_id=?, invite_code=('bound:' || id)
+		 WHERE id=? AND status=1 AND user_a_id>0 AND user_b_id=0
+		   AND NOT EXISTS (
+			 SELECT 1 FROM pair existing
+			 WHERE existing.status=1 AND existing.user_a_id>0 AND existing.user_b_id>0
+			   AND (existing.user_a_id=? OR existing.user_b_id=?)
+		   )`,
+		uid, pairID, uid, uid,
+	)
+	if err != nil {
+		return 0, err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("读取绑定结果失败: %w", err)
+	}
+	if affected != 1 {
+		return 0, errors.New("邀请码已被使用或账号已绑定")
+	}
+
 	// 作废绑定方此前自己创建的挂起邀请：双方都生成过码时，一旦一方用了对方的码绑定，
-	// 自己那张挂起的码即失效（另一张码仍可被再次使用/或已被消费）。
-	s.DB.Exec(
-		`UPDATE pair SET status=0 WHERE id!=? AND status=1 AND ((user_a_id=? AND user_b_id=0) OR (user_b_id=? AND user_a_id=0))`,
-		pairID, uid, uid)
+	// 自己那张挂起的码即失效，并用不可用的墓碑值清除凭据。
+	if _, err := tx.Exec(
+		`UPDATE pair SET status=0, invite_code=('revoked:' || id)
+		 WHERE id!=? AND status=1 AND user_a_id=? AND user_b_id=0`,
+		pairID, uid,
+	); err != nil {
+		return 0, fmt.Errorf("作废旧邀请码失败: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
 	return pairID, nil
 }
 
@@ -219,7 +256,10 @@ func (s *Store) CreateTodo(pairID, creatorID, assigneeID int64, title, note stri
 	if err != nil {
 		return nil, err
 	}
-	t.ID, _ = res.LastInsertId()
+	t.ID, err = res.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
 	return t, nil
 }
 
@@ -486,7 +526,11 @@ func (s *Store) CleanupStatusHistory(days int) (int64, error) {
 		slog.Error("cleanup status_history failed", "err", err, "days", days)
 		return 0, err
 	}
-	n, _ := res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		slog.Error("cleanup status_history rows affected failed", "err", err, "days", days)
+		return 0, err
+	}
 	return n, nil
 }
 

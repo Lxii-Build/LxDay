@@ -18,7 +18,7 @@
 | 同步自检 | 我的 → `screens/KeepAliveCheckScreen.kt` | 逐项探测保活权限 | 每项写明「不开会怎样」 |
 | 伴侣状态历史 | 我的 → `screens/HistoryScreen.kt` | `data/ApiClient.kt` | REST `/status/history?who=me\|partner`、`/status/battery-curve` |
 | 状态采集 | 无独立页面 | `core/StatusCollector.kt` | Usage Access、定位、通知使用权 |
-| 实时同步 | 无独立页面 | `sync/StatusSyncManager.kt` | WSS `/ws?token=JWT` |
+| 实时同步 | 无独立页面 | `sync/StatusSyncManager.kt` | WSS `/ws` + `Authorization: Bearer JWT` |
 | 常驻通知 | 我的页开关/前台服务 | `service/StatusForegroundService.kt` | 前台服务、通知权限 |
 | 强制响铃 | 此刻页/通知 Action | `core/RingHelper.kt` | 闹钟音频、震动、全屏通知 |
 | 主题 | 我的页主题模式 | `ui/theme/Theme.kt` | SYSTEM/LIGHT/DARK |

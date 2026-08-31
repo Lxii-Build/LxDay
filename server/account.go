@@ -21,6 +21,8 @@ var (
 	reEmail    = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`) // 邮箱基础校验
 )
 
+const maxEmailBytes = 254
+
 // emailCodeTTLNow 验证码有效期，读后台配置（默认 10 分钟）。
 func emailCodeTTLNow() time.Duration {
 	return time.Duration(settingsNow().EmailCodeTTLMinutes) * time.Minute
@@ -46,7 +48,7 @@ func emailCodeAttemptAllowed(email string) bool {
 // emailCodeAttemptFailed 记一次失败，返回是否已达上限（达到则调用方应作废该验证码）。
 func emailCodeAttemptFailed(email string) bool {
 	// TTL 与验证码有效期同量级即可：验证码过期后计数自然失效。
-	return st.mem.incr(emailCodeAttemptKey(email), 15*time.Minute) >= int64(settingsNow().EmailCodeMaxAttempts)
+	return st.mem.incr(emailCodeAttemptKey(email), emailCodeTTLNow()) >= int64(settingsNow().EmailCodeMaxAttempts)
 }
 
 func emailCodeAttemptReset(email string) { st.mem.del(emailCodeAttemptKey(email)) }
@@ -149,10 +151,11 @@ func sendMail(sc smtpConfig, to, subject, body string) error {
 			return err
 		}
 		defer client.Close()
-		if ok, _ := client.Extension("STARTTLS"); ok {
-			if err := client.StartTLS(&tls.Config{ServerName: sc.Host}); err != nil {
-				return err
-			}
+		if ok, _ := client.Extension("STARTTLS"); !ok {
+			return errors.New("SMTP server does not support STARTTLS")
+		}
+		if err := client.StartTLS(&tls.Config{ServerName: sc.Host}); err != nil {
+			return err
 		}
 		return sendMailBody(client, auth, sc.From, to, msg)
 	}
@@ -208,7 +211,7 @@ func handleSendEmailCode(c *gin.Context) {
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(req.Email))
-	if !reEmail.MatchString(email) {
+	if len([]byte(email)) > maxEmailBytes || !reEmail.MatchString(email) {
 		fail(c, 400, 1002, "邮箱格式不正确")
 		return
 	}
@@ -219,14 +222,23 @@ func handleSendEmailCode(c *gin.Context) {
 		return
 	}
 	code := randomCode(6)
+	if code == "" {
+		st.mem.kvDel(emailCodeCDKey(email))
+		fail(c, http.StatusInternalServerError, 1010, "验证码生成失败，请稍后再试")
+		return
+	}
 	st.mem.kvSet(emailCodeKey(email), code, emailCodeTTLNow())
 	sc, err := loadSMTP()
 	if err != nil {
+		st.mem.kvDel(emailCodeKey(email))
+		st.mem.kvDel(emailCodeCDKey(email))
 		fail(c, 500, 1013, "邮件服务未配置，请联系管理员")
 		return
 	}
 	body := verifyCodeEmailHTML(code, int(emailCodeTTLNow().Minutes()))
 	if err := sendMail(sc, email, "林曦日记 · 邮箱验证码", body); err != nil {
+		st.mem.kvDel(emailCodeKey(email))
+		st.mem.kvDel(emailCodeCDKey(email))
 		fail(c, 500, 1014, "验证码发送失败，请稍后再试")
 		return
 	}
@@ -255,12 +267,16 @@ func handleRegister(c *gin.Context) {
 		fail(c, 400, 1002, "用户名需为 3-20 位大小写英文字母")
 		return
 	}
-	if !reEmail.MatchString(email) {
+	if len([]byte(email)) > maxEmailBytes || !reEmail.MatchString(email) {
 		fail(c, 400, 1002, "邮箱格式不正确")
 		return
 	}
 	if len(req.Password) < 6 {
 		fail(c, 400, 1002, "密码至少 6 位")
+		return
+	}
+	if len([]byte(req.Password)) > maxPasswordBytes {
+		fail(c, 400, 1002, errPasswordTooLong.Error())
 		return
 	}
 	// 校验验证码。
@@ -296,7 +312,11 @@ func handleRegister(c *gin.Context) {
 	}
 	st.mem.kvDel(emailCodeKey(email))
 	emailCodeAttemptReset(email)
-	token, _ := signToken(id)
+	token, err := signToken(id)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, 1010, "登录凭据生成失败")
+		return
+	}
 	ok(c, gin.H{"user_id": id, "token": token})
 }
 
@@ -333,14 +353,28 @@ func handleLogin(c *gin.Context) {
 		fail(c, 429, 1012, fmt.Sprintf("登录尝试过于频繁，请 %d 分钟后再试", set.LoginRateWindowMin))
 		return
 	}
+	// 账号/口令来自公开请求，不能让超长字符串进入 SQLite 查询或 bcrypt。
+	// 仍按普通登录失败计数，避免攻击者用畸形输入绕过失败限流。
+	if len([]byte(account)) > maxEmailBytes || len([]byte(req.Password)) > maxPasswordBytes {
+		st.mem.incr(failKey, loginWindow)
+		fail(c, 400, 1007, "账号或密码错误")
+		return
+	}
 	u, err := st.GetUserByLogin(account)
-	if err != nil || !checkPassword(u.PasswordHash, req.Password) {
+	// 账号不存在、密码错误、账号被禁用必须走同一个分支：
+	// 否则禁用账号能先成功签发 token（随后才在业务接口收到 403），
+	// 或通过不同响应推断密码是否正确。三者都计入失败限流。
+	if err != nil || !checkPassword(u.PasswordHash, req.Password) || u.Status != 1 {
 		st.mem.incr(failKey, loginWindow)
 		fail(c, 400, 1007, "账号或密码错误")
 		return
 	}
 	st.mem.del(failKey)
-	token, _ := signToken(u.ID)
+	token, err := signToken(u.ID)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, 1010, "登录凭据生成失败")
+		return
+	}
 	ok(c, gin.H{"user_id": u.ID, "token": token})
 }
 

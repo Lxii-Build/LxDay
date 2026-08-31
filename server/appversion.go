@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"log/slog"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -48,7 +49,9 @@ func (s *Store) ListAppVersions(platform string, limit, offset int) ([]AppVersio
 	for rows.Next() {
 		v, err := scanAppVersion(rows)
 		if err != nil {
-			return nil, 0, err
+			// 坏行跳过并留痕，避免一条历史脏版本记录拖垮后台分页。
+			slog.Error("scan app version failed", "platform", platform, "err", err)
+			continue
 		}
 		out = append(out, *v)
 	}
@@ -69,13 +72,33 @@ func (s *Store) CreateAppVersion(v *AppVersion) (int64, error) {
 }
 
 func (s *Store) SetAppVersionStatus(id int64, status int) error {
-	_, err := s.DB.Exec(`UPDATE app_version SET status=? WHERE id=?`, status, id)
-	return err
+	res, err := s.DB.Exec(`UPDATE app_version SET status=? WHERE id=?`, status, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (s *Store) DeleteAppVersion(id int64) error {
-	_, err := s.DB.Exec(`DELETE FROM app_version WHERE id=?`, id)
-	return err
+	res, err := s.DB.Exec(`DELETE FROM app_version WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // handleCheckUpdate 客户端检查更新（公开接口）

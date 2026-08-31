@@ -43,9 +43,14 @@ type GoImageWorker struct {
 
 func newImageWorker(workDir string) GoImageWorker {
 	return GoImageWorker{
-		WorkDir:    workDir,
-		Timeout:    20 * time.Second,
-		MaxPixels:  64 << 20, // 64M 像素（约 8000x8000），超过即拒绝
+		WorkDir: workDir,
+		Timeout: 20 * time.Second,
+		// 像素上限读后台配置（album.photo_max_megapixels，默认 12M ≈ 4000×3000）。
+		//
+		// 这是**内存安全**闸门而不是业务规则：解码内存与像素数成正比
+		// （RGBA 每像素 4 字节，12M 像素 ≈ 48MB），所以它直接决定单张最坏占用。
+		// 原先写死 64M ≈ 256MB/张，配 3 路并发就是 768MB，足以打死小规格 VPS。
+		MaxPixels:  settingsNow().PhotoMaxPixels,
 		Interpolat: draw.CatmullRom,
 	}
 }
@@ -61,6 +66,9 @@ func (w GoImageWorker) Process(req AvatarWorkerRequest) (AvatarWorkerResult, err
 	}
 
 	base := randomCode(24)
+	if base == "" {
+		return AvatarWorkerResult{}, errors.New("secure random source unavailable")
+	}
 	// 统一输出 PNG：无损、无需质量参数、Go 标准库原生支持。
 	mainPath := filepath.Join(w.WorkDir, base+".png")
 	thumbPath := filepath.Join(w.WorkDir, base+"_thumb.png")
@@ -177,6 +185,99 @@ func wrapDecode(err error, kind string) error {
 	return fmt.Errorf("%w: %s: %v", errImageDecode, kind, err)
 }
 
+const (
+	// prescaleThreshold 触发两段式缩放的倍率。
+	//
+	// 源图长边超过目标的这个倍数时，先做一次廉价预缩再交给高质量插值器。
+	//
+	// 取 2 而不是 4：临时缓冲正比于 **目标宽 × 源高**（见 scaleInto 的公式），
+	// 所以只要源图明显高于目标就已经很贵了，不需要等到 4 倍。
+	// 实测源 3464×3464 → 目标 1080×1080（倍率仅 3.2）：
+	//   单段     114.69 MB
+	//   两段式    51.71 MB
+	// 若阈值留在 4，这条倍率 3.2 的路径反而不预缩 —— 而它正是
+	// 「顶到像素上限的照片生成预览图」这条最贵的真实路径。
+	prescaleThreshold = 2
+
+	// prescaleFactor 中间图相对目标的倍数。
+	//
+	// 中间图既是第二段的源，又直接决定第二段的缓冲大小
+	//（= 目标宽 × 中间图高 × 32），所以它越小越省；
+	// 但太小会让第一段（廉价插值）承担过多降采样、画质变差。
+	// 取 1.25 的代价与收益（1080 预览图）：
+	//   1.25 → 第二段 44.8 MB，第一段仍有 1.25 倍余量做高质量重采样
+	//   1.00 → 第二段 35.8 MB，但第二段退化成等尺寸重采样、画质白给
+	// 省下的 9 MB 不值得拿画质换，故保留 1.25。
+	prescaleFactor = 1.25
+)
+
+// scaleInto 把 src 的 srcRect 区域缩放进 dst，**必要时走两段式**。
+//
+// ★ 为什么需要这个函数（0828 实测出来的真凶）★
+//
+// `draw.CatmullRom`（以及 `BiLinear`）的 Scale 会分配一块与**源图高度**
+// 成正比的临时缓冲，而不是只与目标尺寸有关。实测把公式钉死了：
+//
+//	分配字节 ≈ 目标宽 × 源高 × 32      （每个中间像素一个 [4]float64）
+//
+//	源 8000×8000 → 目标  384×384 ：实测 94.77 MB / 按公式 93.75 MB
+//	源 3464×3464 → 目标 1080×1080：实测 114.69 MB / 按公式 114.17 MB
+//	ApproxBiLinear 同输入          ：0.00 MB   ← 不分配这块缓冲
+//
+// 所以**目标越大、源图越高，就越贵**，而相册每张要跑两次
+// （缩略图 384 + 预览图 1080）。顶到像素上限的一张图单段走完两次约 157 MB，
+// 配 3 路并发闸门最坏约 470 MB —— 足以打死小规格 VPS。
+// 而这**与图片格式无关**：一张合法的大 PNG 就能触发，文件不大、帧数为 1、
+// 所有既有校验都放行，比 GIF 帧炸弹更隐蔽。
+//
+// 修法是两段式：先用 ApproxBiLinear（不分配那块缓冲）把源图廉价缩到目标的
+// prescaleFactor 倍，再用 CatmullRom 从那张中间图收尾。这样公式里的"源高"
+// 从原图高度降到了目标高度的 1.25 倍，与原图多大彻底脱钩。
+// 实测缩略图 94.77 MB → 6.60 MB。
+//
+// 为什么不干脆全用 ApproxBiLinear：它在大比例缩小时会有明显的锯齿与摩尔纹，
+// 而相册缩略图是用户第一眼看到的东西。两段式是"省内存"与"保画质"的交点。
+//
+// ★ 剩下的下限是 API 决定的，不是没优化到 ★
+// 第二段的成本 = 目标宽 × (目标高 × 1.25) × 32，对 1080 预览图约 44.8 MB，
+// 且这是**与原图无关的常量**。即便 prescaleFactor 取 1（第二段退化成等尺寸
+// 重采样、画质白给），也仍需约 35.8 MB。所以 1080 预览图的开销压不到更低，
+// 除非换掉插值器 —— 那是画质取舍，不在本次内存修复的范围内。
+func (w GoImageWorker) scaleInto(dst *image.RGBA, src image.Image, srcRect image.Rectangle) {
+	interp := w.Interpolat
+	if interp == nil {
+		interp = draw.CatmullRom
+	}
+	db := dst.Bounds()
+
+	// 判定是否值得预缩：按长边比例。
+	srcLong := srcRect.Dx()
+	if srcRect.Dy() > srcLong {
+		srcLong = srcRect.Dy()
+	}
+	dstLong := db.Dx()
+	if db.Dy() > dstLong {
+		dstLong = db.Dy()
+	}
+	if dstLong <= 0 || srcLong < dstLong*prescaleThreshold {
+		interp.Scale(dst, db, src, srcRect, draw.Over, nil)
+		return
+	}
+
+	// 第一段：廉价缩到目标的 prescaleFactor 倍（留一点余量给第二段重采样）。
+	midW := int(float64(db.Dx()) * prescaleFactor)
+	midH := int(float64(db.Dy()) * prescaleFactor)
+	// 中间图必须仍小于源图，否则等于放大、白做一次。
+	if midW >= srcRect.Dx() || midH >= srcRect.Dy() {
+		interp.Scale(dst, db, src, srcRect, draw.Over, nil)
+		return
+	}
+	mid := image.NewRGBA(image.Rect(0, 0, midW, midH))
+	draw.ApproxBiLinear.Scale(mid, mid.Bounds(), src, srcRect, draw.Over, nil)
+	// 第二段：高质量收尾。
+	interp.Scale(dst, db, mid, mid.Bounds(), draw.Over, nil)
+}
+
 // writeSquare 居中方裁后缩放到 dim×dim 并写出 PNG。
 // 裁剪语义与旧 vipsthumbnail `--crop centre` 一致：取源图最大居中正方形。
 func (w GoImageWorker) writeSquare(src image.Image, dst string, dim int) error {
@@ -185,11 +286,7 @@ func (w GoImageWorker) writeSquare(src image.Image, dst string, dim int) error {
 	}
 	square := centerSquare(src.Bounds())
 	out := image.NewRGBA(image.Rect(0, 0, dim, dim))
-	interp := w.Interpolat
-	if interp == nil {
-		interp = draw.CatmullRom
-	}
-	interp.Scale(out, out.Bounds(), src, square, draw.Over, nil)
+	w.scaleInto(out, src, square)
 
 	f, err := os.Create(dst)
 	if err != nil {
@@ -219,11 +316,9 @@ func (w GoImageWorker) writeFit(src image.Image, dst string, maxEdge int, asJPEG
 	b := src.Bounds()
 	tw, th := fitDimensions(b.Dx(), b.Dy(), maxEdge)
 	out := image.NewRGBA(image.Rect(0, 0, tw, th))
-	interp := w.Interpolat
-	if interp == nil {
-		interp = draw.CatmullRom
-	}
-	interp.Scale(out, out.Bounds(), src, b, draw.Over, nil)
+	// 走 scaleInto 而非直接 interp.Scale：大源图 → 小目标时省 8 倍内存，
+	// 理由见 scaleInto 的注释（这是 0828 实测出的 400MB/张 的真凶）。
+	w.scaleInto(out, src, b)
 
 	f, err := os.Create(dst)
 	if err != nil {

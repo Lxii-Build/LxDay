@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -76,10 +77,14 @@ func scanPhoto(rs rowScanner) (*Photo, error) {
 	}
 	p.URL = mediaURL(p.ID)
 	p.ThumbURL = mediaThumbURL(p.ID)
-	// 预览图缺失（0821 之前上传的历史照片）时回退原图，客户端无需分支处理。
-	if p.diskPreview != "" {
+	// 回收站只能展示缩略图；预览/原图地址即使出现在响应里，服务端也会拒绝，
+	// 这里直接把预览字段收敛到缩略图，避免客户端先发起一条注定失败的私密请求。
+	if p.Status == 2 {
+		p.PreviewURL = p.ThumbURL
+	} else if p.diskPreview != "" {
 		p.PreviewURL = mediaPreviewURL(p.ID)
 	} else {
+		// 预览图缺失（0821 之前上传的历史照片）时回退原图，客户端无需分支处理。
 		p.PreviewURL = p.URL
 	}
 	return p, nil
@@ -149,21 +154,44 @@ func takenAtValue(t *time.Time) interface{} {
 	return t.Format(sqliteDateTimeLayout)
 }
 
-// CreatePhoto 落库一张已处理完的照片。url/thumbURL 传 uploadDir 相对路径（如 upload/2026/08/20/x.jpg）。
-// CreatePhoto 落库一张已处理完的照片。
-// url/thumbURL/previewURL 传的都是 uploadDir 相对路径（如 upload/2026/08/21/x.jpg），
-// 对外 URL 由 scanPhoto 换成 /media/<id> 形态，真实路径不出服务端。
+// CreatePhoto 落库一张已处理完的照片，不带幂等键。
 func (s *Store) CreatePhoto(pairID, uploaderID, albumID int64, url, thumbURL, previewURL string,
 	width, height int, sizeBytes int64, mime string, takenAt *time.Time) (*Photo, error) {
+	return s.CreatePhotoWithIdempotency(pairID, uploaderID, albumID, url, thumbURL, previewURL,
+		width, height, sizeBytes, mime, takenAt, "")
+}
+
+// CreatePhotoWithIdempotency 落库一张已处理完的照片，并把客户端上传幂等键一起保存。
+// url/thumbURL/previewURL 传的是私密媒体根目录下的相对路径（如 media/2026/08/21/x.jpg），
+// 对外 URL 由 scanPhoto 换成 /media/<id> 形态，真实路径不出服务端。
+func (s *Store) CreatePhotoWithIdempotency(pairID, uploaderID, albumID int64, url, thumbURL, previewURL string,
+	width, height int, sizeBytes int64, mime string, takenAt *time.Time, idempotencyKey string) (*Photo, error) {
 	res, err := s.DB.Exec(
-		`INSERT INTO photo(album_id,pair_id,uploader_id,url,thumb_url,preview_path,width,height,size_bytes,mime,taken_at,status)
-		 VALUES(?,?,?,?,?,?,?,?,?,?,?,1)`,
+		`INSERT INTO photo(album_id,pair_id,uploader_id,url,thumb_url,preview_path,width,height,size_bytes,mime,taken_at,status,upload_idempotency_key)
+		 VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?)`,
 		albumID, pairID, uploaderID, url, thumbURL, nullIfEmpty(previewURL),
-		width, height, sizeBytes, mime, takenAtValue(takenAt))
+		width, height, sizeBytes, mime, takenAtValue(takenAt), nullIfEmpty(idempotencyKey))
 	if err != nil {
 		return nil, err
 	}
-	id, _ := res.LastInsertId()
+	id, err := res.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+	return s.GetPhoto(id)
+}
+
+func (s *Store) GetPhotoByUploadIdempotencyKey(uploaderID int64, key string) (*Photo, error) {
+	var id int64
+	if err := s.DB.QueryRow(
+		`SELECT id FROM photo WHERE uploader_id=? AND upload_idempotency_key=? LIMIT 1`,
+		uploaderID, key,
+	).Scan(&id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
 	return s.GetPhoto(id)
 }
 
@@ -199,7 +227,9 @@ func (s *Store) ListAlbumPhotos(pairID, albumID int64, limit, offset int) ([]Pho
 	for rows.Next() {
 		p, err := scanPhoto(rows)
 		if err != nil {
-			return nil, 0, err
+			// 坏行跳过并留痕：某个 NULL/坏时间列不应让整页相册直接 500。
+			slog.Error("scan album photo failed", "pair_id", pairID, "album_id", albumID, "err", err)
+			continue
 		}
 		out = append(out, *p)
 	}
@@ -224,7 +254,9 @@ func (s *Store) ListRecycledPhotos(pairID int64, limit, offset int) ([]Photo, in
 	for rows.Next() {
 		p, err := scanPhoto(rows)
 		if err != nil {
-			return nil, 0, err
+			// 坏行跳过并留痕：回收站仍应允许用户恢复其它照片。
+			slog.Error("scan recycled photo failed", "pair_id", pairID, "err", err)
+			continue
 		}
 		out = append(out, *p)
 	}
@@ -236,21 +268,29 @@ func (s *Store) ListRecycledPhotos(pairID int64, limit, offset int) ([]Photo, in
 // 进回收站时记 deleted_at，供「N 天后自动彻底删除」与剩余天数展示使用；
 // 恢复时必须清空它，否则刚恢复的照片会被清理任务按旧时间立刻再删一次。
 func (s *Store) SetPhotoStatus(id, pairID int64, status int) error {
+	if status != 1 && status != 2 {
+		return fmt.Errorf("invalid photo status %d", status)
+	}
 	var res sql.Result
 	var err error
 	if status == 2 {
 		res, err = s.DB.Exec(
-			`UPDATE photo SET status=?, deleted_at=CURRENT_TIMESTAMP WHERE id=? AND pair_id=?`,
+			`UPDATE photo SET status=?, deleted_at=COALESCE(deleted_at,CURRENT_TIMESTAMP)
+			 WHERE id=? AND pair_id=? AND status=1`,
 			status, id, pairID)
 	} else {
 		res, err = s.DB.Exec(
-			`UPDATE photo SET status=?, deleted_at=NULL WHERE id=? AND pair_id=?`,
+			`UPDATE photo SET status=?, deleted_at=NULL WHERE id=? AND pair_id=? AND status=2`,
 			status, id, pairID)
 	}
 	if err != nil {
 		return err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
 		return sql.ErrNoRows
 	}
 	return nil
@@ -261,6 +301,9 @@ func (s *Store) SetPhotosStatus(pairID int64, photoIDs []int64, status int) (int
 	if len(photoIDs) == 0 {
 		return 0, nil
 	}
+	if status != 1 && status != 2 {
+		return 0, fmt.Errorf("invalid photo status %d", status)
+	}
 	holders := make([]string, len(photoIDs))
 	args := make([]interface{}, 0, len(photoIDs)+2)
 	args = append(args, status)
@@ -270,22 +313,37 @@ func (s *Store) SetPhotosStatus(pairID int64, photoIDs []int64, status int) (int
 	}
 	args = append(args, pairID)
 	stamp := "deleted_at=NULL"
+	fromStatus := 2
 	if status == 2 {
-		stamp = "deleted_at=CURRENT_TIMESTAMP"
+		stamp = "deleted_at=COALESCE(deleted_at,CURRENT_TIMESTAMP)"
+		fromStatus = 1
 	}
 	res, err := s.DB.Exec(
 		`UPDATE photo SET status=?, `+stamp+
-			` WHERE id IN (`+strings.Join(holders, ",")+`) AND pair_id=?`, args...)
+			` WHERE id IN (`+strings.Join(holders, ",")+`) AND pair_id=? AND status=?`, append(args, fromStatus)...)
 	if err != nil {
 		return 0, err
 	}
-	n, _ := res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
 	return n, nil
 }
 
 func (s *Store) UpdatePhotoCaption(id, pairID int64, caption string) error {
-	_, err := s.DB.Exec(`UPDATE photo SET caption=? WHERE id=? AND pair_id=?`, caption, id, pairID)
-	return err
+	res, err := s.DB.Exec(`UPDATE photo SET caption=? WHERE id=? AND pair_id=? AND status=1`, caption, id, pairID)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // MovePhotosToAlbum 把已上传的照片挂进相册（批量）。
@@ -307,7 +365,10 @@ func (s *Store) MovePhotosToAlbum(pairID, albumID int64, photoIDs []int64) (int6
 	if err != nil {
 		return 0, err
 	}
-	n, _ := res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
 	return n, nil
 }
 
@@ -319,7 +380,10 @@ func (s *Store) CreateAlbum(pairID, createdBy int64, name string) (*Album, error
 	if err != nil {
 		return nil, err
 	}
-	id, _ := res.LastInsertId()
+	id, err := res.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
 	return s.GetAlbum(id)
 }
 
@@ -384,8 +448,8 @@ func (s *Store) ListAlbums(pairID int64) ([]Album, error) {
 			var coverID int64
 			a, scanErr := scanAlbum(rows, &photoCount, &coverID)
 			if scanErr != nil {
-				err = scanErr
-				return
+				slog.Error("scan album row failed", "pair_id", pairID, "err", scanErr)
+				continue
 			}
 			a.PhotoCount = photoCount
 			out = append(out, *a)
@@ -421,9 +485,19 @@ func (s *Store) UpdateAlbum(id, pairID int64, name *string, coverPhotoID *int64)
 	}
 	sets = append(sets, "updated_at=datetime('now')")
 	args = append(args, id, pairID)
-	_, err := s.DB.Exec(
-		"UPDATE album SET "+strings.Join(sets, ",")+" WHERE id=? AND pair_id=?", args...)
-	return err
+	res, err := s.DB.Exec(
+		"UPDATE album SET "+strings.Join(sets, ",")+" WHERE id=? AND pair_id=? AND status=1", args...)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // DeleteAlbum 软删相册，并把其中照片归为未归类（album_id=0）。
@@ -434,10 +508,19 @@ func (s *Store) DeleteAlbum(id, pairID int64) error {
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`UPDATE album SET status=2, updated_at=datetime('now') WHERE id=? AND pair_id=?`,
+	res, err := tx.Exec(`UPDATE album SET status=2, updated_at=datetime('now') WHERE id=? AND pair_id=? AND status=1`,
 		id, pairID); err != nil {
 		tx.Rollback()
 		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if n != 1 {
+		_ = tx.Rollback()
+		return sql.ErrNoRows
 	}
 	if _, err := tx.Exec(`UPDATE photo SET album_id=0 WHERE album_id=? AND pair_id=?`, id, pairID); err != nil {
 		tx.Rollback()
@@ -459,9 +542,11 @@ func (s *Store) AlbumSummary(pairID int64) (gin.H, error) {
 	}
 	var latestID int64
 	// 无照片时 QueryRow 返回 ErrNoRows，此处忽略：概要接口不该因为「还没有照片」而报错。
-	s.DB.QueryRow(
+	if err := s.DB.QueryRow(
 		`SELECT id FROM photo WHERE pair_id=? AND status=1
-		 ORDER BY COALESCE(taken_at, created_at) DESC, id DESC LIMIT 1`, pairID).Scan(&latestID)
+		 ORDER BY COALESCE(taken_at, created_at) DESC, id DESC LIMIT 1`, pairID).Scan(&latestID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
 	latestThumb := ""
 	if latestID > 0 {
 		latestThumb = mediaThumbURL(latestID)
@@ -598,7 +683,9 @@ func (s *Store) PhotosOnThisDay(pairID int64, month, day int) ([]Photo, error) {
 	for rows.Next() {
 		p, err := scanPhoto(rows)
 		if err != nil {
-			return nil, err
+			// 坏行跳过并留痕：历史数据的一行异常不应让整页回忆不可用。
+			slog.Error("scan on-this-day photo failed", "pair_id", pairID, "month", month, "day", day, "err", err)
+			continue
 		}
 		// 再用扫出来的时间复核一次月/日：万一底层驱动换了时间存储格式（如改存 unix 秒），
 		// substr 会静默匹配不到或匹配错，这里能把错数据拦在返回前。
@@ -660,7 +747,10 @@ func (s *Store) CreatePhotoComment(photoID, pairID, userID int64, content string
 	if err != nil {
 		return nil, err
 	}
-	id, _ := res.LastInsertId()
+	id, err := res.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
 	return scanComment(s.DB.QueryRow(commentSelectSQL+` WHERE c.id=?`, id))
 }
 
@@ -695,7 +785,9 @@ func (s *Store) ListPhotoComments(photoID int64) ([]PhotoComment, error) {
 	for rows.Next() {
 		cm, err := scanComment(rows)
 		if err != nil {
-			return nil, err
+			// 坏行跳过并留痕：单条评论异常不应隐藏其它评论。
+			slog.Error("scan photo comment failed", "photo_id", photoID, "err", err)
+			continue
 		}
 		out = append(out, *cm)
 	}
@@ -710,7 +802,10 @@ func (s *Store) DeletePhotoComment(commentID, photoID, userID int64) (int64, err
 	if err != nil {
 		return 0, err
 	}
-	n, _ := res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
 	return n, nil
 }
 
@@ -780,7 +875,8 @@ func (s *Store) ListPhotosAll(keyword string, pairID int64, limit, offset int) (
 		var taken, created sql.NullString
 		if err := rows.Scan(&id, &pid, &aid, &uid, &uploader, &caption,
 			&width, &height, &size, &mime, &taken, &status, &created); err != nil {
-			return nil, 0, err
+			slog.Error("scan admin photo row failed", "err", err)
+			continue
 		}
 		var takenAt interface{}
 		if taken.Valid {
@@ -807,6 +903,18 @@ func (s *Store) ListPhotosAll(keyword string, pairID int64, limit, offset int) (
 
 // AdminDeletePhoto 后台软删（进回收站，不删盘上文件，误删可由用户恢复）。
 func (s *Store) AdminDeletePhoto(id int64) error {
-	_, err := s.DB.Exec(`UPDATE photo SET status=2 WHERE id=?`, id)
-	return err
+	res, err := s.DB.Exec(`UPDATE photo SET status=2,
+		deleted_at=COALESCE(deleted_at,CURRENT_TIMESTAMP)
+		WHERE id=? AND status=1`, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }

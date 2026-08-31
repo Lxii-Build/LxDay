@@ -162,6 +162,40 @@ object ImagePrepPolicy {
         return deg == 90f || deg == 270f
     }
 
+    /** 旋正后显示给用户的尺寸。裁剪预览与导出坐标必须使用同一坐标系。 */
+    fun orientedSize(rawWidth: Int, rawHeight: Int, exifOrientation: Int): Pair<Int, Int> {
+        return if (swapsDimensions(exifOrientation)) {
+            rawHeight to rawWidth
+        } else {
+            rawWidth to rawHeight
+        }
+    }
+
+    /** 旋正坐标系中的矩形映射回 EXIF 原始像素坐标。 */
+    fun orientedRectToRaw(
+        rect: PixelRect,
+        rawWidth: Int,
+        rawHeight: Int,
+        exifOrientation: Int,
+    ): PixelRect {
+        val l = rect.left
+        val t = rect.top
+        val r = rect.right
+        val b = rect.bottom
+        return when (exifOrientation) {
+            2 -> PixelRect(rawWidth - r, t, rawWidth - l, b)
+            3 -> PixelRect(rawWidth - r, rawHeight - b, rawWidth - l, rawHeight - t)
+            4 -> PixelRect(l, rawHeight - b, r, rawHeight - t)
+            5 -> PixelRect(t, l, b, r)
+            6 -> PixelRect(t, rawHeight - r, b, rawHeight - l)
+            7 -> PixelRect(rawWidth - b, rawHeight - r, rawWidth - t, rawHeight - l)
+            8 -> PixelRect(rawWidth - b, l, rawWidth - t, r)
+            else -> PixelRect(l, t, r, b)
+        }
+    }
+
+    data class PixelRect(val left: Int, val top: Int, val right: Int, val bottom: Int)
+
     /**
      * EXIF orientation 值 → 需要旋转的角度与是否镜像。
      * 参考 ExifInterface.ORIENTATION_* 常量取值（1..8）。

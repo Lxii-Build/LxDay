@@ -53,6 +53,7 @@ fun DiscoverScreen(
     onOpenAlbum: () -> Unit,
     onOpenListen: () -> Unit,
     onOpenWatch: () -> Unit,
+    albumEnabled: Boolean = true,
 ) {
     // 真实数据：相册张数与日记篇数。
     // 此前这里是 `delay(500)` 的**假加载**——转半秒圈只为「看起来像在加载」，
@@ -69,8 +70,9 @@ fun DiscoverScreen(
             .onFailure { albumCount = null }
     }
 
-    LaunchedEffect(Unit) {
-        fetch()
+    LaunchedEffect(albumEnabled) {
+        if (albumEnabled) fetch()
+        else albumCount = null
         loading = false
     }
 
@@ -88,13 +90,15 @@ fun DiscoverScreen(
     ) {
         item {
             Column(Modifier.padding(top = 12.dp)) {
-                DiscoverCard(
-                    "相册",
-                    albumCount?.let { "已收藏 $it 张照片" } ?: "记录你们的共同瞬间",
-                    MiuixIcons.Photos,
-                    onOpenAlbum,
-                )
-                Spacer(Modifier.height(12.dp))
+                if (albumEnabled) {
+                    DiscoverCard(
+                        "相册",
+                        albumCount?.let { "已收藏 $it 张照片" } ?: "记录你们的共同瞬间",
+                        MiuixIcons.Photos,
+                        onOpenAlbum,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                }
                 DiscoverCard("一起听", "分享此刻在听的歌", MiuixIcons.Music, onOpenListen)
                 Spacer(Modifier.height(12.dp))
                 DiscoverCard("一起看", "同步你们喜欢的影像", MiuixIcons.RecordingTape, onOpenWatch)
@@ -151,6 +155,29 @@ fun DiscoverPlaceholderScreen(title: String, onBack: () -> Unit) {
                 )
                 Spacer(Modifier.height(16.dp))
                 Text("当前功能开发中，尽请期待", color = colorScheme.onSurface.copy(alpha = 0.78f))
+            }
+        }
+    }
+}
+
+/** 服务端关闭功能时的统一提示，避免旧页面继续发起必然被拒绝的请求。 */
+@Composable
+fun FeatureDisabledScreen(title: String, onBack: () -> Unit) {
+    BackHandler { onBack() }
+    KernelScreen(title = title, navigationIcon = { BackAction(onBack) }) {
+        item {
+            Column(
+                Modifier.fillMaxWidth().padding(top = 96.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Icon(
+                    MiuixIcons.Tune,
+                    contentDescription = null,
+                    tint = colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.size(72.dp),
+                )
+                Spacer(Modifier.height(16.dp))
+                Text("该功能暂时不可用，请联系管理员", color = colorScheme.onSurface.copy(alpha = 0.78f))
             }
         }
     }

@@ -34,7 +34,7 @@ import java.util.concurrent.TimeUnit
 
 /**
  * WebSocket 实时同步：
- * - 连接鉴权（token query）
+ * - 连接鉴权（Authorization header）
  * - 30s ping 心跳（OkHttp 自动），服务端 90s 超时清理
  * - 断线指数退避重连：1s→2s→4s→…上限 60s
  * - 服务端事件分发：状态/求陪伴/求冷静/响铃/待办/日记
@@ -82,7 +82,10 @@ object StatusSyncManager {
         val token = UserPrefs.token ?: return
         if (ws != null) return
         val generation = connectionGeneration
-        val req = Request.Builder().url("$WS_URL?token=$token").build()
+        val req = Request.Builder()
+            .url(WS_URL)
+            .header("Authorization", "Bearer $token")
+            .build()
         ws = sharedClient.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(w: WebSocket, res: Response) {
                 synchronized(this@StatusSyncManager) {

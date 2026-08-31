@@ -31,6 +31,7 @@ import (
 type RuntimeSettings struct {
 	// ---- 相册与上传 ----
 	PhotoMaxBytes      int64 // 单张照片上限
+	PhotoMaxPixels     int   // 单张照片像素数上限（解码前校验，防解压炸弹）
 	PhotosPerDay       int   // 每人每日张数
 	UploadBytesPerDay  int64 // 每人每日总字节
 	AlbumEnabled       bool  // 相册功能总开关
@@ -64,7 +65,19 @@ type RuntimeSettings struct {
 // 这些数字此前散落在 album_media.go / account.go / admin.go / invite.go / netlog.go 的常量里。
 func defaultRuntimeSettings() RuntimeSettings {
 	return RuntimeSettings{
-		PhotoMaxBytes:      20 * 1024 * 1024,
+		PhotoMaxBytes: 20 * 1024 * 1024,
+		// 12M 像素（约 4000×3000）。
+		//
+		// 原值是 64M（约 8000×8000），那是「解码后单张最坏 256MB」的来源。
+		// 下调到 12M 的依据：
+		//   - 客户端上传前一律把长边压到 2048（4:3 约 3.1M 像素），
+		//     所以正常路径离 12M 还差 4 倍，完全碰不到；
+		//   - 12M 恰好是主流手机主摄的默认直出尺寸（4000×3000），
+		//     所以「不走客户端、直接调接口传原图」这种用法也仍然可用；
+		//   - GIF/动图原样上传（不重编码）同样受这条约束，而 12M 像素的动图
+		//     在 20MB 文件上限下几乎不可能出现。
+		// 需要更高时超管可在后台调到 64M（见 album.photo_max_megapixels）。
+		PhotoMaxPixels:     12 << 20,
 		PhotosPerDay:       200,
 		UploadBytesPerDay:  500 * 1024 * 1024,
 		AlbumEnabled:       true,
@@ -130,6 +143,13 @@ var runtimeSettingSpecs = []settingSpec{
 	{Key: "album.photo_max_mb", Group: groupAlbum, Kind: "bytes", Min: 1, Max: 100, Label: "单张照片大小上限(MB)",
 		get: func(s *RuntimeSettings) string { return strconv.FormatInt(s.PhotoMaxBytes/(1024*1024), 10) },
 		set: func(s *RuntimeSettings, v int64, _ bool) { s.PhotoMaxBytes = v * 1024 * 1024 }},
+	// 像素上限限超管：它是**内存安全**闸门（解码内存与像素数成正比），
+	// 调高等于放大单张最坏内存占用，与 security.* 同性质。
+	// 范围 4M~64M：低于 4M 会拒掉客户端正常压缩后的图（长边 2048 约 4M），
+	// 高于 64M 则回到本次要修掉的那个状态。
+	{Key: "album.photo_max_megapixels", Group: groupAlbum, Kind: "int", Min: 4, Max: 64, Label: "单张照片像素上限(百万像素)", Super: true,
+		get: func(s *RuntimeSettings) string { return strconv.Itoa(s.PhotoMaxPixels >> 20) },
+		set: func(s *RuntimeSettings, v int64, _ bool) { s.PhotoMaxPixels = int(v) << 20 }},
 	{Key: "album.photos_per_day", Group: groupAlbum, Kind: "int", Min: 1, Max: 100000, Label: "每人每日上传张数",
 		get: func(s *RuntimeSettings) string { return strconv.Itoa(s.PhotosPerDay) },
 		set: func(s *RuntimeSettings, v int64, _ bool) { s.PhotosPerDay = int(v) }},

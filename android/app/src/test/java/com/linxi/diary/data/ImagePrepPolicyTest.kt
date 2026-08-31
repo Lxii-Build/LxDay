@@ -103,6 +103,35 @@ class ImagePrepPolicyTest {
     }
 
     @Test
+    fun `EXIF旋正尺寸与裁剪矩形映射覆盖全部方向`() {
+        val rawWidth = 400
+        val rawHeight = 300
+        val displayRect = ImagePrepPolicy.PixelRect(40, 60, 140, 160)
+        val expected = mapOf(
+            1 to ImagePrepPolicy.PixelRect(40, 60, 140, 160),
+            2 to ImagePrepPolicy.PixelRect(260, 60, 360, 160),
+            3 to ImagePrepPolicy.PixelRect(260, 140, 360, 240),
+            4 to ImagePrepPolicy.PixelRect(40, 140, 140, 240),
+            5 to ImagePrepPolicy.PixelRect(60, 40, 160, 140),
+            6 to ImagePrepPolicy.PixelRect(60, 160, 160, 260),
+            7 to ImagePrepPolicy.PixelRect(240, 160, 340, 260),
+            8 to ImagePrepPolicy.PixelRect(240, 40, 340, 140),
+        )
+        for (orientation in 1..8) {
+            val expectedSize = if (orientation == 5 || orientation == 6 || orientation == 7 || orientation == 8) {
+                rawHeight to rawWidth
+            } else {
+                rawWidth to rawHeight
+            }
+            assertEquals(expectedSize, ImagePrepPolicy.orientedSize(rawWidth, rawHeight, orientation))
+            assertEquals(
+                expected.getValue(orientation),
+                ImagePrepPolicy.orientedRectToRaw(displayRect, rawWidth, rawHeight, orientation),
+            )
+        }
+    }
+
+    @Test
     fun `上传上限与服务端一致`() {
         // 服务端 /media 限 20MB，客户端提前拦以免白传一趟。
         assertEquals(20L * 1024 * 1024, ImagePrepPolicy.MAX_UPLOAD_BYTES)

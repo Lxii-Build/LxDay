@@ -115,6 +115,10 @@ func RequestLogger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 		rid := randomCode(16)
+		if rid == "" {
+			// 请求 ID 不是凭据；随机源异常时仍保持可观测性，避免写入空 ID。
+			rid = strconv.FormatInt(time.Now().UnixNano(), 10)
+		}
 		c.Writer.Header().Set("X-Request-Id", rid)
 		c.Set("request_id", rid)
 		c.Next()
@@ -140,9 +144,11 @@ func RequestLogger() gin.HandlerFunc {
 // ---------- 存储 ----------
 
 func (s *Store) InsertRequestLog(rl RequestLog) {
-	s.DB.Exec(
+	if _, err := s.DB.Exec(
 		`INSERT INTO request_log(method,path,status,latency_ms,ip,ua,request_id) VALUES(?,?,?,?,?,?,?)`,
-		rl.Method, rl.Path, rl.Status, rl.LatencyMs, rl.IP, rl.UA, rl.RequestID)
+		rl.Method, rl.Path, rl.Status, rl.LatencyMs, rl.IP, rl.UA, rl.RequestID); err != nil {
+		slog.Error("insert request log failed", "method", rl.Method, "path", rl.Path, "err", err)
+	}
 }
 
 // CleanupRequestLogs 删除 N 天前的请求日志。
@@ -166,7 +172,11 @@ func (s *Store) CleanupRequestLogsN(days int) (int64, error) {
 		slog.Error("cleanup request_log failed", "err", err, "days", days)
 		return 0, err
 	}
-	n, _ := res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		slog.Error("count cleaned request_log rows failed", "err", err, "days", days)
+		return 0, err
+	}
 	return n, nil
 }
 

@@ -23,13 +23,28 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// uploadDir 为本地上传根目录（Go 自托管 /uploads/ 静态映射）
+// uploadDir 为公开静态资源根目录（Go 自托管 /uploads/ 静态映射）。
+// 私密相册文件使用同级的 privateMediaDir()，绝不能落在这个目录下面。
 var uploadDir = "uploads"
 
 func initUploadDir() {
 	if cfg.Storage.UploadDir != "" {
 		uploadDir = cfg.Storage.UploadDir
 	}
+}
+
+// privateMediaDir 是私密相册文件的物理根目录。
+//
+// 它必须是 uploadDir 的同级目录，而不能只是 uploadDir 下的另一个子目录：
+// /uploads 静态兼容路由映射整个 uploadDir，放在其子目录里仍然等于公开。
+// 不新增配置项，避免管理员还要同步改 compose；目录名由公开根目录稳定推导。
+func privateMediaDir() string {
+	clean := filepath.Clean(uploadDir)
+	return filepath.Join(filepath.Dir(clean), filepath.Base(clean)+"-private")
+}
+
+func privateMediaDatePath(t time.Time) string {
+	return fmt.Sprintf("media/%04d/%02d/%02d", t.Year(), int(t.Month()), t.Day())
 }
 
 // ================= 上传路径 / 公开 URL（日期分区，本地磁盘） =================
@@ -194,8 +209,9 @@ func fail(c *gin.Context, httpCode, bizCode int, msg string) {
 //
 // 实测（生产 love.lxii.cc）：body ≤1MB 正常回 403；≥2MB 一律 502；60MB 才是 Nginx 的 413。
 //
-// 上限 32MB：比最大允许上传留出余量即可。再大的 body 本该被 Nginx 的
-// client_max_body_size 拦掉，没必要为攻击者的超大请求花时间读完。
+// 上限 320MB：必须覆盖后台 APK 的 300MB 上传上限，否则大上传在鉴权/校验
+// 阶段被提前拒绝时，未读完的请求体仍会让 Go 关闭连接，Nginx 可能把业务错误
+// 放大成 502。真正更大的请求仍由 Nginx/client_max_body_size 拦截。
 func drainRequestBody(c *gin.Context) {
 	if c.Request == nil || c.Request.Body == nil {
 		return
@@ -204,7 +220,7 @@ func drainRequestBody(c *gin.Context) {
 	if c.Request.ContentLength == 0 {
 		return
 	}
-	const maxDrain = 32 << 20
+	const maxDrain = 320 << 20
 	_, _ = io.CopyN(io.Discard, c.Request.Body, maxDrain)
 }
 
@@ -226,7 +242,10 @@ func randomCode(n int) string {
 	const digits = "0123456789"
 	out := make([]byte, n)
 	for i := range out {
-		v, _ := rand.Int(rand.Reader, big.NewInt(int64(len(digits))))
+		v, err := rand.Int(rand.Reader, big.NewInt(int64(len(digits))))
+		if err != nil {
+			return ""
+		}
 		out[i] = digits[v.Int64()]
 	}
 	return string(out)
@@ -237,7 +256,10 @@ func randomPassword(n int) string {
 	const cs = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
 	out := make([]byte, n)
 	for i := range out {
-		v, _ := rand.Int(rand.Reader, big.NewInt(int64(len(cs))))
+		v, err := rand.Int(rand.Reader, big.NewInt(int64(len(cs))))
+		if err != nil {
+			return ""
+		}
 		out[i] = cs[v.Int64()]
 	}
 	return string(out)
@@ -336,8 +358,7 @@ var errUserDisabled = errors.New("user disabled")
 
 func JWTAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		h := c.GetHeader("Authorization")
-		token := strings.TrimPrefix(h, "Bearer ")
+		token := bearerToken(c.GetHeader("Authorization"))
 		uid, err := authUserByToken(token)
 		if err != nil {
 			// token 有效但用户不存在/被撤销（如数据库重建、账号被删、改密）→ 视为登录失效，
@@ -353,6 +374,14 @@ func JWTAuth() gin.HandlerFunc {
 		c.Set("uid", uid)
 		c.Next()
 	}
+}
+
+func bearerToken(header string) string {
+	header = strings.TrimSpace(header)
+	if len(header) < len("Bearer ") || !strings.EqualFold(header[:len("Bearer ")], "Bearer ") {
+		return ""
+	}
+	return strings.TrimSpace(header[len("Bearer "):])
 }
 
 func currentUID(c *gin.Context) int64 {
@@ -388,24 +417,44 @@ func inviteTTLNow() time.Duration {
 	return time.Duration(settingsNow().InviteTTLMinutes) * time.Minute
 }
 
+// createInviteMu 串行化同一进程内的邀请码创建。
+//
+// 先查“是否已有挂起邀请”再 INSERT 的组合不是单条 SQL；同一账号的两个并发
+// 请求如果同时通过查询，就会生成两张都有效的邀请码。项目是单容器单进程部署，
+// 在这里加窄范围互斥锁即可把该竞态在入口处消掉，绑定流程仍由 BindPair 的事务兜底。
+var createInviteMu sync.Mutex
+
 func handleCreateInvite(c *gin.Context) {
+	createInviteMu.Lock()
+	defer createInviteMu.Unlock()
 	uid := currentUID(c)
 	if _, err := st.GetPairByUserID(uid); err == nil {
 		fail(c, 400, 1001, "已绑定，无法重复创建")
+		return
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		fail(c, http.StatusInternalServerError, 1010, "读取关系失败")
 		return
 	}
 	// 若已有 1 小时内未过期的邀请，直接复用
 	var existCode string
 	var existCreated time.Time
-	if err := st.DB.QueryRow(
+	err := st.DB.QueryRow(
 		`SELECT invite_code, created_at FROM pair WHERE user_a_id=? AND user_b_id=0 AND status=1 LIMIT 1`,
-		uid).Scan(&existCode, &existCreated); err == nil && existCode != "" {
+		uid).Scan(&existCode, &existCreated)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		fail(c, http.StatusInternalServerError, 1010, "读取邀请状态失败")
+		return
+	}
+	if err == nil && existCode != "" {
 		if time.Since(existCreated) < inviteTTLNow() {
 			ok(c, gin.H{"invite_code": existCode, "expires_in": int(inviteTTLNow().Seconds() - time.Since(existCreated).Seconds())})
 			return
 		}
 		// 过期：作废旧码重新生成
-		st.DB.Exec(`UPDATE pair SET status=0 WHERE invite_code=?`, existCode)
+		if _, err := st.DB.Exec(`UPDATE pair SET status=0 WHERE invite_code=?`, existCode); err != nil {
+			fail(c, http.StatusInternalServerError, 1010, "更新邀请状态失败")
+			return
+		}
 	}
 	// 生成唯一 8 位混合字符邀请码（crypto/rand，见 invite.go）。
 	// 唯一索引 uk_invite_code 冲突时重试，重试 5 次仍冲突才报失败。
@@ -437,6 +486,9 @@ func handleBind(c *gin.Context) {
 	if _, err := st.GetPairByUserID(uid); err == nil {
 		fail(c, 400, 1001, "已绑定")
 		return
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		fail(c, http.StatusInternalServerError, 1010, "读取关系失败")
+		return
 	}
 	// 爆破防护：先记一次尝试并判额度，再校验码本身。
 	// 顺序很关键——若先校验码后计数，则「码不存在」这条最常见的失败路径不消耗额度，限流等于没做。
@@ -454,6 +506,10 @@ func handleBind(c *gin.Context) {
 	if err := st.DB.QueryRow(
 		`SELECT created_at FROM pair WHERE invite_code=? AND status=1`, code).
 		Scan(&created); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			fail(c, http.StatusInternalServerError, 1010, "读取邀请状态失败")
+			return
+		}
 		fail(c, 400, 1009, "邀请码无效或已失效")
 		return
 	}
@@ -467,13 +523,15 @@ func handleBind(c *gin.Context) {
 	}
 	bindAttemptReset(uid)
 	// 返回伴侣信息
-	pair, _ := st.GetPairByUserID(uid)
+	pair, err := st.GetPairByUserID(uid)
+	if err != nil || pair == nil || pair.UserAID <= 0 || pair.UserBID <= 0 {
+		fail(c, 500, 1010, "绑定已完成但读取关系失败")
+		return
+	}
 	// 建默认分组（Q22=A+B）：让用户一进相册就有地方放照片，不必先想名字建相册。
 	// 失败不阻断绑定——这只是便利功能。
-	if pair != nil {
-		if err := st.CreatePresetAlbums(pair.ID, uid); err != nil {
-			slog.Warn("create preset albums failed", "pair_id", pair.ID, "err", err)
-		}
+	if err := st.CreatePresetAlbums(pair.ID, uid); err != nil {
+		slog.Warn("create preset albums failed", "pair_id", pair.ID, "err", err)
 	}
 	partner := st.PartnerID(pair, uid)
 	pu, _ := st.GetUserByID(partner)
@@ -494,12 +552,25 @@ func handleUnbind(c *gin.Context) {
 	uid := currentUID(c)
 	pair, err := st.GetPairByUserID(uid)
 	if err != nil {
-		ok(c, gin.H{"unbound": true}) // 本就未绑定
+		if errors.Is(err, sql.ErrNoRows) {
+			ok(c, gin.H{"unbound": true}) // 本就未绑定
+			return
+		}
+		fail(c, http.StatusInternalServerError, 1010, "读取关系失败")
 		return
 	}
 	partner := st.PartnerID(pair, uid)
-	if _, e := st.DB.Exec(`UPDATE pair SET status=0, unbind_time=datetime('now') WHERE id=?`, pair.ID); e != nil {
+	res, e := st.DB.Exec(`UPDATE pair SET status=0, unbind_time=datetime('now') WHERE id=? AND status=1`, pair.ID)
+	if e != nil {
 		fail(c, 500, 1010, "解绑失败")
+		return
+	}
+	if affected, e := res.RowsAffected(); e != nil {
+		fail(c, 500, 1010, "解绑失败")
+		return
+	} else if affected != 1 {
+		// 另一条并发解绑请求已经完成，幂等返回成功，不重复通知。
+		ok(c, gin.H{"unbound": true})
 		return
 	}
 	if partner > 0 {
@@ -511,7 +582,10 @@ func handleUnbind(c *gin.Context) {
 // handleCancelInvite 邀请方主动取消自己尚未被使用的邀请码（挂起邀请作废）。
 func handleCancelInvite(c *gin.Context) {
 	uid := currentUID(c)
-	st.DB.Exec(`UPDATE pair SET status=0 WHERE user_a_id=? AND user_b_id=0 AND status=1`, uid)
+	if _, err := st.DB.Exec(`UPDATE pair SET status=0 WHERE user_a_id=? AND user_b_id=0 AND status=1`, uid); err != nil {
+		fail(c, http.StatusInternalServerError, 1010, "取消邀请失败")
+		return
+	}
 	ok(c, gin.H{"canceled": true})
 }
 
@@ -530,8 +604,12 @@ func handlePairStatus(c *gin.Context) {
 
 func handleGetProfile(c *gin.Context) {
 	profile, err := pairProfile(currentUID(c))
-	if err != nil {
+	if errors.Is(err, errPairUnbound) {
 		fail(c, 200, 1001, "未绑定")
+		return
+	}
+	if err != nil {
+		fail(c, http.StatusInternalServerError, 1010, "读取资料失败")
 		return
 	}
 	ok(c, profile)
@@ -558,8 +636,12 @@ func handleUpdateProfile(c *gin.Context) {
 		return
 	}
 	if _, err = pairFrom(tx, uid); err != nil {
-		tx.Rollback()
-		fail(c, 200, 1001, "未绑定")
+		_ = tx.Rollback()
+		if errors.Is(err, sql.ErrNoRows) {
+			fail(c, 200, 1001, "未绑定")
+		} else {
+			fail(c, 500, 1010, "读取关系失败")
+		}
 		return
 	}
 	if _, err := tx.Exec("UPDATE `user` SET nickname=? WHERE id=?", nickname, uid); err != nil {
@@ -603,8 +685,12 @@ func handleUpdateAnniversary(c *gin.Context) {
 	}
 	pair, err := pairFrom(tx, uid)
 	if err != nil {
-		tx.Rollback()
-		fail(c, 200, 1001, "未绑定")
+		_ = tx.Rollback()
+		if errors.Is(err, sql.ErrNoRows) {
+			fail(c, 200, 1001, "未绑定")
+		} else {
+			fail(c, 500, 1010, "读取关系失败")
+		}
 		return
 	}
 	result, err := tx.Exec(
@@ -616,7 +702,13 @@ func handleUpdateAnniversary(c *gin.Context) {
 		fail(c, 500, 1010, "更新失败")
 		return
 	}
-	if affected, _ := result.RowsAffected(); affected != 1 {
+	affected, err := result.RowsAffected()
+	if err != nil {
+		_ = tx.Rollback()
+		fail(c, 500, 1010, "更新失败")
+		return
+	}
+	if affected != 1 {
 		tx.Rollback()
 		fail(c, 200, 1001, "未绑定")
 		return
@@ -643,7 +735,8 @@ func pairFrom(queryer profileQueryer, uid int64) (*Pair, error) {
 	pair := &Pair{}
 	err := queryer.QueryRow(
 		`SELECT id,user_a_id,user_b_id,invite_code,anniversary_date FROM pair
-		 WHERE status=1 AND (user_a_id=? OR user_b_id=?) LIMIT 1`, uid, uid).Scan(
+		 WHERE status=1 AND user_a_id>0 AND user_b_id>0
+		   AND (user_a_id=? OR user_b_id=?) LIMIT 1`, uid, uid).Scan(
 		&pair.ID, &pair.UserAID, &pair.UserBID, &pair.InviteCode, &pair.AnniversaryDate)
 	return pair, err
 }
@@ -657,6 +750,18 @@ func userFrom(queryer profileQueryer, id int64) (*User, error) {
 }
 
 var errPairUnbound = errors.New("pair is not bound")
+
+func reportPairLookupError(c *gin.Context, err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		fail(c, http.StatusOK, 1001, "未绑定")
+		return true
+	}
+	fail(c, http.StatusInternalServerError, 1010, "读取关系失败")
+	return true
+}
 
 func pairProfileFrom(queryer profileQueryer, uid int64) (gin.H, error) {
 	pair, err := pairFrom(queryer, uid)
@@ -673,10 +778,6 @@ func pairProfileFrom(queryer profileQueryer, uid int64) (gin.H, error) {
 	partnerID := pair.UserAID
 	if pair.UserAID == uid {
 		partnerID = pair.UserBID
-	}
-	// 对方槽位为空 = 仅有挂起邀请、尚未真正双人绑定，视为未绑定（/pair/status 返回 bound:false）。
-	if partnerID == 0 {
-		return nil, errPairUnbound
 	}
 	partner, err := userFrom(queryer, partnerID)
 	if err != nil {
@@ -725,7 +826,7 @@ func handlePartnerStatus(c *gin.Context) {
 	uid := currentUID(c)
 	pair, err := st.GetPairByUserID(uid)
 	if err != nil {
-		fail(c, 200, 1001, "未绑定")
+		reportPairLookupError(c, err)
 		return
 	}
 	partner := st.PartnerID(pair, uid)
@@ -742,7 +843,7 @@ func handlePartnerStatus(c *gin.Context) {
 func mustPair(c *gin.Context) (*Pair, bool) {
 	pair, err := st.GetPairByUserID(currentUID(c))
 	if err != nil {
-		fail(c, 200, 1001, "未绑定")
+		reportPairLookupError(c, err)
 		return nil, false
 	}
 	return pair, true
@@ -830,7 +931,7 @@ func handleListTodos(c *gin.Context) {
 // getOwnedTodo 取出待办并校验其归属当前 pair（防越权：任意已绑定用户遍历 id 改删他人待办）。
 func getOwnedTodo(pair *Pair, id int64) (*Todo, bool) {
 	t, err := st.GetTodo(id)
-	if err != nil || t == nil || t.PairID != pair.ID {
+	if err != nil || t == nil || t.PairID != pair.ID || t.Status == 2 {
 		return nil, false
 	}
 	return t, true
@@ -841,7 +942,11 @@ func handleUpdateTodo(c *gin.Context) {
 	if !okP {
 		return
 	}
-	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		fail(c, http.StatusBadRequest, 1002, "待办 ID 非法")
+		return
+	}
 	if _, owned := getOwnedTodo(pair, id); !owned {
 		fail(c, 403, 1017, "无权操作该待办")
 		return
@@ -868,7 +973,11 @@ func handleUpdateTodo(c *gin.Context) {
 		fail(c, 500, 1010, "更新失败")
 		return
 	}
-	todo, _ := st.GetTodo(id)
+	todo, err := st.GetTodo(id)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, 1010, "读取失败")
+		return
+	}
 	hub.Notify(pair, currentUID(c), WsMessage{Type: MsgTodoNew, Data: todo})
 	ok(c, todo)
 }
@@ -879,7 +988,11 @@ func handleCompleteTodo(c *gin.Context) {
 		return
 	}
 	uid := currentUID(c)
-	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		fail(c, http.StatusBadRequest, 1002, "待办 ID 非法")
+		return
+	}
 	if _, owned := getOwnedTodo(pair, id); !owned {
 		fail(c, 403, 1017, "无权操作该待办")
 		return
@@ -898,12 +1011,19 @@ func handleDeleteTodo(c *gin.Context) {
 	if !okP {
 		return
 	}
-	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		fail(c, http.StatusBadRequest, 1002, "待办 ID 非法")
+		return
+	}
 	if _, owned := getOwnedTodo(pair, id); !owned {
 		fail(c, 403, 1017, "无权操作该待办")
 		return
 	}
-	st.DeleteTodo(id)
+	if err := st.DeleteTodo(id); err != nil {
+		fail(c, http.StatusInternalServerError, 1010, "删除失败")
+		return
+	}
 	ok(c, gin.H{"deleted": id})
 }
 
@@ -952,6 +1072,15 @@ func handleRegisterPushToken(c *gin.Context) {
 		fail(c, 400, 1002, "参数错误")
 		return
 	}
+	req.Platform = strings.ToLower(strings.TrimSpace(req.Platform))
+	req.Channel = strings.ToLower(strings.TrimSpace(req.Channel))
+	req.Token = strings.TrimSpace(req.Token)
+	if req.Platform == "" || len([]byte(req.Platform)) > 32 ||
+		req.Channel == "" || len([]byte(req.Channel)) > 64 ||
+		req.Token == "" || len([]byte(req.Token)) > 4096 {
+		fail(c, 400, 1002, "推送参数无效")
+		return
+	}
 	_, err := st.DB.Exec(
 		`INSERT INTO push_token(user_id,platform,channel,token) VALUES(?,?,?,?)
 		 ON CONFLICT(user_id,channel) DO UPDATE SET token=excluded.token, updated_at=datetime('now')`,
@@ -966,7 +1095,10 @@ func handleRegisterPushToken(c *gin.Context) {
 
 func handleUnregisterPushToken(c *gin.Context) {
 	uid := currentUID(c)
-	st.DB.Exec(`DELETE FROM push_token WHERE user_id=?`, uid)
+	if _, err := st.DB.Exec(`DELETE FROM push_token WHERE user_id=?`, uid); err != nil {
+		fail(c, http.StatusInternalServerError, 1010, "注销失败")
+		return
+	}
 	ok(c, gin.H{"unregistered": true})
 }
 

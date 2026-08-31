@@ -40,6 +40,13 @@ interface ExtendedAxiosRequestConfig extends AxiosRequestConfig {
 
 const { VITE_API_URL, VITE_WITH_CREDENTIALS } = import.meta.env
 
+/** 服务端统一要求 RFC 6750 Bearer 认证格式；兼容旧缓存中的裸 token。 */
+export function toBearerToken(token: string): string {
+  const value = token.trim()
+  if (!value) return ''
+  return /^Bearer\s+/i.test(value) ? value : `Bearer ${value}`
+}
+
 /** Axios实例 */
 const axiosInstance = axios.create({
   timeout: REQUEST_TIMEOUT,
@@ -49,7 +56,7 @@ const axiosInstance = axios.create({
   transformResponse: [
     (data, headers) => {
       const contentType = headers['content-type']
-      if (contentType?.includes('application/json')) {
+      if (typeof contentType === 'string' && contentType.includes('application/json')) {
         try {
           return JSON.parse(data)
         } catch {
@@ -65,7 +72,7 @@ const axiosInstance = axios.create({
 axiosInstance.interceptors.request.use(
   (request: InternalAxiosRequestConfig) => {
     const { accessToken } = useUserStore()
-    if (accessToken) request.headers.set('Authorization', accessToken)
+    if (accessToken) request.headers.set('Authorization', toBearerToken(accessToken))
 
     if (request.data && !(request.data instanceof FormData) && !request.headers['Content-Type']) {
       request.headers.set('Content-Type', 'application/json')

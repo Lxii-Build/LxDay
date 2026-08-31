@@ -83,6 +83,8 @@ var schemaAddedColumns = []addedColumn{
 	// deleted_at：进回收站的时刻，回收站保留期与剩余天数都依赖它。
 	// 老数据为 NULL，清理逻辑用 COALESCE(deleted_at, created_at) 兜底。
 	{"photo", "deleted_at", "DATETIME"},
+	// upload_idempotency_key：弱网重试时识别同一张上传，避免产生重复照片。
+	{"photo", "upload_idempotency_key", "TEXT"},
 	// unclassified_name：「未归类」虚拟相册的自定义名称（管理员要求它也能改名）。
 	// 存在 pair 上而非 album 表——它不是真实相册行（album_id=0）。
 	{"pair", "unclassified_name", "TEXT"},
@@ -116,7 +118,10 @@ func DropRetiredTables(db *sql.DB) map[string]int {
 		}
 		// 记一下删了多少行，便于事后核对是否与导出的条数一致。
 		var rows int
-		_ = db.QueryRow(`SELECT COUNT(*) FROM "` + table + `"`).Scan(&rows)
+		if err := db.QueryRow(`SELECT COUNT(*) FROM "` + table + `"`).Scan(&rows); err != nil {
+			slog.Error("count retired table rows failed", "table", table, "err", err)
+			continue
+		}
 		if _, err := db.Exec(`DROP TABLE IF EXISTS "` + table + `"`); err != nil {
 			slog.Error("drop retired table failed", "table", table, "err", err)
 			continue

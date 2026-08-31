@@ -47,6 +47,9 @@ fun BindScreen(onBound: () -> Unit, onBack: () -> Unit) {
     var copied by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    val normalizedInviteCode = inviteCode.replace(" ", "").replace("-", "")
+    val inviteCodeValid = normalizedInviteCode.length == 8 ||
+        (normalizedInviteCode.length == 6 && normalizedInviteCode.all { it.isDigit() })
 
     fun createInvite() {
         scope.launch {
@@ -172,12 +175,12 @@ fun BindScreen(onBound: () -> Unit, onBack: () -> Unit) {
                     1 -> {
                         TextField(
                             value = inviteCode, onValueChange = { inviteCode = it },
-                            label = "6 位邀请码",
+                            label = "8 位邀请码（兼容旧 6 位数字码）",
                             modifier = Modifier.fillMaxWidth()
                         )
                         Button(
                             onClick = { bind() },
-                            enabled = inviteCode.length == 6 && !busy,
+                            enabled = inviteCodeValid && !busy,
                             modifier = Modifier.fillMaxWidth()
                         ) { Text(if (busy) "绑定中…" else "绑定") }
                     }

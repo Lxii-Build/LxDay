@@ -16,7 +16,8 @@ services:
       APP_KEY: "${APP_KEY:-}"
     volumes:
       - db_data:/app/data      # SQLite 数据库文件持久化
-      - uploads:/app/uploads   # 头像 / 日记图片 / APK
+      - uploads:/app/uploads   # 头像 / 日记图片 / APK（公开静态资源）
+      - uploads_private:/app/uploads-private # 相册原图/缩略图（仅 /media 鉴权代理）
     healthcheck:
       test: ["CMD", "wget", "-q", "-O-", "http://localhost:7740/healthz"]
       interval: 30s
@@ -27,3 +28,4 @@ services:
 volumes:
   db_data:
   uploads:
+  uploads_private:

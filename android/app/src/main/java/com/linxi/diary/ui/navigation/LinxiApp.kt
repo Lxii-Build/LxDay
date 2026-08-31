@@ -41,6 +41,7 @@ import com.linxi.diary.data.ProfileRefreshAction
 import com.linxi.diary.data.ProfileRuntime
 import com.linxi.diary.data.ApiClient
 import com.linxi.diary.data.AuthEvents
+import com.linxi.diary.data.ClientRuntimeConfig
 import com.linxi.diary.service.StatusForegroundService
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.ui.liquid.miuix.FloatingBottomBar
@@ -57,6 +58,7 @@ import com.linxi.diary.ui.screens.AboutScreen
 import com.linxi.diary.ui.screens.AppearanceScreen
 import com.linxi.diary.ui.screens.DiscoverPlaceholderScreen
 import com.linxi.diary.ui.screens.DiscoverScreen
+import com.linxi.diary.ui.screens.FeatureDisabledScreen
 import com.linxi.diary.ui.screens.HistoryScreen
 import com.linxi.diary.ui.screens.KeepAliveCheckScreen
 import com.linxi.diary.ui.screens.LoginScreen
@@ -98,6 +100,9 @@ private val tabs = listOf(
 @Composable
 fun LinxiApp() {
     val context = LocalContext.current.applicationContext
+    val albumEnabled = ClientRuntimeConfig.albumEnabled
+    val photoSocialEnabled = ClientRuntimeConfig.photoSocialEnabled
+    val onThisDayEnabled = ClientRuntimeConfig.onThisDayEnabled
     var mainInitialPage by remember { mutableStateOf(0) }
     var screen by remember {
         mutableStateOf(
@@ -203,27 +208,40 @@ fun LinxiApp() {
                         screen = Screen.Main
                     },
                 )
-                Screen.DiscoverAlbum -> AlbumListScreen(
-                    onBack = { mainInitialPage = 2; screen = Screen.Main },
-                    onOpenAlbum = { id, name -> albumArg = id to name; screen = Screen.AlbumDetail },
-                    onOpenOnThisDay = { screen = Screen.OnThisDay },
-                    onOpenRecycleBin = { screen = Screen.RecycleBin },
-                )
-                Screen.RecycleBin -> RecycleBinScreen(onBack = { screen = Screen.DiscoverAlbum })
-                Screen.AlbumDetail -> AlbumDetailScreen(
-                    albumId = albumArg.first,
-                    albumName = albumArg.second,
-                    onBack = { screen = Screen.DiscoverAlbum },
-                    onOpenPhoto = { list, index ->
-                        viewerPhotos = list; viewerIndex = index; screen = Screen.PhotoViewer
-                    },
-                    onPickPhotos = {
-                        pickerTarget = PickerTarget.Album
-                        screen = Screen.PhotoPicker
-                    },
-                    pickedUris = pickedUris,
-                    onPickedConsumed = { pickedUris = emptyList() },
-                )
+                Screen.DiscoverAlbum -> if (!albumEnabled) {
+                    FeatureDisabledScreen("相册", onBack = { mainInitialPage = 2; screen = Screen.Main })
+                } else {
+                    AlbumListScreen(
+                        onBack = { mainInitialPage = 2; screen = Screen.Main },
+                        onOpenAlbum = { id, name -> albumArg = id to name; screen = Screen.AlbumDetail },
+                        onOpenOnThisDay = { screen = Screen.OnThisDay },
+                        onOpenRecycleBin = { screen = Screen.RecycleBin },
+                        onThisDayEnabled = onThisDayEnabled,
+                    )
+                }
+                Screen.RecycleBin -> if (!albumEnabled) {
+                    FeatureDisabledScreen("回收站", onBack = { mainInitialPage = 2; screen = Screen.Main })
+                } else {
+                    RecycleBinScreen(onBack = { screen = Screen.DiscoverAlbum })
+                }
+                Screen.AlbumDetail -> if (!albumEnabled) {
+                    FeatureDisabledScreen("相册", onBack = { mainInitialPage = 2; screen = Screen.Main })
+                } else {
+                    AlbumDetailScreen(
+                        albumId = albumArg.first,
+                        albumName = albumArg.second,
+                        onBack = { screen = Screen.DiscoverAlbum },
+                        onOpenPhoto = { list, index ->
+                            viewerPhotos = list; viewerIndex = index; screen = Screen.PhotoViewer
+                        },
+                        onPickPhotos = {
+                            pickerTarget = PickerTarget.Album
+                            screen = Screen.PhotoPicker
+                        },
+                        pickedUris = pickedUris,
+                        onPickedConsumed = { pickedUris = emptyList() },
+                    )
+                }
                 Screen.PhotoPicker -> PhotoPickerScreen(
                     title = if (pickerTarget == PickerTarget.Avatar) "选择头像" else "选择照片",
                     multiple = pickerTarget == PickerTarget.Album,
@@ -263,13 +281,18 @@ fun LinxiApp() {
                     initialIndex = viewerIndex,
                     onBack = { screen = Screen.AlbumDetail },
                     onDeleted = { screen = Screen.AlbumDetail },
+                    photoSocialEnabled = photoSocialEnabled,
                 )
-                Screen.OnThisDay -> OnThisDayScreen(
-                    onBack = { screen = Screen.DiscoverAlbum },
-                    onOpenPhoto = { list, index ->
-                        viewerPhotos = list; viewerIndex = index; screen = Screen.PhotoViewer
-                    },
-                )
+                Screen.OnThisDay -> if (!albumEnabled || !onThisDayEnabled) {
+                    FeatureDisabledScreen("这一天", onBack = { mainInitialPage = 2; screen = Screen.Main })
+                } else {
+                    OnThisDayScreen(
+                        onBack = { screen = Screen.DiscoverAlbum },
+                        onOpenPhoto = { list, index ->
+                            viewerPhotos = list; viewerIndex = index; screen = Screen.PhotoViewer
+                        },
+                    )
+                }
                 Screen.DiscoverListen -> DiscoverPlaceholderScreen("一起听", onBack = { mainInitialPage = 2; screen = Screen.Main })
                 Screen.DiscoverWatch -> DiscoverPlaceholderScreen("一起看", onBack = { mainInitialPage = 2; screen = Screen.Main })
                 Screen.ProfileEdit -> ProfileEditScreen(
@@ -388,6 +411,7 @@ private fun MainTabs(
                         onOpenAlbum = onOpenAlbum,
                         onOpenListen = onOpenListen,
                         onOpenWatch = onOpenWatch,
+                        albumEnabled = albumEnabled,
                     )
                     3 -> SettingsScreen(
                         onOpenKeepAliveCheck = onOpenKeepAliveCheck,

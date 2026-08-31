@@ -86,16 +86,22 @@ func handleAlbumByID(c *gin.Context) {
 	if !okP {
 		return
 	}
-	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		fail(c, http.StatusBadRequest, 1002, "相册 ID 非法")
+		return
+	}
 	album, owned := getOwnedAlbum(pair, id)
 	if !owned {
 		fail(c, http.StatusForbidden, 1017, "无权访问该相册")
 		return
 	}
 	_, total, err := st.ListAlbumPhotos(pair.ID, album.ID, 1, 0)
-	if err == nil {
-		album.PhotoCount = total
+	if err != nil {
+		fail(c, http.StatusInternalServerError, 1010, "查询失败")
+		return
 	}
+	album.PhotoCount = total
 	ok(c, album)
 }
 
@@ -117,7 +123,11 @@ func handleUpdateAlbum(c *gin.Context) {
 	if !okP {
 		return
 	}
-	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id < 0 {
+		fail(c, http.StatusBadRequest, 1002, "相册 ID 非法")
+		return
+	}
 	// id=0 是虚拟的「未归类」：它不是真实相册行，走单独分支只改显示名
 	//（管理员 Q22 附言：「未归类也要能更改名字」）。封面/删除对它无意义。
 	if id == 0 {
@@ -170,7 +180,11 @@ func handleDeleteAlbum(c *gin.Context) {
 	if !okP {
 		return
 	}
-	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		fail(c, http.StatusBadRequest, 1002, "相册 ID 非法")
+		return
+	}
 	if _, owned := getOwnedAlbum(pair, id); !owned {
 		fail(c, http.StatusForbidden, 1017, "无权操作该相册")
 		return
@@ -189,7 +203,11 @@ func handleListAlbumPhotos(c *gin.Context) {
 	if !okP {
 		return
 	}
-	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id < 0 {
+		fail(c, http.StatusBadRequest, 1002, "相册 ID 非法")
+		return
+	}
 	// album_id=0 是「未归类」虚拟相册，本身没有 album 行，不做归属校验（照片自带 pair_id）。
 	if id != 0 {
 		if _, owned := getOwnedAlbum(pair, id); !owned {
@@ -229,7 +247,11 @@ func handleAttachPhotos(c *gin.Context) {
 		return
 	}
 	uid := currentUID(c)
-	albumID, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	albumID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || albumID <= 0 {
+		fail(c, http.StatusBadRequest, 1002, "相册 ID 非法")
+		return
+	}
 	album, owned := getOwnedAlbum(pair, albumID)
 	if !owned {
 		fail(c, http.StatusForbidden, 1017, "无权操作该相册")
@@ -283,8 +305,18 @@ func handleAttachPhotos(c *gin.Context) {
 
 // ---------- 单张照片 ----------
 
-// getOwnedPhoto 取照片并校验归属当前 pair。
+// getOwnedPhoto 取正常状态的照片并校验归属当前 pair。
 func getOwnedPhoto(pair *Pair, id int64) (*Photo, bool) {
+	p, err := st.GetPhoto(id)
+	if err != nil || p == nil || p.PairID != pair.ID || p.Status != 1 {
+		return nil, false
+	}
+	return p, true
+}
+
+// getOwnedPhotoAnyStatus 只给回收站恢复路径使用；普通读写/点赞/评论接口
+// 不应继续操作已经软删的照片。
+func getOwnedPhotoAnyStatus(pair *Pair, id int64) (*Photo, bool) {
 	p, err := st.GetPhoto(id)
 	if err != nil || p == nil || p.PairID != pair.ID {
 		return nil, false
@@ -354,7 +386,11 @@ func handlePhotoByID(c *gin.Context) {
 		return
 	}
 	uid := currentUID(c)
-	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		fail(c, http.StatusBadRequest, 1002, "照片 ID 非法")
+		return
+	}
 	photo, owned := getOwnedPhoto(pair, id)
 	if !owned {
 		fail(c, http.StatusForbidden, 1017, "无权访问该照片")
@@ -381,8 +417,13 @@ func handleUpdatePhoto(c *gin.Context) {
 	if !okP {
 		return
 	}
-	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
-	if _, owned := getOwnedPhoto(pair, id); !owned {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		fail(c, http.StatusBadRequest, 1002, "照片 ID 非法")
+		return
+	}
+	photo, owned := getOwnedPhoto(pair, id)
+	if !owned {
 		fail(c, http.StatusForbidden, 1017, "无权操作该照片")
 		return
 	}
@@ -417,7 +458,11 @@ func handleDeletePhoto(c *gin.Context) {
 	if !okP {
 		return
 	}
-	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		fail(c, http.StatusBadRequest, 1002, "照片 ID 非法")
+		return
+	}
 	if _, owned := getOwnedPhoto(pair, id); !owned {
 		fail(c, http.StatusForbidden, 1017, "无权操作该照片")
 		return
@@ -434,8 +479,13 @@ func handleRestorePhoto(c *gin.Context) {
 	if !okP {
 		return
 	}
-	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
-	if _, owned := getOwnedPhoto(pair, id); !owned {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		fail(c, http.StatusBadRequest, 1002, "照片 ID 非法")
+		return
+	}
+	photo, owned := getOwnedPhotoAnyStatus(pair, id)
+	if !owned || photo.Status != 2 {
 		fail(c, http.StatusForbidden, 1017, "无权操作该照片")
 		return
 	}
@@ -486,7 +536,11 @@ func handlePurgePhoto(c *gin.Context) {
 	if !okP {
 		return
 	}
-	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		fail(c, http.StatusBadRequest, 1002, "照片 ID 非法")
+		return
+	}
 	freed, err := st.PurgePhoto(id, pair.ID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -586,7 +640,11 @@ func handleLikePhoto(c *gin.Context) {
 		return
 	}
 	uid := currentUID(c)
-	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		fail(c, http.StatusBadRequest, 1002, "照片 ID 非法")
+		return
+	}
 	if _, owned := getOwnedPhoto(pair, id); !owned {
 		fail(c, http.StatusForbidden, 1017, "无权操作该照片")
 		return
@@ -595,7 +653,11 @@ func handleLikePhoto(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, 1010, "操作失败")
 		return
 	}
-	count, liked, _ := st.PhotoLikeState(id, uid)
+	count, liked, err := st.PhotoLikeState(id, uid)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, 1010, "查询失败")
+		return
+	}
 	ok(c, gin.H{"like_count": count, "liked": liked})
 }
 
@@ -605,7 +667,11 @@ func handleUnlikePhoto(c *gin.Context) {
 		return
 	}
 	uid := currentUID(c)
-	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		fail(c, http.StatusBadRequest, 1002, "照片 ID 非法")
+		return
+	}
 	if _, owned := getOwnedPhoto(pair, id); !owned {
 		fail(c, http.StatusForbidden, 1017, "无权操作该照片")
 		return
@@ -614,7 +680,11 @@ func handleUnlikePhoto(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, 1010, "操作失败")
 		return
 	}
-	count, liked, _ := st.PhotoLikeState(id, uid)
+	count, liked, err := st.PhotoLikeState(id, uid)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, 1010, "查询失败")
+		return
+	}
 	ok(c, gin.H{"like_count": count, "liked": liked})
 }
 
@@ -624,7 +694,11 @@ func handleCreatePhotoComment(c *gin.Context) {
 		return
 	}
 	uid := currentUID(c)
-	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		fail(c, http.StatusBadRequest, 1002, "照片 ID 非法")
+		return
+	}
 	if _, owned := getOwnedPhoto(pair, id); !owned {
 		fail(c, http.StatusForbidden, 1017, "无权操作该照片")
 		return
@@ -656,8 +730,16 @@ func handleDeletePhotoComment(c *gin.Context) {
 		return
 	}
 	uid := currentUID(c)
-	photoID, _ := strconv.ParseInt(c.Param("id"), 10, 64)
-	commentID, _ := strconv.ParseInt(c.Param("cid"), 10, 64)
+	photoID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || photoID <= 0 {
+		fail(c, http.StatusBadRequest, 1002, "照片 ID 非法")
+		return
+	}
+	commentID, err := strconv.ParseInt(c.Param("cid"), 10, 64)
+	if err != nil || commentID <= 0 {
+		fail(c, http.StatusBadRequest, 1002, "评论 ID 非法")
+		return
+	}
 	if _, owned := getOwnedPhoto(pair, photoID); !owned {
 		fail(c, http.StatusForbidden, 1017, "无权操作该照片")
 		return

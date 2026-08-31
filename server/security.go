@@ -79,12 +79,20 @@ var trustedProxyCIDRs = []string{
 
 // ---------- 口令强度 ----------
 
+// bcrypt 只接受前 72 字节。所有 API 在哈希前都必须拒绝更长口令，
+// 否则 hashPassword 的错误会被折叠为空串，造成“注册成功但永远无法登录”的坏账号。
+const maxPasswordBytes = 72
+
 // errWeakPassword 供调用方直接把文案回给前端（前端原样展示 message）。
 var errWeakPassword = errors.New("密码至少 12 位，且需同时包含大写字母、小写字母与数字")
+var errPasswordTooLong = errors.New("密码不能超过 72 字节")
 
 // validateStrongPassword 后台管理员口令强度：>=12 位且含大小写字母与数字。
 // 原实现只校验 len>=6，超管能把口令设成 "123456"——后台一旦被爆破即全站数据（含情侣私密日记）失守。
 func validateStrongPassword(pw string) error {
+	if len([]byte(pw)) > maxPasswordBytes {
+		return errPasswordTooLong
+	}
 	if len([]rune(pw)) < 12 {
 		return errWeakPassword
 	}

@@ -12,6 +12,7 @@ type User struct {
 	Nickname           string    `json:"nickname"`
 	AvatarURL          *string   `json:"avatar_url"`
 	AvatarThumbnailURL *string   `json:"avatar_thumbnail_url"`
+	Status             int       `json:"-"`
 	PasswordHash       string    `json:"-"`
 	CreatedAt          time.Time `json:"-"`
 }
@@ -164,7 +165,7 @@ type Photo struct {
 	// -1=永久保留，0=已到期。让用户知道回收站不是永久保险箱。
 	RecycleRemainingDays *int `json:"recycle_remaining_days,omitempty"`
 
-	diskPath    string // uploadDir 相对路径，仅服务端内部使用
+	diskPath    string // 存储根相对路径，仅服务端内部使用
 	diskThumb   string
 	diskPreview string
 	deletedAt   sql.NullTime // 进回收站的时刻，用于计算保留期

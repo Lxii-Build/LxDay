@@ -65,6 +65,7 @@ fun AlbumListScreen(
     onOpenAlbum: (albumId: Long, name: String) -> Unit,
     onOpenOnThisDay: () -> Unit,
     onOpenRecycleBin: () -> Unit,
+    onThisDayEnabled: Boolean = true,
 ) {
     BackHandler(onBack = onBack)
     val scope = rememberCoroutineScope()
@@ -159,12 +160,14 @@ fun AlbumListScreen(
                     variant = LxButtonVariant.Positive,
                     modifier = Modifier.weight(1f),
                 )
-                LxButton(
-                    text = "这一天",
-                    onClick = onOpenOnThisDay,
-                    variant = LxButtonVariant.Neutral,
-                    modifier = Modifier.weight(1f),
-                )
+                if (onThisDayEnabled) {
+                    LxButton(
+                        text = "这一天",
+                        onClick = onOpenOnThisDay,
+                        variant = LxButtonVariant.Neutral,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
                 LxButton(
                     // 带角标：让用户知道回收站里还有东西（也知道它不是空的摆设）。
                     text = if (recycledCount > 0) "回收站 $recycledCount" else "回收站",

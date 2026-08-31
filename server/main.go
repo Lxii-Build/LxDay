@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"log/slog"
 	"net/http"
@@ -99,8 +100,12 @@ func main() {
 		log.Fatalf("初始化存储失败: %v", err)
 	}
 	st = store
+	// 私密相册文件不能在迁移完成前注册 /upload(s) 静态路由，否则旧照片会继续绕过 /media 鉴权。
+	if err := migratePhotoFilesToPrivateRoot(st.DB); err != nil {
+		log.Fatalf("迁移私密相册文件失败: %v", err)
+	}
 	if err := st.EnsureSuperAdmin(); err != nil {
-		log.Printf("初始化超级管理员失败: %v", err)
+		log.Fatalf("初始化超级管理员失败: %v", err)
 	}
 	push = NewPushGateway(cfg.Push.Provider, st)
 	hub = NewHub(st, push)
@@ -128,20 +133,31 @@ func main() {
 	}
 
 	r := gin.New()
+	// FormFile/ParseMultipartForm 的 file 部分最多只在内存保留这点大小，
+	// 其余内容落临时盘；配合 multipartParseSlots，避免并发上传把内存推高。
+	r.MaxMultipartMemory = 256 << 10
 	// 只信任本机反代（生产是宝塔 Nginx 同机反代）。
 	// 不设置时 Gin 信任所有代理，任何人都能用 X-Forwarded-For 伪造来源 IP，
 	// 从而污染审计日志、并绕过一切按 IP 的限流。
-	if err := r.SetTrustedProxies([]string{"127.0.0.1", "::1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}); err != nil {
+	if err := r.SetTrustedProxies(trustedProxyCIDRs); err != nil {
 		slog.Warn("SetTrustedProxies failed", "err", err)
 	}
-	r.Use(SecurityHeaders(), RequestLogger(), gin.Recovery())
+	r.Use(SecurityHeaders(), RequestLogger(), gin.Recovery(), LimitJSONBody())
 
 	// ---- 公开路由 ----
 	// 通讯密钥中间件仅拦截 /api/v1/*（app_key 为空则禁用）；不影响 /ws、/uploads、SPA、/healthz、/api/admin
 	api := r.Group("/api/v1", AppKeyGuard())
-	api.POST("/auth/register", handleRegister)
-	api.POST("/auth/login", handleLogin)
-	api.POST("/auth/send-code", handleSendEmailCode)
+	// ★ 这三条公开接口必须按 IP 限流 ★
+	//
+	// APP_KEY 编在 APK 里，逆向即可取得明文 —— 任何随客户端分发的密钥
+	// 都不可能保密，所以它只能挡住顺手扫全网的爬虫，**不构成安全边界**。
+	// 正确的威胁模型是「攻击者已持有合法 APP_KEY」，而在这个前提下
+	// 此前所有限流的键（账号名/邮箱/uid）全都由攻击者自己控制、
+	// 换一个就从零开始。IP 是唯一不受其随意支配的维度。
+	// 详见 ip_ratelimit.go 顶部的说明。
+	api.POST("/auth/register", IPRateLimit(ipRateRegister), handleRegister)
+	api.POST("/auth/login", IPRateLimit(ipRateLogin), handleLogin)
+	api.POST("/auth/send-code", IPRateLimit(ipRateSendCode), handleSendEmailCode)
 	api.GET("/app/latest", handleCheckUpdate)
 
 	// ---- 需鉴权路由 ----
@@ -203,7 +219,9 @@ func main() {
 	album.GET("/albums/:id/photos", handleListAlbumPhotos)
 	album.POST("/albums/:id/photos", handleAttachPhotos)
 
-	album.POST("/media", handleUploadMedia)
+	// 上传再加一道按 IP 的限流：按账号的每日配额已有，但**新注册账号的配额是满的**，
+	// 而注册在攻击者手里是廉价的。这条卡住"注册一批账号轮着传"的放大路径。
+	album.POST("/media", IPRateLimit(ipRateUpload), handleUploadMedia)
 
 	album.GET("/photos/:id", handlePhotoByID) // :id=on-this-day / recycled → 见 handlePhotoByID
 	album.PUT("/photos/:id", handleUpdatePhoto)
@@ -235,7 +253,9 @@ func main() {
 	r.GET("/ws", func(c *gin.Context) {
 		// 与 JWTAuth 共用 authUserByToken：WS 同样要校验封禁状态与 token_ver，
 		// 否则被封禁用户仍能保持长连接持续接收对方实时状态（位置/电量/前台应用）。
-		uid, err := authUserByToken(c.Query("token"))
+		// JWT 只允许放在 Authorization 头，不能放在 URL 查询串里；查询串会进入
+		// 反向代理、负载均衡器和浏览器历史记录。
+		uid, err := authUserByToken(bearerToken(c.GetHeader("Authorization")))
 		if err != nil {
 			c.JSON(401, gin.H{"code": 1003, "message": "登录已失效"})
 			return
@@ -295,7 +315,9 @@ func main() {
 func initStore(c *Config) (*Store, error) {
 	// 确保 SQLite 文件所在目录存在
 	if dir := filepath.Dir(c.DB.Path); dir != "" && dir != "." {
-		os.MkdirAll(dir, 0o755)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, fmt.Errorf("create database directory %q: %w", dir, err)
+		}
 	}
 	dsn := "file:" + c.DB.Path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)"
 	db, err := sqlOpen(dsn)

@@ -309,7 +309,9 @@ func Test落盘扩展名与Mime由格式决定(t *testing.T) {
 		{FormatPNG, ".png", "image/png"},
 		{FormatGIF, ".gif", "image/gif"},
 		{FormatWebP, ".webp", "image/webp"},
-		{FormatHEIF, ".bin", "application/octet-stream"},
+		{FormatBMP, ".bmp", "image/bmp"},
+		{FormatHEIF, ".heic", "image/heic"},
+		{FormatAVIF, ".avif", "image/avif"},
 		{FormatUnknown, ".bin", "application/octet-stream"},
 	}
 	for _, tc := range cases {
@@ -375,6 +377,54 @@ func Test从文件读取EXIF拍摄时间(t *testing.T) {
 	// 文件不存在：同样留空，不 panic。
 	if got := readTakenAt(filepath.Join(dir, "missing.jpg")); got != nil {
 		t.Fatalf("文件缺失应留空，得到 %v", got)
+	}
+}
+
+func TestETagMatches(t *testing.T) {
+	current := `"photo-7-v1-123-456"`
+	cases := []struct {
+		name   string
+		header string
+		want   bool
+	}{
+		{"exact", current, true},
+		{"weak", "W/" + current, true},
+		{"list", `"other", W/` + current, true},
+		{"wildcard", "*", true},
+		{"mismatch", `"photo-7-v1-123-999"`, false},
+		{"empty", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := etagMatches(tc.header, current); got != tc.want {
+				t.Fatalf("etagMatches(%q, %q)=%v want %v", tc.header, current, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestMediaVariantPolicy(t *testing.T) {
+	cases := []struct {
+		name     string
+		want     bool
+		status   int
+		variant  mediaVariant
+		hasThumb bool
+	}{
+		{name: "active origin", status: 1, variant: variantOrigin, want: true},
+		{name: "active preview", status: 1, variant: variantPreview, want: true},
+		{name: "recycled thumb", status: 2, variant: variantThumb, hasThumb: true, want: true},
+		{name: "recycled origin", status: 2, variant: variantOrigin, hasThumb: true, want: false},
+		{name: "recycled preview", status: 2, variant: variantPreview, hasThumb: true, want: false},
+		{name: "recycled without thumb", status: 2, variant: variantThumb, want: false},
+		{name: "invalid status", status: 0, variant: variantThumb, hasThumb: true, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := canServeMediaVariant(tc.status, tc.variant, tc.hasThumb); got != tc.want {
+				t.Fatalf("canServeMediaVariant(%d, %d, %v)=%v want %v", tc.status, tc.variant, tc.hasThumb, got, tc.want)
+			}
+		})
 	}
 }
 

@@ -67,6 +67,7 @@
   import { useI18n } from 'vue-i18n'
   import { createAppVersion } from '@/api/admin'
   import { useUserStore } from '@/store/modules/user'
+  import { toBearerToken } from '@/utils/http'
   import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 
   defineOptions({ name: 'AppVersionDialog' })
@@ -78,10 +79,9 @@
     version_name: string
   }
 
-  const props = withDefaults(
-    defineProps<{ modelValue: boolean; existing?: ExistingVersion[] }>(),
-    { existing: () => [] }
-  )
+  const props = withDefaults(defineProps<{ modelValue: boolean; existing?: ExistingVersion[] }>(), {
+    existing: () => []
+  })
 
   const emit = defineEmits<{
     (e: 'update:modelValue', v: boolean): void
@@ -97,7 +97,7 @@
 
   const userStore = useUserStore()
   const uploadAction = '/api/admin/upload'
-  const uploadHeaders = computed(() => ({ Authorization: userStore.accessToken }))
+  const uploadHeaders = computed(() => ({ Authorization: toBearerToken(userStore.accessToken) }))
 
   const formRef = ref<FormInstance>()
   const submitting = ref(false)
@@ -131,9 +131,7 @@
 
   const rules = computed<FormRules>(() => ({
     platform: [{ required: true, message: t('appVersion.rules.platform'), trigger: 'change' }],
-    version_name: [
-      { required: true, message: t('appVersion.rules.versionName'), trigger: 'blur' }
-    ],
+    version_name: [{ required: true, message: t('appVersion.rules.versionName'), trigger: 'blur' }],
     version_code: [{ required: true, validator: validateVersionCode, trigger: 'blur' }]
   }))
 
@@ -165,8 +163,7 @@
 
     // 同平台下 version_code 重复：先提示，由操作者确认后再提交
     const dup = props.existing.find(
-      (item) =>
-        item.platform === formData.platform && item.version_code === formData.version_code
+      (item) => item.platform === formData.platform && item.version_code === formData.version_code
     )
     if (dup) {
       const confirmed = await ElMessageBox.confirm(

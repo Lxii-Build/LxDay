@@ -733,3 +733,48 @@ func Test后台照片列表不泄露图片地址(t *testing.T) {
 		t.Fatalf("后台删除后用户回收站应有 1 张，得到 %d", total)
 	}
 }
+
+// 重复删除不能刷新 deleted_at，否则用户每次点删除都会把自动清理时间往后推；
+// 后台软删也必须写入同一时间字段，不能让清理任务退回 created_at 的旧时间。
+func Test照片回收时间只在首次软删时设置(t *testing.T) {
+	s := withTestStore(t)
+	pair, uid, _ := seedPair(t, s, "first", "second", "STATUS01")
+	p := addPhoto(t, s, pair.ID, uid, 0, "status", nil)
+
+	if err := s.SetPhotoStatus(p.ID, pair.ID, 2); err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+	const oldDeletedAt = "2000-01-02 03:04:05"
+	if _, err := s.DB.Exec("UPDATE photo SET deleted_at=? WHERE id=?", oldDeletedAt, p.ID); err != nil {
+		t.Fatalf("seed deleted_at: %v", err)
+	}
+	if err := s.SetPhotoStatus(p.ID, pair.ID, 2); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("重复软删应返回 sql.ErrNoRows，实际 %v", err)
+	}
+	var got string
+	if err := s.DB.QueryRow("SELECT deleted_at FROM photo WHERE id=?", p.ID).Scan(&got); err != nil {
+		t.Fatalf("read deleted_at: %v", err)
+	}
+	if got != oldDeletedAt {
+		t.Fatalf("重复软删刷新了 deleted_at：%q", got)
+	}
+
+	if err := s.SetPhotoStatus(p.ID, pair.ID, 1); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	if err := s.SetPhotoStatus(p.ID, pair.ID, 1); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("重复恢复应返回 sql.ErrNoRows，实际 %v", err)
+	}
+
+	p2 := addPhoto(t, s, pair.ID, uid, 0, "admin-status", nil)
+	if err := s.AdminDeletePhoto(p2.ID); err != nil {
+		t.Fatalf("admin soft delete: %v", err)
+	}
+	var adminDeletedAt sql.NullString
+	if err := s.DB.QueryRow("SELECT deleted_at FROM photo WHERE id=?", p2.ID).Scan(&adminDeletedAt); err != nil {
+		t.Fatalf("read admin deleted_at: %v", err)
+	}
+	if !adminDeletedAt.Valid || adminDeletedAt.String == "" {
+		t.Fatal("后台软删没有设置 deleted_at")
+	}
+}

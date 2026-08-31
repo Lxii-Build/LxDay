@@ -14,7 +14,7 @@ cp config.example.yaml config.yaml
 # 编辑 config.yaml：jwt_secret（必填）/ db.path / app_key / storage.upload_dir
 
 # 2. 运行（建表自动完成：启动执行内嵌 sql/schema.sql，幂等）
-mkdir -p uploads data
+mkdir -p uploads uploads-private data
 go mod tidy
 JWT_SECRET=$(openssl rand -hex 32) go run . config.yaml
 ```
@@ -93,7 +93,7 @@ GET  /api/v1/status/history?date=&limit=&offset=   状态历史时间线
 GET  /api/v1/status/history/battery?date=          24h 电量曲线
 POST /api/v1/push/register-token     注册推送 token（预留）
 DELETE /api/v1/push/token            注销推送 token（预留）
-WS   /ws?token=<JWT>                 实时通道
+WS   /ws（Authorization: Bearer <JWT>）实时通道
 GET  /healthz                        健康检查（compose healthcheck 用）
 ```
 
@@ -228,9 +228,10 @@ POST /api/admin/notify                    向用户群发通知
 ## 待接入 / 说明
 
 1. **推送**：按设计决策**不接商业推送**，纯 WS + 离线重连补拉 + 本地 AlarmManager。`push.go` 保持占位，`/push/*` 接口为预留。
-2. **图片上传**：本地磁盘，统一落 `uploadDir/upload/YYYY/MM/DD/<随机名>`，由 Go 自托管
+2. **头像/公开资源上传**：本地磁盘，落 `uploadDir/upload/YYYY/MM/DD/<随机名>`，由 Go 自托管
    `/upload/*`（新）与 `/uploads/*`（旧兼容）两条静态路由，**均无鉴权**、均关目录列举。
-   故相册照片不走这里，而是 `/media/<id>` 鉴权代理。
+   **相册照片**落在同级的 `uploadDir-private/media/YYYY/MM/DD/<随机名>`，不挂静态路由，
+   对外只走 `/media/<id>` 鉴权代理；启动时会把历史 `photo` 文件迁过去。
 3. **状态历史**：客户端 5min 上报时服务端 `INSERT OR IGNORE` 落 `status_history`（幂等，SQLite 语法）；
    待办到点提醒每分钟扫描一次（`scanDueTodos` goroutine）。
 4. **内存态即失**：在线态、伴侣最新状态、离线事件队列（**100 条上限 + 24h TTL**）、
@@ -242,4 +243,4 @@ POST /api/admin/notify                    向用户群发通知
    （Redis + Pub/Sub 或网关路由）。
 6. **SQLite 单写者**：`SetMaxOpenConns(1)` + WAL + `busy_timeout(5000)`。
    并发量足够，但慢查询会串行阻塞后续请求。
-7. **本地运行需建目录**：`mkdir -p uploads data`（容器镜像里已由 Dockerfile 建好）。
+7. **本地运行需建目录**：`mkdir -p uploads uploads-private data`（容器镜像里已由 Dockerfile 建好；`uploads-private` 用于相册私密媒体，不能挂公开静态路由）。

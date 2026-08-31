@@ -62,6 +62,7 @@ fun PhotoViewerScreen(
     initialIndex: Int,
     onBack: () -> Unit,
     onDeleted: () -> Unit,
+    photoSocialEnabled: Boolean = true,
 ) {
     BackHandler(onBack = onBack)
     val context = LocalContext.current
@@ -141,18 +142,22 @@ fun PhotoViewerScreen(
     }
 
     // 翻页即刷新该张的点赞/评论。
-    LaunchedEffect(current.id) {
-        liked = current.likedByMe
-        likeCount = current.likeCount
+    LaunchedEffect(current.id, photoSocialEnabled) {
+        liked = if (photoSocialEnabled) current.likedByMe else false
+        likeCount = if (photoSocialEnabled) current.likeCount else 0
         caption = current.caption
         captionDraft = current.caption
         editingCaption = false
-        runCatching { ApiClient.photoDetail(current.id) }.onSuccess { d ->
-            liked = d.optBoolean("liked", liked)
-            likeCount = d.optInt("like_count", likeCount)
-            val arr = d.optJSONArray("comments")
-            comments = if (arr == null) emptyList() else {
-                (0 until arr.length()).map { PhotoCommentItem.fromJson(arr.getJSONObject(it)) }
+        comments = emptyList()
+        if (!photoSocialEnabled) showComments = false
+        if (photoSocialEnabled) {
+            runCatching { ApiClient.photoDetail(current.id) }.onSuccess { d ->
+                liked = d.optBoolean("liked", liked)
+                likeCount = d.optInt("like_count", likeCount)
+                val arr = d.optJSONArray("comments")
+                comments = if (arr == null) emptyList() else {
+                    (0 until arr.length()).map { PhotoCommentItem.fromJson(arr.getJSONObject(it)) }
+                }
             }
         }
     }
@@ -221,44 +226,46 @@ fun PhotoViewerScreen(
                 )
             }
 
-            Row(
-                Modifier.fillMaxWidth().padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = {
-                    if (busy) return@IconButton
-                    busy = true
-                    val wasLiked = liked
-                    // 乐观更新：先动 UI，失败再回滚。点赞是高频轻量操作，等网络往返会显得迟钝。
-                    liked = !wasLiked
-                    likeCount = (likeCount + if (wasLiked) -1 else 1).coerceAtLeast(0)
-                    scope.launch {
-                        val r = if (wasLiked) {
-                            runCatching { ApiClient.unlikePhoto(current.id) }
-                        } else {
-                            runCatching { ApiClient.likePhoto(current.id) }
+            if (photoSocialEnabled) {
+                Row(
+                    Modifier.fillMaxWidth().padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = {
+                        if (busy) return@IconButton
+                        busy = true
+                        val wasLiked = liked
+                        // 乐观更新：先动 UI，失败再回滚。点赞是高频轻量操作，等网络往返会显得迟钝。
+                        liked = !wasLiked
+                        likeCount = (likeCount + if (wasLiked) -1 else 1).coerceAtLeast(0)
+                        scope.launch {
+                            val r = if (wasLiked) {
+                                runCatching { ApiClient.unlikePhoto(current.id) }
+                            } else {
+                                runCatching { ApiClient.likePhoto(current.id) }
+                            }
+                            r.onSuccess { d ->
+                                liked = d.optBoolean("liked", liked)
+                                likeCount = d.optInt("like_count", likeCount)
+                            }.onFailure {
+                                liked = wasLiked
+                                likeCount = (likeCount + if (wasLiked) 1 else -1).coerceAtLeast(0)
+                            }
+                            busy = false
                         }
-                        r.onSuccess { d ->
-                            liked = d.optBoolean("liked", liked)
-                            likeCount = d.optInt("like_count", likeCount)
-                        }.onFailure {
-                            liked = wasLiked
-                            likeCount = (likeCount + if (wasLiked) 1 else -1).coerceAtLeast(0)
-                        }
-                        busy = false
+                    }) {
+                        Icon(
+                            if (liked) MiuixIcons.FavoritesFill else MiuixIcons.Favorites,
+                            contentDescription = if (liked) "取消赞" else "点赞",
+                            tint = if (liked) MiuixTheme.colorScheme.primary
+                            else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
                     }
-                }) {
-                    Icon(
-                        if (liked) MiuixIcons.FavoritesFill else MiuixIcons.Favorites,
-                        contentDescription = if (liked) "取消赞" else "点赞",
-                        tint = if (liked) MiuixTheme.colorScheme.primary
-                        else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    )
-                }
-                Text("$likeCount", modifier = Modifier.padding(start = 4.dp))
-                Spacer(Modifier.weight(1f))
-                Button(onClick = { showComments = !showComments }) {
-                    Text("评论 ${comments.size}", fontSize = 13.sp)
+                    Text("$likeCount", modifier = Modifier.padding(start = 4.dp))
+                    Spacer(Modifier.weight(1f))
+                    Button(onClick = { showComments = !showComments }) {
+                        Text("评论 ${comments.size}", fontSize = 13.sp)
+                    }
                 }
             }
 
@@ -318,7 +325,7 @@ fun PhotoViewerScreen(
                 }
             }
 
-            if (showComments) {
+            if (showComments && photoSocialEnabled) {
                 Card(Modifier.fillMaxWidth().padding(12.dp)) {
                     Column(
                         Modifier.padding(12.dp).heightIn(max = 260.dp).verticalScroll(rememberScrollState()),

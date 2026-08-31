@@ -7,6 +7,7 @@ import android.graphics.Matrix
 import android.net.Uri
 import androidx.exifinterface.media.ExifInterface
 import com.linxi.diary.util.Logs
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -32,7 +33,11 @@ object ImagePrep {
      * 全程在 IO 线程：解码是重活，放主线程会直接掉帧甚至 ANR
      *（此前的 NetworkAvatar 就是在主线程 decode）。
      */
-    suspend fun prepare(context: Context, uri: Uri): Result<Prepared> = withContext(Dispatchers.IO) {
+    suspend fun prepare(
+        context: Context,
+        uri: Uri,
+        maxUploadBytes: Long = ImagePrepPolicy.MAX_UPLOAD_BYTES,
+    ): Result<Prepared> = withContext(Dispatchers.IO) {
         runCatching {
             val resolver = context.contentResolver
             val sourceMime = resolver.getType(uri)
@@ -43,7 +48,7 @@ object ImagePrep {
             // 此前动态 WebP 一律被压成静态 WEBP_LOSSY，动画全丢。
             val animated = targetMime == "image/webp" && isAnimatedWebpUri(resolver, uri)
             if (!ImagePrepPolicy.shouldRecompress(sourceMime, animated)) {
-                return@runCatching copyAsIs(context, resolver, uri, targetMime)
+                return@runCatching copyAsIs(context, resolver, uri, targetMime, maxUploadBytes)
             }
 
             // 先只读边界拿原始尺寸，据此算 inSampleSize——直接全尺寸解码大图会 OOM。
@@ -90,7 +95,10 @@ object ImagePrep {
                     )
                     takenAtMs = exif.dateTimeOriginal ?: exif.dateTime
                 }
-            }.onFailure { Logs.i("ImagePrep", "EXIF unreadable, continuing without it") }
+            }.onFailure {
+                if (it is CancellationException) throw it
+                Logs.i("ImagePrep", "EXIF unreadable, continuing without it")
+            }
 
             // ★★ 从这里到 finally 之间的一切都必须保证 bitmap 被回收 ★★
             //
@@ -110,7 +118,7 @@ object ImagePrep {
                 bitmap = normalize(bitmap, orientation)
 
                 val ext = ImagePrepPolicy.extensionFor(targetMime)
-                val out = File(context.cacheDir, "upload_${System.currentTimeMillis()}.$ext")
+                val out = newUploadTempFile(context, ext)
                 val format = when (targetMime) {
                     "image/png" -> Bitmap.CompressFormat.PNG
                     "image/webp" -> if (android.os.Build.VERSION.SDK_INT >= 30) {
@@ -135,9 +143,9 @@ object ImagePrep {
                     error("图片编码失败，请换一张")
                 }
 
-                if (out.length() > ImagePrepPolicy.MAX_UPLOAD_BYTES) {
+                if (out.length() > maxUploadBytes) {
                     out.delete()
-                    error("图片过大（处理后仍超过 20MB）")
+                    error("图片过大（处理后仍超过 ${maxUploadBytes / (1024 * 1024)}MB）")
                 }
                 Prepared(file = out, mime = targetMime, width = w, height = h, takenAtMs = takenAtMs)
             } finally {
@@ -145,7 +153,7 @@ object ImagePrep {
                 //（bitmap 已指向新对象）；isRecycled 判断只是防御重复回收。
                 if (!bitmap.isRecycled) bitmap.recycle()
             }
-        }
+        }.onFailure { if (it is CancellationException) throw it }
     }
 
     /**
@@ -170,20 +178,33 @@ object ImagePrep {
         resolver: android.content.ContentResolver,
         uri: Uri,
         mime: String,
+        maxUploadBytes: Long,
     ): Prepared {
         val ext = ImagePrepPolicy.extensionFor(mime)
-        val out = File(context.cacheDir, "upload_${System.currentTimeMillis()}.$ext")
-        resolver.openInputStream(uri)?.use { input ->
-            out.outputStream().use { input.copyTo(it) }
-        } ?: error("无法读取所选图片")
-        if (out.length() > ImagePrepPolicy.MAX_UPLOAD_BYTES) {
+        val out = newUploadTempFile(context, ext)
+        try {
+            resolver.openInputStream(uri)?.use { input ->
+                out.outputStream().use { input.copyTo(it) }
+            } ?: error("无法读取所选图片")
+        } catch (t: Throwable) {
             out.delete()
-            error("图片过大（超过 20MB）")
+            throw t
+        }
+        if (out.length() > maxUploadBytes) {
+            out.delete()
+            error("图片过大（超过 ${maxUploadBytes / (1024 * 1024)}MB）")
         }
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(out.absolutePath, bounds)
         return Prepared(out, mime, bounds.outWidth, bounds.outHeight, null)
     }
+
+    /**
+     * 每次预处理都必须拿到唯一的临时文件名。时间戳在并发调用下会碰撞，
+     * 一个任务可能覆盖另一个任务尚未上传的文件。
+     */
+    private fun newUploadTempFile(context: Context, ext: String): File =
+        File.createTempFile("upload_", ".$ext", context.cacheDir)
 
     /**
      * EXIF 旋正 + 缩到长边上限，**合并为一次 [Bitmap.createBitmap]**。

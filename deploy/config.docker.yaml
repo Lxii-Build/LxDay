@@ -17,4 +17,3 @@ push:
 
 storage:
   upload_dir: "/app/uploads"
-  upload_max_mb: 10

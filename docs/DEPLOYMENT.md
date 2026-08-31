@@ -24,20 +24,22 @@
    # 方式 C（本地自构建）：docker build -t lxday:local . 后在 .env 设 LXDAY_IMAGE=lxday:local 再 up
    ```
    镜像地址/端口由 `.env` 的 `LXDAY_IMAGE`/`APP_PORT` 控制（默认 `ghcr.io/lxii-build/lxday:latest`、`7740`）。
-   **数据库零手动导入**：内嵌 SQLite 首次启动自动建表（文件在 `db_data` 卷，容器以 root 运行、卷可直接写入）。超级管理员**初始随机口令仅在服务端启动日志打印一次**（`docker compose logs app` 查看），**首次登录强制改账号密码，改密前无法进行其它后台操作**。
+   **数据库零手动导入**：内嵌 SQLite 首次启动自动建表（文件在 `db_data` 卷，容器以 `app` 用户运行，镜像已准备好并授权数据目录）。超级管理员初始随机口令写入数据卷中的 `initial-admin-password.txt`（权限 `0600`，用 `docker compose exec app cat /app/data/initial-admin-password.txt` 查看），**首次登录强制改账号密码，改密前无法进行其它后台操作**；改密后请删除该文件。
 3. 访问（容器直连，验证用）：
    - 后台管理：`http://<服务器IP>:7740/`
    - 客户端 API：`http://<服务器IP>:7740/api/v1/...`，WebSocket：`ws://<服务器IP>:7740/ws`
    - 健康检查：`http://<服务器IP>:7740/healthz`（compose 已配 healthcheck）
 4. 常用运维：
    ```bash
-   docker compose logs -f app        # 服务端日志（含超管初始口令）
+   docker compose logs -f app        # 服务端日志（不输出超管初始口令）
    docker compose ps                 # 状态
    docker compose pull && docker compose up -d   # 拉取新镜像并更新（生产升级）
    docker compose down               # 停止（保留数据卷）
    ```
 
-数据卷：`db_data`（SQLite 数据库文件）、`uploads`（头像/图片/APK）。清空数据需显式 `docker compose down -v`（谨慎）。
+数据卷：`db_data`（SQLite 数据库文件）、`uploads`（头像/日记图片/APK 等公开资源）、
+`uploads_private`（相册原图/缩略图，仅由 `/media/<id>` 鉴权代理读取）。清空数据需显式
+`docker compose down -v`（谨慎）。
 
 <!-- APPEND-DEPLOY-MORE -->
 
@@ -75,6 +77,7 @@ docker run -d --name LxDay \
   -v $(pwd)/config.yaml:/app/config.yaml:ro \
   -v lxday-data:/app/data \
   -v lxday-uploads:/app/uploads \
+  -v lxday-uploads-private:/app/uploads-private \
   ghcr.io/lxii-build/lxday:latest
 ```
 `config.yaml` 参照 `server/config.example.yaml`；SQLite 文件默认 `/app/data/lxday.db`（挂 `lxday-data` 卷持久化），`JWT_SECRET`/`APP_KEY` 用 `-e` 注入。同样在前面放一层反代做 TLS。
@@ -98,7 +101,8 @@ JWT_SECRET="长随机串" APP_KEY="可选" go build -o linxi-server . && ./linxi
 cd admin
 npm install && npm run build           # 产物在 admin/dist
 ```
-把 `admin/dist` 交给任意静态服务器（或 `admin/Dockerfile` 的 Nginx 镜像）托管，并把 `/api`、`/ws`、`/uploads` 反代到后端 `127.0.0.1:7740`。
+把 `admin/dist` 交给任意静态服务器（或 `admin/Dockerfile` 的 Nginx 镜像）托管，并把 `/api`、`/ws`、
+`/media` 反代到后端 `127.0.0.1:7740`；`/upload`、`/uploads` 与后端共享公开上传目录；`/media` 不能配置成静态目录，必须保留后端鉴权。仓库提供的 `deploy/nginx.conf` 已按服务端容器端口 `7740` 配置。
 
 ---
 
@@ -113,6 +117,6 @@ npm install && npm run build           # 产物在 admin/dist
 - 生产更新：不自动部署，服务器 `docker compose pull && docker compose up -d` 手动升级。
 
 ## 六、初始账号与安全清单
-- 超级管理员：`admin / 123456`，**首次登录强制改账号+密码+绑定邮箱**（改密前后端会拦截其它管理操作）。
-- 上线前务必：在 `.env` 设好强随机 `JWT_SECRET`（缺省/占位会拒绝启动）、改数据库密码；配置反代 HTTPS；如需通讯密钥则两侧设好 `APP_KEY`（服务端环境变量 + 安卓构建注入一致）；后台填好 SMTP；确认 `/app/uploads` 卷可写。
+- 超级管理员：用户名 `admin`，随机初始口令见 `/app/data/initial-admin-password.txt`，**首次登录强制改账号+密码+绑定邮箱**（改密前后端会拦截其它管理操作）。不要在文档、日志或工单中写死口令。
+- 上线前务必：在 `.env` 设好强随机 `JWT_SECRET`（缺省/占位会拒绝启动）；配置反代 HTTPS；如需通讯密钥则两侧设好 `APP_KEY`（服务端环境变量 + 安卓构建注入一致）；后台填好 SMTP；确认 `/app/uploads` 与 `/app/uploads-private` 卷可写。
 - 后台「网络日志」记录 API 请求（方法/路径/状态码/耗时/IP/UA），默认保留 7 天，仅管理员可见。

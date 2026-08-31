@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.exifinterface.media.ExifInterface
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -106,6 +107,16 @@ fun AvatarCropScreen(
                     BitmapFactory.decodeStream(it, null, bounds)
                 }
                 if (bounds.outWidth <= 0) return@runCatching null
+                val orientation = runCatching {
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        ExifInterface(input).getAttributeInt(
+                            ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL
+                        )
+                    } ?: ExifInterface.ORIENTATION_NORMAL
+                }.getOrElse {
+                    Logs.i("AvatarCrop", "EXIF unreadable, using normal orientation", it)
+                    ExifInterface.ORIENTATION_NORMAL
+                }
                 // 预览只需屏幕级尺寸，降采样到长边 ~1080 足够，且不会 OOM。
                 val opts = BitmapFactory.Options().apply {
                     inSampleSize = ImagePrepPolicy.sampleSize(bounds.outWidth, bounds.outHeight, 1080)
@@ -116,9 +127,10 @@ fun AvatarCropScreen(
                             inTargetDensity = target
                         }
                 }
-                context.contentResolver.openInputStream(uri)?.use {
+                val decoded = context.contentResolver.openInputStream(uri)?.use {
                     BitmapFactory.decodeStream(it, null, opts)
-                }
+                } ?: return@runCatching null
+                orientPreview(decoded, orientation)
             }.getOrElse {
                 Logs.w("AvatarCrop", "decode preview failed", it)
                 null
@@ -209,6 +221,19 @@ fun AvatarCropScreen(
             }
         }
     }
+}
+
+/** 预览先旋正，保证用户看到的取景框与导出时的 EXIF 坐标一致。 */
+private fun orientPreview(src: Bitmap, exifOrientation: Int): Bitmap {
+    val t = ImagePrepPolicy.orientationTransform(exifOrientation)
+    if (t.isIdentity) return src
+    val matrix = android.graphics.Matrix().apply {
+        if (t.rotationDegrees != 0f) postRotate(t.rotationDegrees)
+        if (t.flipHorizontal) postScale(-1f, 1f)
+    }
+    val oriented = Bitmap.createBitmap(src, 0, 0, src.width, src.height, matrix, true)
+    if (oriented !== src) src.recycle()
+    return oriented
 }
 
 /**

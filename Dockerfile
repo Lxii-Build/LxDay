@@ -26,14 +26,17 @@ RUN go mod tidy
 # modernc.org/sqlite 为纯 Go 实现，可在 CGO_ENABLED=0 下静态编译
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w" -o /out/linxi-server .
 
-# ---- 阶段③：运行时（root：避免挂载卷权限问题，参考 hl6 单容器做法） ----
+# ---- 阶段③：运行时（非 root；命名卷首次挂载会继承下方目录权限） ----
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates tzdata wget
+RUN apk add --no-cache ca-certificates tzdata wget \
+    && adduser -D -u 10001 app
 WORKDIR /app
 COPY --from=build /out/linxi-server /app/linxi-server
-# SQLite 数据目录与上传目录（对应 compose 的 db_data / uploads 卷挂载点）；
-# 以 root 运行，命名卷首次挂载即可写入，无需额外 chown。
-RUN mkdir -p /app/data /app/uploads
+# SQLite 数据目录、公开资源与私密相册目录（对应 compose 的三个卷挂载点）；
+# 先建目录并赋权，避免服务端以 root 运行。使用命名卷时首次挂载会沿用这些权限。
+RUN mkdir -p /app/data /app/uploads /app/uploads-private \
+    && chown -R app:app /app
+USER app
 # config.yaml 可选（不打包进镜像，默认走环境变量 + 默认值）；后台前端已内嵌进二进制
 EXPOSE 7740
 ENTRYPOINT ["/app/linxi-server", "/app/config.yaml"]

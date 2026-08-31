@@ -38,9 +38,9 @@
                                |
         +----------+-----------+-----------+-----------+----------+
         v          v           v           v           v          v
-    /api/v1/*   /media       /ws      /api/admin   /upload(s)   /  兜底
+     /api/v1/*   /media       /ws      /api/admin   /upload(s)   /  兜底
         |          |           |           |           |          |
-     AppKeyGuard  JWTAuth   token=JWT   AdminAuth    静态目录    内嵌 SPA
+     AppKeyGuard  JWTAuth   Authorization  AdminAuth    静态目录    内嵌 SPA
         |         （不过     查询参数    (+require   nosniff +   go:embed
      JWTAuth      AppKey）               Super)     非图强制    webdist
         |          |           |           |        下载         |
@@ -496,7 +496,7 @@ sequenceDiagram
     participant M as SQLite
     participant B as 安卓端 B
 
-    A->>WS: WS 连接 (token=JWT)
+     A->>WS: WS 连接 (Authorization: Bearer JWT)
     WS->>WS: 上线补偿：推 B 最新状态
     WS-->>A: partner_status (B 的最新状态)
     Note over A: 采集电量/屏幕/前台APP...
@@ -589,10 +589,10 @@ sequenceDiagram
      容器内           /app/linxi-server  单二进制，内嵌后台 SPA + schema
                      /app/config.yaml   可选，缺省全走 env + 默认值
           |                                    |
-          | volume db_data                     | volume uploads
+          | volume db_data                     | volumes uploads + uploads_private
           v                                    v
-     /app/data/lxday.db                   /app/uploads/
-     SQLite 主文件 + WAL/SHM 附属文件        upload/YYYY/MM/DD/ ...
+     /app/data/lxday.db                   /app/uploads/ + /app/uploads-private/
+     SQLite 主文件 + WAL/SHM 附属文件        公开资源 + /media 鉴权相册媒体
   ==========================================================
 ```
 
@@ -608,11 +608,11 @@ sequenceDiagram
       能这样静态编译的前提是 modernc.org/sqlite 是纯 Go 实现（无需 gcc）
 阶段③ alpine:3.20
       只拷二进制 + ca-certificates / tzdata / wget
-      mkdir /app/data /app/uploads；以 root 运行（命名卷首次挂载免 chown）
+      mkdir /app/data /app/uploads /app/uploads-private；以非 root app 运行并预先 chown
 ```
 
 **运维要点**
-- **无状态镜像 + 两个卷**：升级就是 `docker compose pull && up -d`，数据在卷里不动。
+- **无状态镜像 + 三个卷**：升级就是 `docker compose pull && up -d`，SQLite、公开资源和私密相册媒体都在卷里不动。
   清库需显式 `down -v`（会同时删掉照片，谨慎）。
 - **超管初始随机口令只在启动日志打印一次**（`docker compose logs app`），首登强制改密。
 - **备份对象只有两个**：`db_data` 卷（SQLite 文件，热备建议连 WAL 一起或先 checkpoint）与

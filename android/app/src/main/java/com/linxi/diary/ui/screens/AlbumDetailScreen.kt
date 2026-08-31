@@ -88,6 +88,9 @@ fun AlbumDetailScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var page by remember { mutableStateOf(1) }
     var reachedEnd by remember { mutableStateOf(false) }
+    var loadingMore by remember { mutableStateOf(false) }
+    var loadMoreError by remember { mutableStateOf<String?>(null) }
+    var listGeneration by remember { mutableStateOf(0) }
 
     // 多选态
     var selecting by remember { mutableStateOf(false) }
@@ -113,6 +116,10 @@ fun AlbumDetailScreen(
     val uploading = uploadTotal > 0 && uploadDone + uploadFailures.size < uploadTotal
 
     fun loadFirst() {
+        listGeneration += 1
+        val generation = listGeneration
+        loadingMore = false
+        loadMoreError = null
         scope.launch {
             loading = true
             error = null
@@ -122,35 +129,48 @@ fun AlbumDetailScreen(
                 val arr = ApiClient.albumPhotos(albumId, 1, PAGE_SIZE)
                 (0 until arr.length()).map { PhotoItem.fromJson(arr.getJSONObject(it)) }
             }.onSuccess {
+                if (generation != listGeneration) return@onSuccess
                 photos = it
                 if (it.size < PAGE_SIZE) reachedEnd = true
-            }.onFailure { error = albumFriendlyError(it) }
-            loading = false
+            }.onFailure {
+                if (generation == listGeneration) error = albumFriendlyError(it)
+            }
+            if (generation == listGeneration) loading = false
         }
     }
 
     fun loadMore() {
-        if (reachedEnd || loading) return
+        if (reachedEnd || loading || loadingMore) return
+        loadingMore = true
+        loadMoreError = null
+        val generation = listGeneration
         scope.launch {
-            val next = page + 1
-            runCatching {
-                val arr = ApiClient.albumPhotos(albumId, next, PAGE_SIZE)
-                (0 until arr.length()).map { PhotoItem.fromJson(arr.getJSONObject(it)) }
-            }.onSuccess { more ->
-                if (more.isEmpty() || more.size < PAGE_SIZE) reachedEnd = true
-                if (more.isNotEmpty()) {
-                    // **必须去重**：服务端是 OFFSET 分页，而**对方**上传照片会让列表增长
-                    // —— 拉下一页前若有新照片进来，全体下移，offset 就把上一页
-                    // 最后那张又返回一次，`itemsIndexed(key = { _, p -> p.id })`
-                    // 随即撞重复 key 崩溃。自己上传走整页重载所以自测发现不了。
-                    if (PagingMerge.allDuplicates(photos, more) { it.id }) {
-                        reachedEnd = true
-                    } else {
-                        photos = PagingMerge.appendDistinct(photos, more) { it.id }
-                        page = next
+            try {
+                val next = page + 1
+                runCatching {
+                    val arr = ApiClient.albumPhotos(albumId, next, PAGE_SIZE)
+                    (0 until arr.length()).map { PhotoItem.fromJson(arr.getJSONObject(it)) }
+                }.onSuccess { more ->
+                    if (generation != listGeneration) return@onSuccess
+                    if (more.isEmpty() || more.size < PAGE_SIZE) reachedEnd = true
+                    if (more.isNotEmpty()) {
+                        // **必须去重**：服务端是 OFFSET 分页，而**对方**上传照片会让列表增长
+                        // —— 拉下一页前若有新照片进来，全体下移，offset 就把上一页
+                        // 最后那张又返回一次，`itemsIndexed(key = { _, p -> p.id })`
+                        // 随即撞重复 key 崩溃。自己上传走整页重载所以自测发现不了。
+                        if (PagingMerge.allDuplicates(photos, more) { it.id }) {
+                            reachedEnd = true
+                        } else {
+                            photos = PagingMerge.appendDistinct(photos, more) { it.id }
+                            page = next
+                        }
                     }
+                }.onFailure {
+                    if (generation == listGeneration) loadMoreError = albumFriendlyError(it)
                 }
-            }.onFailure { reachedEnd = true }
+            } finally {
+                if (generation == listGeneration) loadingMore = false
+            }
         }
     }
 
@@ -314,14 +334,16 @@ fun AlbumDetailScreen(
                     total = uploadTotal,
                     onRetryFailed = {
                         // 失败可重试：把失败项的 uri 重新走一遍上传（Q11=B）。
-                        val retryUris = uploadFailures.mapNotNull { it.reason.uri }
-                        if (retryUris.isNotEmpty()) {
+                        val retryItems = uploadFailures.mapNotNull { failure ->
+                            failure.reason.uri?.let { it to failure.reason.idempotencyKey }
+                        }
+                        if (retryItems.isNotEmpty()) {
                             scope.launch {
-                                uploadTotal = retryUris.size
+                                uploadTotal = retryItems.size
                                 uploadDone = 0
                                 uploadFailures.clear()
-                                for ((i, u) in retryUris.withIndex()) {
-                                    val o = PhotoUploader.uploadOne(context, u, albumId)
+                                for ((i, item) in retryItems.withIndex()) {
+                                    val o = PhotoUploader.uploadOne(context, item.first, albumId, item.second)
                                     if (o == null) uploadDone++ else uploadFailures += UploadFailure(i + 1, o)
                                 }
                                 loadFirst()
@@ -363,7 +385,10 @@ fun AlbumDetailScreen(
                     selecting = selecting,
                     selected = selected,
                     reachedEnd = reachedEnd,
+                    loadingMore = loadingMore,
+                    loadMoreError = loadMoreError,
                     onLoadMore = { loadMore() },
+                    onRetryLoadMore = { loadMore() },
                     onOpenPhoto = onOpenPhoto,
                     onEnterSelecting = { id ->
                         selecting = true
@@ -385,7 +410,10 @@ private fun PhotoGrid(
     selecting: Boolean,
     selected: List<Long>,
     reachedEnd: Boolean,
+    loadingMore: Boolean,
+    loadMoreError: String?,
     onLoadMore: () -> Unit,
+    onRetryLoadMore: () -> Unit,
     onOpenPhoto: (List<PhotoItem>, Int) -> Unit,
     onEnterSelecting: (Long) -> Unit,
     onToggle: (Long) -> Unit,
@@ -461,9 +489,24 @@ private fun PhotoGrid(
         }
         if (!reachedEnd) {
             item {
-                LaunchedEffect(photos.size) { onLoadMore() }
-                Box(Modifier.aspectRatio(1f), contentAlignment = Alignment.Center) {
-                    LoadingRow()
+                if (loadMoreError != null) {
+                    Column(
+                        Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(loadMoreError, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                        Spacer(Modifier.height(8.dp))
+                        LxButton(
+                            text = "重试加载",
+                            onClick = onRetryLoadMore,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                } else {
+                    LaunchedEffect(photos.size) { onLoadMore() }
+                    Box(Modifier.aspectRatio(1f), contentAlignment = Alignment.Center) {
+                        if (loadingMore) LoadingRow()
+                    }
                 }
             }
         }
