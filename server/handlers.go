@@ -1256,7 +1256,7 @@ func scanDueTodos(ctx context.Context, wg *sync.WaitGroup) {
 					if r := recover(); r != nil {
 						log.Printf("scanDueTodos panic recovered: %v", r)
 					}
-				}
+				}()
 				scanDueOnce(time.Now())
 			}()
 		}
