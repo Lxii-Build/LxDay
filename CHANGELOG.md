@@ -7,6 +7,10 @@
 
 ## [Unreleased]
 
+（暂无）
+
+## [1.0.6] - 2026-08-31
+
 ### 安全与可靠性
 
 - WebSocket 上行改为显式事件白名单，拒绝客户端伪造 `todo_new`、`admin_notice` 等仅能由
