@@ -26,7 +26,7 @@ const (
 	// 此前从 384 缩略图直接跳 2048 原图，弱网下要白屏等 3~5 秒。
 	photoPreviewEdge = 1080
 	// quotaTTL 略大于一天：键名已按日期分桶，TTL 只负责回收过期键。
-	quotaTTL = 25 * time.Hour
+	quotaTTL                   = 25 * time.Hour
 	maxUploadIdempotencyKeyLen = 128
 )
 

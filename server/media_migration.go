@@ -26,8 +26,8 @@ func migratePhotoFilesToPrivateRoot(db *sql.DB) error {
 	}
 
 	type photoPathRow struct {
-		id                    int64
-		url, thumb, preview   sql.NullString
+		id                  int64
+		url, thumb, preview sql.NullString
 	}
 	var photos []photoPathRow
 	for rows.Next() {
