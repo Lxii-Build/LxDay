@@ -8,30 +8,46 @@
 
       <div class="auth-right-wrap">
         <div class="form">
-          <h3 class="title">{{ $t('login.title') }}</h3>
+          <h3 id="login-title" class="title">{{ $t('login.title') }}</h3>
           <p class="sub-title">{{ $t('login.subTitle') }}</p>
           <ElForm
             ref="formRef"
             :model="formData"
             :rules="rules"
             :key="formKey"
+            class="login-form"
+            aria-labelledby="login-title"
             @keyup.enter="handleSubmit"
-            style="margin-top: 25px"
           >
-            <ElFormItem prop="username">
+            <ElFormItem prop="username" class="login-field">
+              <label class="field-label" for="admin-username">{{
+                $t('login.fields.username')
+              }}</label>
               <ElInput
+                id="admin-username"
+                name="username"
                 class="custom-height"
                 :placeholder="$t('login.placeholder.username')"
+                :aria-label="$t('login.fields.username')"
+                autocomplete="username"
+                autocapitalize="none"
+                :spellcheck="false"
                 v-model.trim="formData.username"
               />
             </ElFormItem>
-            <ElFormItem prop="password">
+            <ElFormItem prop="password" class="login-field">
+              <label class="field-label" for="admin-password">{{
+                $t('login.fields.password')
+              }}</label>
               <ElInput
+                id="admin-password"
+                name="password"
                 class="custom-height"
                 :placeholder="$t('login.placeholder.password')"
+                :aria-label="$t('login.fields.password')"
                 v-model.trim="formData.password"
                 type="password"
-                autocomplete="off"
+                autocomplete="current-password"
                 show-password
               />
             </ElFormItem>

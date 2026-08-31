@@ -3,6 +3,8 @@
   <div
     ref="dragVerify"
     class="drag_verify"
+    role="group"
+    :aria-label="message"
     :style="dragVerifyStyle"
     @mousemove="dragMoving"
     @mouseup="dragFinish"
@@ -32,8 +34,26 @@
       :class="{ goFirst: isOk }"
       @mousedown="dragStart"
       @touchstart="dragStart"
+      @keydown.enter.stop.prevent="completeFromKeyboard"
+      @keydown.space.stop.prevent="completeFromKeyboard"
+      @keydown.end.stop.prevent="completeFromKeyboard"
+      @keydown.right.stop.prevent="completeFromKeyboard"
+      @keydown.up.stop.prevent="completeFromKeyboard"
+      @keydown.home.stop.prevent="reset"
+      @keydown.left.stop.prevent="reset"
+      @keydown.down.stop.prevent="reset"
+      @keyup.enter.stop.prevent
+      @keyup.space.stop.prevent
       ref="handler"
       :style="handlerStyle"
+      role="slider"
+      tabindex="0"
+      aria-valuemin="0"
+      aria-valuemax="100"
+      :aria-valuenow="value ? 100 : 0"
+      :aria-valuetext="message"
+      :aria-label="text"
+      aria-orientation="horizontal"
     >
       <ArtSvgIcon :icon="value ? successIcon : handlerIcon" class="text-g-600"></ArtSvgIcon>
     </div>
@@ -308,6 +328,16 @@
     emit('passCallback')
   }
 
+  /** 键盘用户使用 Enter、Space 或 End 完成与拖动等价的验证。 */
+  const completeFromKeyboard = () => {
+    if (props.value) return
+    const numericWidth = getNumericWidth()
+    handler.value.style.transition = 'none'
+    handler.value.style.left = numericWidth - props.height + 'px'
+    progressBar.value.style.width = numericWidth - props.height / 2 + 'px'
+    passVerify()
+  }
+
   /**
    * 重置验证状态函数
    */
@@ -349,6 +379,11 @@
       align-items: center;
       justify-content: center;
       cursor: move;
+
+      &:focus-visible {
+        outline: 2px solid var(--main-color);
+        outline-offset: -3px;
+      }
 
       i {
         padding-left: 0;
@@ -425,6 +460,17 @@
 
     100% {
       background-position: var(--pwidth) 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .drag_verify .dv_text {
+      animation: none;
+    }
+
+    .goFirst,
+    .goFirst2 {
+      transition: none;
     }
   }
 </style>

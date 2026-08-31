@@ -15,6 +15,18 @@
     "requestConfigError": "Request configuration error"
   },
   "topBar": {
+    "actions": {
+      "toggleMenu": "Expand or collapse menu",
+      "refresh": "Refresh current page",
+      "quickAccess": "Open quick access",
+      "enterFullscreen": "Enter fullscreen",
+      "exitFullscreen": "Exit fullscreen",
+      "language": "Change language",
+      "settings": "Open appearance settings",
+      "useLightTheme": "Switch to light theme",
+      "useDarkTheme": "Switch to dark theme",
+      "switchDualMenu": "Switch dual menu style"
+    },
     "user": {
       "userCenter": "Change Credentials",
       "repo": "Repository",
@@ -146,6 +158,10 @@
     },
     "title": "Welcome back",
     "subTitle": "Please enter your account and password to login",
+    "fields": {
+      "username": "Account",
+      "password": "Password"
+    },
     "placeholder": {
       "username": "Please enter your account",
       "password": "Please enter your password",
@@ -244,15 +260,41 @@
     "headerBackground": "Header BG"
   },
   "dashboard": {
+    "eyebrow": "OPERATIONS OVERVIEW",
+    "title": "Dashboard",
+    "subtitle": "Monitor the key changes across users, relationships, and active todos.",
+    "sections": {
+      "stats": "Key metrics"
+    },
+    "actions": {
+      "refresh": "Refresh dashboard data",
+      "retry": "Try again"
+    },
+    "status": {
+      "loading": "Syncing the latest data",
+      "waiting": "Waiting for the first sync",
+      "updated": "Updated at {time}"
+    },
+    "error": {
+      "title": "Dashboard data is temporarily unavailable",
+      "description": "Any last successful result is preserved. Please try again later."
+    },
     "stats": {
       "users": "Total users",
+      "usersDescription": "Registered accounts",
       "pairs": "Paired couples",
+      "pairsDescription": "Active relationships",
       "todos": "Active todos",
+      "todosDescription": "Items still in progress",
       "diaries": "Total diaries",
-      "newUsers7d": "New in last 7 days"
+      "newUsers7d": "New in last 7 days",
+      "newUsersDescription": "Accounts registered this week"
     },
     "chart": {
-      "title": "New users in the last 7 days"
+      "title": "New user trend",
+      "subtitle": "Daily registrations over the last week",
+      "period": "Last 7 days",
+      "empty": "No new user data yet"
     }
   },
   "userManage": {

@@ -30,6 +30,7 @@
         <ArtIconButton
           v-if="isLeftMenu && shouldShowMenuButton"
           icon="ri:menu-2-fill"
+          :label="$t('topBar.actions.toggleMenu')"
           class="ml-3 max-sm:ml-[7px]"
           @click="visibleMenu"
         />
@@ -38,6 +39,7 @@
         <ArtIconButton
           v-if="shouldShowRefreshButton"
           icon="ri:refresh-line"
+          :label="$t('topBar.actions.refresh')"
           class="!ml-3 refresh-btn max-sm:!hidden"
           :style="{ marginLeft: !isLeftMenu ? '10px' : '0' }"
           @click="reload"
@@ -45,7 +47,11 @@
 
         <!-- 快速入口 -->
         <ArtFastEnter v-if="shouldShowFastEnter && width >= headerBarFastEnterMinWidth">
-          <ArtIconButton icon="ri:function-line" class="ml-3" />
+          <ArtIconButton
+            icon="ri:function-line"
+            class="ml-3"
+            :label="$t('topBar.actions.quickAccess')"
+          />
         </ArtFastEnter>
 
         <!-- 面包屑 -->
@@ -65,6 +71,9 @@
         <ArtIconButton
           v-if="shouldShowFullscreen"
           :icon="isFullscreen ? 'ri:fullscreen-exit-line' : 'ri:fullscreen-fill'"
+          :label="
+            $t(isFullscreen ? 'topBar.actions.exitFullscreen' : 'topBar.actions.enterFullscreen')
+          "
           :class="[!isFullscreen ? 'full-screen-btn' : 'exit-full-screen-btn', 'ml-3']"
           class="max-md:!hidden"
           @click="toggleFullScreen"
@@ -76,7 +85,11 @@
           popper-class="langDropDownStyle"
           v-if="shouldShowLanguage"
         >
-          <ArtIconButton icon="ri:translate-2" class="language-btn text-[19px]" />
+          <ArtIconButton
+            icon="ri:translate-2"
+            class="language-btn text-[19px]"
+            :label="$t('topBar.actions.language')"
+          />
           <template #dropdown>
             <ElDropdownMenu>
               <div v-for="item in languageOptions" :key="item.value" class="lang-btn-item">
@@ -94,10 +107,20 @@
 
         <!-- 设置按钮 -->
         <div v-if="shouldShowSettings">
-          <ElPopover :visible="showSettingGuide" placement="bottom-start" :width="190" :offset="0">
+          <ElPopover
+            :visible="showSettingGuide && width > 768"
+            placement="bottom-start"
+            :width="190"
+            :offset="0"
+          >
             <template #reference>
               <div class="flex-cc">
-                <ArtIconButton icon="ri:settings-line" class="setting-btn" @click="openSetting" />
+                <ArtIconButton
+                  icon="ri:settings-line"
+                  class="setting-btn"
+                  :label="$t('topBar.actions.settings')"
+                  @click="openSetting"
+                />
               </div>
             </template>
             <template #default>
@@ -116,6 +139,8 @@
           v-if="shouldShowThemeToggle"
           @click="themeAnimation"
           :icon="isDark ? 'ri:sun-fill' : 'ri:moon-line'"
+          :label="$t(isDark ? 'topBar.actions.useLightTheme' : 'topBar.actions.useDarkTheme')"
+          :aria-pressed="isDark"
         />
 
         <!-- 用户头像、菜单 -->
@@ -251,7 +276,6 @@
       settingStore.hideSettingGuide()
     }
   }
-
 </script>
 
 <style lang="scss" scoped>
@@ -327,6 +351,16 @@
 
   .exit-full-screen-btn:hover :deep(.art-svg-icon) {
     animation: shrink 0.6s forwards;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .refresh-btn:hover :deep(.art-svg-icon),
+    .language-btn:hover :deep(.art-svg-icon),
+    .setting-btn:hover :deep(.art-svg-icon),
+    .full-screen-btn:hover :deep(.art-svg-icon),
+    .exit-full-screen-btn:hover :deep(.art-svg-icon) {
+      animation: none;
+    }
   }
 
   /* iPad breakpoint adjustments */

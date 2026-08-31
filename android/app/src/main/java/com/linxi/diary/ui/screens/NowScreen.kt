@@ -1,15 +1,23 @@
 package com.linxi.diary.ui.screens
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import com.linxi.diary.ui.theme.LocalLinxiDarkTheme
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -25,6 +33,7 @@ import com.linxi.diary.ui.components.KernelScreen
 import com.linxi.diary.ui.components.WarningCard
 import com.linxi.diary.ui.components.WarningLevel
 import com.linxi.diary.ui.theme.BrandBlue
+import com.linxi.diary.ui.theme.LocalLinxiDarkTheme
 import com.linxi.diary.util.UserPrefs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -136,7 +145,7 @@ fun NowScreen(
                 PartnerStatusCard(partner, partnerName)
 
                 // 远程互动（KernelSU Card 风格）；调试模式不发送真实事件。
-                SectionTitle("远程互动")
+                SectionTitle("远程互动", "把此刻的需要直接告诉对方")
                 if (demo) {
                     WarningCard("示例模式不发送消息或响铃提醒", level = WarningLevel.Notice)
                 } else {
@@ -196,7 +205,7 @@ fun NowScreen(
                 }
 
                 // 我的手机信息（KernelSU InfoCard：InfoText 格式）
-                SectionTitle("我的手机")
+                SectionTitle("我的手机", "当前共享给对方的状态")
                 MyPhoneInfoCard()
             }
         }
@@ -277,7 +286,7 @@ private fun rememberNowTick(): Long {
     return now
 }
 
-/** 伴侣状态卡（照抄 KernelSU StatusCard：大图标叠层 Box offset 27,31 + 110dp） */
+/** 伴侣状态卡：优先展示可信度，再把高频信息拆成可扫读的指标。 */
 @Composable
 private fun PartnerStatusCard(partner: DeviceStatus?, partnerName: String) {
     val cardColor = when {
@@ -286,80 +295,114 @@ private fun PartnerStatusCard(partner: DeviceStatus?, partnerName: String) {
         else -> Color(0xFFDFFAE4)
     }
     val iconTint = if (isDynamicColor) colorScheme.primary.copy(alpha = 0.8f) else Color(0xFF36D167)
+    val nowTick = rememberNowTick()
+    val level = StatusFreshness.levelOf(partner?.ts ?: 0L, nowTick)
+    val stale = level != StatusFreshness.Level.Fresh
+    val mainColor =
+        if (stale) colorScheme.onBackground.copy(alpha = 0.56f)
+        else colorScheme.onBackground
+    val statusTitle = when {
+        partner == null -> "等待 $partnerName 同步"
+        level == StatusFreshness.Level.Offline -> "$partnerName 状态未知"
+        else -> partner.foregroundApp?.second?.let { "正在使用 $it" } ?: "息屏 / 无前台"
+    }
+    val freshnessText = StatusFreshness.hintText(partner?.ts ?: 0L, nowTick)
+    val freshnessBadge = when (level) {
+        StatusFreshness.Level.Fresh -> "同步正常"
+        StatusFreshness.Level.Stale -> "可能过期"
+        StatusFreshness.Level.Offline -> "已失联"
+    }
+    val statusSummary = buildString {
+        append(statusTitle)
+        append('，')
+        append(freshnessText)
+        if (partner != null && level != StatusFreshness.Level.Offline) {
+            append("，电量 ${partner.batteryLevel}%")
+            if (partner.isCharging) append("，充电中")
+            append(if (partner.screenOn) {
+                if (partner.isLocked) "，亮屏，已锁定" else "，亮屏，已解锁"
+            } else {
+                "，灭屏"
+            })
+            append("，${partner.ssid?.takeIf { it.isNotBlank() } ?: "移动网络"}")
+        }
+    }
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clearAndSetSemantics { contentDescription = statusSummary },
         colors = CardDefaults.defaultColors(color = cardColor),
         pressFeedbackType = PressFeedbackType.Tilt
     ) {
-        Box(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
-            // 右下角大图标（KernelSU offset 27,31 / 110dp）
-            Box(
-                Modifier.fillMaxSize().offset(x = 27.dp, y = 31.dp),
-                contentAlignment = Alignment.BottomEnd
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    imageVector = MiuixIcons.Ok,
-                    contentDescription = null,
-                    tint = iconTint,
-                    modifier = Modifier.size(110.dp)
+                Text(
+                    text = "$partnerName 的状态",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = colorScheme.onBackground.copy(alpha = 0.68f),
                 )
+                Spacer(Modifier.weight(1f))
+                FreshnessBadge(freshnessBadge, stale, iconTint)
             }
-            // 左上标题
-            Box(
-                Modifier.fillMaxSize().padding(16.dp, 14.dp),
-                contentAlignment = Alignment.TopStart
-            ) {
-                Column {
-                    // 状态时效（Q36=D）。
-                    //
-                    // 此前完全不看 ts：2 小时前的状态和 2 秒前的长得一模一样，
-                    // WS 一断（地铁/电梯/飞行模式）对方看到的就是一个"自信满满的错误信息"。
-                    // 过期时置灰 + 明说，比让用户误信旧值好得多；
-                    // 也让下一轮排查有依据（管理员能说"显示 3 分钟前"而不是笼统的"不准"）。
-                    val nowTick = rememberNowTick()
-                    val level = StatusFreshness.levelOf(partner?.ts ?: 0L, nowTick)
-                    val stale = level != StatusFreshness.Level.Fresh
-                    val mainColor =
-                        if (stale) colorScheme.onBackground.copy(alpha = 0.45f)
-                        else colorScheme.onBackground
-
-                    Text(
-                        when {
-                            partner == null -> "等待 $partnerName 同步"
-                            // 失联太久就不该再把旧值当现状展示。
-                            level == StatusFreshness.Level.Offline -> "$partnerName 状态未知"
-                            else -> partner.foregroundApp?.second?.let { "正在使用 $it" } ?: "息屏/无前台"
-                        },
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = mainColor
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = statusTitle,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = mainColor,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = freshnessText,
+                fontSize = 12.sp,
+                color = if (stale) com.linxi.diary.ui.theme.BrandRed.copy(alpha = 0.88f)
+                else colorScheme.onBackground.copy(alpha = 0.6f),
+                modifier = Modifier.padding(top = 3.dp),
+            )
+            if (partner != null && level != StatusFreshness.Level.Offline) {
+                Spacer(Modifier.height(14.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    StatusMetric(
+                        label = "电量",
+                        value = "${partner.batteryLevel}%${if (partner.isCharging) " · 充电" else ""}",
+                        color = mainColor,
+                        modifier = Modifier.weight(1f),
                     )
-                    Spacer(Modifier.height(1.dp))
-                    if (partner != null && level != StatusFreshness.Level.Offline) {
-                        Text(
-                            "电量 ${partner.batteryLevel}%${if (partner.isCharging) " · 充电中" else ""} · " +
-                                    "${if (partner.screenOn) "亮屏${if (partner.isLocked) "·锁定" else "·解锁"}" else "灭屏"}" +
-                                    " · ${partner.ssid?.takeIf { it.isNotBlank() }?.let { "WiFi: $it" } ?: "移动网络"}",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = mainColor
-                        )
-                        partner.music?.let {
-                            if (it.playing) {
-                                Spacer(Modifier.height(1.dp))
-                                Text("♪ ${it.title} - ${it.artist}", fontSize = 14.sp,
-                                    color = mainColor)
-                            }
-                        }
-                    }
-                    // 时效行：始终显示，让用户随时知道该不该相信上面的数据。
-                    Spacer(Modifier.height(3.dp))
+                    StatusMetric(
+                        label = "屏幕",
+                        value = if (partner.screenOn) {
+                            if (partner.isLocked) "亮屏 · 锁定" else "亮屏 · 解锁"
+                        } else {
+                            "灭屏"
+                        },
+                        color = mainColor,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                StatusMetric(
+                    label = "网络",
+                    value = partner.ssid?.takeIf { it.isNotBlank() }?.let { "WiFi · $it" } ?: "移动网络",
+                    color = mainColor,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                partner.music?.takeIf { it.playing }?.let {
+                    Spacer(Modifier.height(10.dp))
                     Text(
-                        StatusFreshness.hintText(partner?.ts ?: 0L, nowTick),
-                        fontSize = 12.sp,
-                        color = if (stale) com.linxi.diary.ui.theme.BrandRed.copy(alpha = 0.85f)
-                        else colorScheme.onBackground.copy(alpha = 0.6f),
+                        text = "正在播放  ${it.title} · ${it.artist}",
+                        fontSize = 13.sp,
+                        color = mainColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -367,16 +410,65 @@ private fun PartnerStatusCard(partner: DeviceStatus?, partnerName: String) {
     }
 }
 
+@Composable
+private fun FreshnessBadge(text: String, stale: Boolean, freshColor: Color) {
+    val accent = if (stale) com.linxi.diary.ui.theme.BrandRed else freshColor
+    Text(
+        text = text,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Medium,
+        color = accent,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(accent.copy(alpha = 0.12f))
+            .padding(horizontal = 9.dp, vertical = 5.dp),
+    )
+}
+
+@Composable
+private fun StatusMetric(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(colorScheme.onBackground.copy(alpha = 0.07f))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Text(
+            text = label,
+            fontSize = 11.sp,
+            color = colorScheme.onBackground.copy(alpha = 0.58f),
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = value,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            color = color,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 /** 分组小标题 */
 @Composable
-private fun SectionTitle(text: String) {
-    Text(
-        text,
-        fontSize = MiuixTheme.textStyles.headline1.fontSize,
-        fontWeight = FontWeight.Medium,
-        color = colorScheme.onSurface,
-        modifier = Modifier.fillMaxWidth().padding(start = 28.dp, top = 8.dp, bottom = 4.dp)
-    )
+private fun SectionTitle(text: String, subtitle: String) {
+    Column(Modifier.fillMaxWidth().padding(start = 4.dp, top = 8.dp, bottom = 4.dp)) {
+        Text(
+            text,
+            fontSize = MiuixTheme.textStyles.headline1.fontSize,
+            fontWeight = FontWeight.SemiBold,
+            color = colorScheme.onSurface,
+        )
+        Text(
+            subtitle,
+            fontSize = 13.sp,
+            color = colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.padding(top = 2.dp),
+        )
+    }
 }
 
 /** 互动卡片按钮（KernelSU Card 风格，无涟漪）。active=进行中：变蓝 + 进行文本 + 禁用点击（7 秒客户端冷却）。 */
@@ -396,64 +488,95 @@ private fun ActionCard(
     onClick: () -> Unit
 ) {
     val fg = if (active) Color.White else colorScheme.onSurface
-    Card(
-        modifier = modifier,
-        onClick = { if (!active || allowClickWhenActive) onClick() },
-        colors = if (active) {
-            CardDefaults.defaultColors(color = BrandBlue, contentColor = Color.White)
-        } else {
-            CardDefaults.defaultColors()
+    val enabled = !active || allowClickWhenActive
+    val visibleTitle = if (active) activeTitle else title
+    val colors = if (active) {
+        CardDefaults.defaultColors(color = BrandBlue, contentColor = Color.White)
+    } else {
+        CardDefaults.defaultColors()
+    }
+    val cardModifier = modifier
+        .defaultMinSize(minHeight = 64.dp)
+        .semantics {
+            role = Role.Button
+            contentDescription = visibleTitle
+            stateDescription = if (active) "进行中" else "可用"
+            if (!enabled) disabled()
         }
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center
-        ) {
-            Icon(icon, contentDescription = null,
-                tint = fg,
-                modifier = Modifier.size(22.dp))
-            Spacer(Modifier.width(10.dp))
-            Text(if (active) activeTitle else title, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = fg)
+
+    if (enabled) {
+        Card(modifier = cardModifier, onClick = onClick, colors = colors) {
+            ActionCardContent(icon, visibleTitle, fg)
+        }
+    } else {
+        Card(modifier = cardModifier, colors = colors) {
+            ActionCardContent(icon, visibleTitle, fg)
         }
     }
 }
 
-/** 我的手机信息卡（照抄 KernelSU InfoCard：InfoText 标题+内容，项间 24dp） */
+@Composable
+private fun ActionCardContent(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    color: Color,
+) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = color,
+            modifier = Modifier.size(22.dp),
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(title, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = color)
+    }
+}
+
+/** 我的手机信息卡：标签和值同排，减少滚动并方便快速比对。 */
 @Composable
 private fun MyPhoneInfoCard() {
     @Composable
-    fun InfoText(
-        title: String,
-        content: String,
-        bottomPadding: androidx.compose.ui.unit.Dp = 24.dp
-    ) {
-        Text(
-            text = title,
-            fontSize = MiuixTheme.textStyles.headline1.fontSize,
-            fontWeight = FontWeight.Medium,
-            color = colorScheme.onSurface
-        )
-        Text(
-            text = content,
-            fontSize = MiuixTheme.textStyles.body2.fontSize,
-            color = colorScheme.onSurfaceVariantSummary,
-            modifier = Modifier.padding(top = 2.dp, bottom = bottomPadding)
-        )
+    fun InfoRow(title: String, content: String) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = title,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.width(56.dp),
+            )
+            Text(
+                text = content,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                color = colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
 
     Card(modifier = Modifier.fillMaxWidth()) {
         val my = DeviceStatusHolder.current
         if (my != null) {
-            Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                InfoText("电量", "${my.batteryLevel}%${if (my.isCharging) " · 充电中" else ""}")
-                InfoText("屏幕", if (my.screenOn) "亮屏" else "灭屏")
-                InfoText("前台", my.foregroundApp?.second ?: "息屏/无前台")
-                InfoText("网络", my.ssid?.takeIf { it.isNotBlank() }?.let { "WiFi: $it" } ?: "移动网络", bottomPadding = 0.dp)
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                InfoRow("电量", "${my.batteryLevel}%${if (my.isCharging) " · 充电中" else ""}")
+                InfoRow("屏幕", if (my.screenOn) "亮屏" else "灭屏")
+                InfoRow("前台", my.foregroundApp?.second ?: "息屏 / 无前台")
+                InfoRow("网络", my.ssid?.takeIf { it.isNotBlank() }?.let { "WiFi · $it" } ?: "移动网络")
             }
         } else {
-            Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                InfoText("状态共享", "在「我的」中开启后开始采集", bottomPadding = 0.dp)
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                InfoRow("状态共享", "在「我的」中开启后开始采集")
             }
         }
     }

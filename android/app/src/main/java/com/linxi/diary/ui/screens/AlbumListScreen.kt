@@ -150,31 +150,44 @@ fun AlbumListScreen(
         loading = loading,
     ) {
         item {
-            Row(
+            Column(
                 Modifier.fillMaxWidth().padding(top = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 LxButton(
                     text = "新建相册",
                     onClick = { showCreate = true },
                     variant = LxButtonVariant.Positive,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.fillMaxWidth(),
                 )
-                if (onThisDayEnabled) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (onThisDayEnabled) {
+                        LxButton(
+                            text = "这一天",
+                            onClick = onOpenOnThisDay,
+                            variant = LxButtonVariant.Neutral,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                     LxButton(
-                        text = "这一天",
-                        onClick = onOpenOnThisDay,
+                        // 带角标：让用户知道回收站里还有东西（也知道它不是空的摆设）。
+                        text = if (recycledCount > 0) "回收站 $recycledCount" else "回收站",
+                        onClick = onOpenRecycleBin,
                         variant = LxButtonVariant.Neutral,
                         modifier = Modifier.weight(1f),
                     )
                 }
-                LxButton(
-                    // 带角标：让用户知道回收站里还有东西（也知道它不是空的摆设）。
-                    text = if (recycledCount > 0) "回收站 $recycledCount" else "回收站",
-                    onClick = onOpenRecycleBin,
-                    variant = LxButtonVariant.Neutral,
-                    modifier = Modifier.weight(1f),
-                )
+                summary?.let {
+                    Text(
+                        text = "共 ${it.photoCount} 张照片 · ${it.albumCount} 个相册",
+                        fontSize = 13.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+                    )
+                }
             }
         }
         error?.let { msg ->
@@ -262,6 +275,7 @@ private fun AlbumCard(
                     AsyncImage(
                         model = coverUrl,
                         imageLoader = AppImageLoader.get(context),
+                        // 相册名称已紧邻展示；封面只作装饰，避免读屏重复朗读。
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
@@ -282,7 +296,7 @@ private fun AlbumCard(
             IconButton(onClick = onManage) {
                 Icon(
                     imageVector = MiuixIcons.More,
-                    contentDescription = "管理",
+                    contentDescription = "管理 $name",
                     tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.size(20.dp),
                 )

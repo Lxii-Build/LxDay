@@ -15,6 +15,18 @@
     "requestConfigError": "请求配置错误"
   },
   "topBar": {
+    "actions": {
+      "toggleMenu": "展开或收起菜单",
+      "refresh": "刷新当前页面",
+      "quickAccess": "打开快速入口",
+      "enterFullscreen": "进入全屏",
+      "exitFullscreen": "退出全屏",
+      "language": "切换语言",
+      "settings": "打开界面设置",
+      "useLightTheme": "切换到浅色主题",
+      "useDarkTheme": "切换到深色主题",
+      "switchDualMenu": "切换双列菜单样式"
+    },
     "user": {
       "userCenter": "修改凭据",
       "repo": "项目仓库",
@@ -146,6 +158,10 @@
     },
     "title": "欢迎回来",
     "subTitle": "输入您的账号和密码登录",
+    "fields": {
+      "username": "账号",
+      "password": "密码"
+    },
     "placeholder": {
       "username": "请输入账号",
       "password": "请输入密码",
@@ -244,15 +260,41 @@
     "headerBackground": "表头背景"
   },
   "dashboard": {
+    "eyebrow": "运营总览",
+    "title": "数据看板",
+    "subtitle": "集中查看用户、关系与待办的关键变化。",
+    "sections": {
+      "stats": "关键指标"
+    },
+    "actions": {
+      "refresh": "刷新看板数据",
+      "retry": "重新加载"
+    },
+    "status": {
+      "loading": "正在同步最新数据",
+      "waiting": "等待首次同步",
+      "updated": "更新于 {time}"
+    },
+    "error": {
+      "title": "看板数据暂时无法加载",
+      "description": "如有上一次成功加载的内容会继续保留，您可以稍后重试。"
+    },
     "stats": {
       "users": "总用户数",
+      "usersDescription": "累计注册账户",
       "pairs": "绑定关系",
+      "pairsDescription": "当前有效关系",
       "todos": "进行中待办",
+      "todosDescription": "尚未完成的事项",
       "diaries": "日记总数",
-      "newUsers7d": "近 7 天新增"
+      "newUsers7d": "近 7 天新增",
+      "newUsersDescription": "最近一周注册账户"
     },
     "chart": {
-      "title": "近 7 天新增用户"
+      "title": "新增用户趋势",
+      "subtitle": "按日观察最近一周的注册变化",
+      "period": "近 7 天",
+      "empty": "暂无新增用户数据"
     }
   },
   "userManage": {

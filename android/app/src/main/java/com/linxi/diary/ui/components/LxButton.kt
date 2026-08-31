@@ -12,6 +12,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.linxi.diary.ui.theme.BrandBlue
 import com.linxi.diary.ui.theme.BrandRed
@@ -98,7 +99,7 @@ fun LxButton(
             .defaultMinSize(minWidth = MIN_TOUCH_DP.dp, minHeight = MIN_TOUCH_DP.dp)
             .clip(RoundedCornerShape(cornerRadius.dp))
             .background(bg)
-            .clickable(enabled = enabled, onClick = onClick)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(vertical = 13.dp, horizontal = horizontalPadding.dp),
         contentAlignment = Alignment.Center,
     ) {

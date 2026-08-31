@@ -101,6 +101,19 @@ async function dragSliderIfPresent(page) {
   return false
 }
 
+/** 用键盘完成一次滑块验证，覆盖无法拖动设备的等价操作。 */
+async function completeSliderWithKeyboard(page) {
+  const handler = page.locator('.dv_handler').first()
+  if ((await handler.count()) === 0) return false
+  await handler.focus()
+  await page.keyboard.press('Enter')
+  await page.waitForTimeout(300)
+  const value = await handler.getAttribute('aria-valuenow')
+  if (value !== '100') throw new Error(`键盘滑块验证未完成，aria-valuenow=${value}`)
+  console.log('  滑块已通过键盘完成')
+  return true
+}
+
 /**
  * 取当前的哈希路由。
  *
@@ -119,7 +132,7 @@ async function main() {
   let browser
   try {
     browser = await chromium.launch({ args: ['--no-sandbox', '--disable-gpu'] })
-  } catch (e) {
+  } catch {
     console.log('自带 chromium 不可用，回退系统 Chrome')
     browser = await chromium.launch({
       executablePath: SYSTEM_CHROME,
@@ -166,9 +179,14 @@ async function main() {
       // 表单不会提交，于是后续每个路由都被重定向回登录页 —— 而断言
       //（无溢出/无错误/非白屏）在登录页上全都成立，就会得到一个
       // "全部通过"的假绿。这正是 0820「只测登录页会漏掉主界面问题」的重演。
-      await dragSliderIfPresent(page)
+      if (vp.name === 'narrow360') {
+        await completeSliderWithKeyboard(page)
+      } else {
+        await dragSliderIfPresent(page)
+      }
 
-      await page.locator('button').first().click()
+      // 顶栏图标已改成语义正确的 <button>，不能再假定页面第一个 button 就是提交按钮。
+      await page.locator('button.el-button--primary').first().click()
       await page.waitForTimeout(3000)
     }
 
@@ -199,7 +217,7 @@ async function main() {
           await ci.nth(i).fill(NEW_ADMIN)
         }
       }
-      await page.locator('button').first().click()
+      await page.locator('button.el-button--primary').first().click()
       await page.waitForTimeout(3000)
       credsChanged = true
       console.log(`[${vp.name}] 改密后 URL: ${page.url()}`)
@@ -212,6 +230,16 @@ async function main() {
       await page.goto(`${BASE}/#${route}`, { waitUntil: 'networkidle' }).catch(() => {})
       await page.waitForTimeout(700)
 
+      // 图表等重组件会在进入视口后才初始化。全页截图本身不会触发 IntersectionObserver，
+      // 主动滚到最后一个主要内容块再回到顶部，避免把“尚未初始化的空白画布”误判为正常。
+      const lazyTarget = page.locator('.chart-card, .el-table, .art-table__card').last()
+      if ((await lazyTarget.count()) > 0) {
+        await lazyTarget.scrollIntoViewIfNeeded().catch(() => {})
+        // 折线图有 1.3s 的入场动画；等它稳定后再截图，否则真实数据会被拍成贴着 0 轴的半成品。
+        await page.waitForTimeout(route === '/dashboard' ? 1600 : 300)
+        await page.evaluate(() => window.scrollTo(0, 0))
+      }
+
       const metrics = await page.evaluate(() => {
         const de = document.documentElement
         return {
@@ -220,7 +248,10 @@ async function main() {
           bodyText: (document.body.innerText || '').trim().length,
           menuItems: document.querySelectorAll('.el-menu-item').length,
           cards: document.querySelectorAll('.art-table__card').length,
-          tables: document.querySelectorAll('.el-table').length
+          tables: document.querySelectorAll('.el-table').length,
+          unlabeledIconButtons: document.querySelectorAll(
+            'button.art-icon-button:not([aria-label])'
+          ).length
         }
       })
 
@@ -229,12 +260,21 @@ async function main() {
 
       const overflow = metrics.scrollWidth > metrics.clientWidth + 1
       const blank = metrics.bodyText < 20
+      const actualRoute = hashOf(page).split('?')[0]
+      if (actualRoute !== route) {
+        failures.push(`${vp.name} ${route}: 最终落在 ${actualRoute}，目标页面未成功打开`)
+      }
       if (overflow) {
         failures.push(
           `${vp.name} ${route}: 横向溢出 scrollWidth=${metrics.scrollWidth} > clientWidth=${metrics.clientWidth}`
         )
       }
       if (blank) failures.push(`${vp.name} ${route}: 页面几乎空白（可能白屏）`)
+      if (metrics.unlabeledIconButtons > 0) {
+        failures.push(
+          `${vp.name} ${route}: ${metrics.unlabeledIconButtons} 个图标按钮缺少可访问名称`
+        )
+      }
       if (consoleErrors.length) {
         failures.push(`${vp.name} ${route}: 控制台错误 ${consoleErrors.slice(0, 2).join(' | ')}`)
       }

@@ -55,6 +55,7 @@
       <ArtIconButton
         class="switch-btn size-10"
         icon="ri:arrow-left-right-fill"
+        :label="$t('topBar.actions.switchDualMenu')"
         @click="toggleDualMenuMode"
       />
     </div>
