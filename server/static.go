@@ -108,7 +108,7 @@ func readinessCheck(ctx context.Context) error {
 	if st == nil || st.DB == nil {
 		return fmt.Errorf("store unavailable")
 	}
-	if _, err := st.DB.ExecContext(ctx, "UPDATE app_setting SET value=value WHERE 1=0"); err != nil {
+	if _, err := st.DB.ExecContext(ctx, "UPDATE app_setting SET v=v WHERE 1=0"); err != nil {
 		return fmt.Errorf("database not writable: %w", err)
 	}
 	if err := checkWritableDirectory(uploadDir, 0o755); err != nil {
