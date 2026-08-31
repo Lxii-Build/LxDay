@@ -509,8 +509,9 @@ func (s *Store) DeleteAlbum(id, pairID int64) error {
 		return err
 	}
 	res, err := tx.Exec(`UPDATE album SET status=2, updated_at=datetime('now') WHERE id=? AND pair_id=? AND status=1`,
-		id, pairID); err != nil {
-		tx.Rollback()
+		id, pairID)
+	if err != nil {
+		_ = tx.Rollback()
 		return err
 	}
 	n, err := res.RowsAffected()

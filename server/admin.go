@@ -191,8 +191,7 @@ func (s *Store) EnsureSuperAdmin() error {
 	// 初始口令的管理员账号，导致后续启动永远跳过初始化。
 	if _, err = tx.Exec(
 		"INSERT INTO admin_user(username,password_hash,role,must_change) VALUES(?,?,?,1)",
-		"admin", hashPassword(pw), "super")
-	if err != nil {
+		"admin", hashPassword(pw), "super"); err != nil {
 		return err
 	}
 	// 口令**不进日志**：此前用 slog.Warn 连同 password 字段打印，
