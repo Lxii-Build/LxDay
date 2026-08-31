@@ -37,6 +37,12 @@ type migrationExecutor interface {
 // 新库不会暴露这个问题（CREATE TABLE 自带新列），所以只用全新临时库做测试
 // 永远测不到这条升级路径 —— 见 migrations_upgrade_test.go 的回归测试。
 func runMigrations(db *sql.DB) error {
+	// SQLite 不允许在事务内切换 journal_mode；它必须先于下面的原子 DDL
+	// 事务单独执行。schema.sql 保留这条声明作为新库真源，split 时会跳过它，
+	// 防止以后又被意外放回事务。
+	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+		return fmt.Errorf("enable WAL journal mode failed: %w", err)
+	}
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
 		version INTEGER PRIMARY KEY,
 		applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -104,6 +110,9 @@ func splitSchemaByKind(sqlText string) (tables []string, indexes []string) {
 			continue
 		}
 		upper := strings.ToUpper(t)
+		if upper == "PRAGMA JOURNAL_MODE=WAL" {
+			continue
+		}
 		if strings.HasPrefix(upper, "CREATE INDEX") || strings.HasPrefix(upper, "CREATE UNIQUE INDEX") {
 			indexes = append(indexes, stmt)
 		} else {
