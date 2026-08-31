@@ -1307,9 +1307,9 @@ func handleAdminUpdateSettings(c *gin.Context) {
 	// 先收集并校验全部变更，最后一次事务提交。不能边遍历边写：map 遍历顺序不稳定，
 	// 如果请求里混入了无权限键或中途数据库故障，旧实现会留下半套配置。
 	type settingChange struct {
-		key, value string
-		audit           string
-		runtime, site   bool
+		key, value    string
+		audit         string
+		runtime, site bool
 	}
 	pending := make([]settingChange, 0, len(in))
 	runtimeTouched := false
