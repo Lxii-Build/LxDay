@@ -493,7 +493,7 @@ func handleRestorePhoto(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, 1010, "恢复失败")
 		return
 	}
-	photo, err := st.GetPhoto(id)
+	photo, err = st.GetPhoto(id)
 	if err != nil {
 		fail(c, http.StatusInternalServerError, 1010, "读取失败")
 		return
