@@ -1,12 +1,14 @@
 # 林曦日记 服务端镜像（多阶段构建；内嵌 SQLite，纯 Go 无需 CGO）
 # HEIC/AVIF 解码器声明 go >= 1.25；分离部署镜像也必须与根 Dockerfile/CI 保持一致。
-FROM golang:1.25-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build
 WORKDIR /src
 ENV GOPROXY=https://goproxy.cn,direct
+ARG TARGETOS
+ARG TARGETARCH
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -mod=readonly -trimpath -ldflags "-s -w" -o /out/linxi-server .
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -mod=readonly -trimpath -ldflags "-s -w" -o /out/linxi-server .
 
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata su-exec && adduser -D -u 10001 app

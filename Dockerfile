@@ -3,7 +3,7 @@
 # 构建上下文为仓库根（compose: build.context=.），故路径以 admin/ server/ 开头。
 
 # ---- 阶段①：构建后台前端（Vue art-design-pro）dist ----
-FROM node:22-alpine AS web
+FROM --platform=$BUILDPLATFORM node:22-alpine AS web
 WORKDIR /admin
 ENV npm_config_registry=https://registry.npmmirror.com
 COPY admin/package.json admin/package-lock.json ./
@@ -17,9 +17,11 @@ RUN npm run build
 # Go 1.25：HEIC/AVIF 解码器（gen2brain/heic|avif，底层 wazero）要求 go >= 1.25。
 # 用 1.22 会在 `go mod tidy` 阶段直接失败（0821 的 CI 就是这么红的）。
 # 它们是**纯 Go wasm 实现、无需 CGO**，所以下面仍能 CGO_ENABLED=0 静态编译。
-FROM golang:1.25-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build
 WORKDIR /src
 ENV GOPROXY=https://goproxy.cn,direct
+ARG TARGETOS
+ARG TARGETARCH
 COPY server/go.mod server/go.sum ./
 RUN go mod download
 COPY server/ ./
@@ -27,7 +29,7 @@ COPY server/ ./
 RUN rm -rf webdist
 COPY --from=web /admin/dist/ ./webdist/
 # modernc.org/sqlite 为纯 Go 实现，可在 CGO_ENABLED=0 下静态编译
-RUN CGO_ENABLED=0 GOOS=linux go build -mod=readonly -trimpath -ldflags "-s -w" -o /out/linxi-server .
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -mod=readonly -trimpath -ldflags "-s -w" -o /out/linxi-server .
 
 # ---- 阶段③：运行时（非 root；命名卷首次挂载会继承下方目录权限） ----
 FROM alpine:3.20
