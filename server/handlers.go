@@ -1122,6 +1122,10 @@ func handleReportStatus(c *gin.Context) {
 		fail(c, http.StatusBadRequest, 1002, "参数错误")
 		return
 	}
+	if err := validateDeviceStatus(&incoming); err != nil {
+		fail(c, http.StatusBadRequest, 1002, "状态参数无效")
+		return
+	}
 	// 限频与 WS 共用同一个闸门，否则换条路径就能绕过。
 	if !hub.allowStatusUpdate(uid) {
 		fail(c, http.StatusTooManyRequests, 1012, "上报过于频繁")

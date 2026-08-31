@@ -57,6 +57,7 @@
   import { ElMessageBox } from 'element-plus'
   import { useUserStore } from '@/store/modules/user'
   import { WEB_LINKS } from '@/utils/constants'
+  import { openExternalLink } from '@/utils/navigation/jump'
 
   defineOptions({ name: 'ArtUserMenu' })
 
@@ -79,7 +80,7 @@
    * 打开项目仓库页面
    */
   const toRepo = (): void => {
-    window.open(WEB_LINKS.REPO)
+    openExternalLink(WEB_LINKS.REPO)
   }
 
   /**

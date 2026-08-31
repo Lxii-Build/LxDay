@@ -25,6 +25,10 @@ const maxWSMessageBytes = 64 * 1024
 // 每条 status_update 都会落 SQLite，不限频的话一个客户端死循环上报就能把库写满/拖垮。
 const maxStatusUpdatesPerSec = 2
 
+// WiFi 广播在系统重连、漫游时可能连发；按分钟收敛即可避免通知与离线队列被刷屏，
+// 同时不影响用户在多处 WiFi 间正常移动。
+const maxWifiJoinedPerMinute = 6
+
 func statusRateKey(uid int64) string {
 	return "statusrate:" + strconv.FormatInt(uid, 10)
 }
@@ -38,6 +42,11 @@ func statusRateKey(uid int64) string {
 // WS 与 REST 兜底（POST /status）共用同一个闸门，否则换条路径就能绕过限频。
 func (h *Hub) allowStatusUpdate(uid int64) bool {
 	return h.store.mem.incr(statusRateKey(uid), time.Second) <= maxStatusUpdatesPerSec
+}
+
+func (h *Hub) allowWifiJoined(uid int64) bool {
+	key := "wifirate:" + strconv.FormatInt(uid, 10)
+	return h.store.mem.incr(key, time.Minute) <= maxWifiJoinedPerMinute
 }
 
 // applyStatusUpdate 是状态落地的**唯一实现**：写内存态 → 落历史 → 低电量提醒 → 转发对方。
@@ -60,8 +69,9 @@ func (h *Hub) applyStatusUpdate(pair *Pair, from int64, st *DeviceStatus) {
 		slog.Error("insert status history failed", "err", err)
 	}
 
-	// 低电量(<15%)即时高优推送：状态变更 → 对方收到提醒
-	if st.BatteryLevel > 0 && st.BatteryLevel < 15 {
+	// 低电量(<15%)即时高优推送。不能每条状态都提醒：前台每 10 秒一次，
+	// 同一电量会无限刷屏；recordLowBattery 只放行首次/继续下降的状态。
+	if h.store.mem.recordLowBattery(from, st.BatteryLevel) {
 		payload := map[string]interface{}{
 			"battery": st.BatteryLevel, "ts": st.UpdatedAt,
 		}
@@ -214,6 +224,11 @@ func (h *Hub) handleIncoming(from int64, data []byte) {
 	if err := json.Unmarshal(data, &m); err != nil {
 		return
 	}
+	if !isClientWSMessage(m.Type) {
+		// 不能把客户端帧默认当作“业务事件”转发：否则任意已登录用户可伪造
+		// todo_new/admin_notice 等仅应由 HTTP handler 在完成真实写库后生成的事件。
+		return
+	}
 	pair, err := h.store.GetPairByUserID(from)
 	if err != nil {
 		return // 未绑定不转发
@@ -230,9 +245,15 @@ func (h *Hub) handleIncoming(from int64, data []byte) {
 		if err := json.Unmarshal(b, &st); err != nil {
 			return
 		}
+		if err := validateDeviceStatus(&st); err != nil {
+			return
+		}
 		h.applyStatusUpdate(pair, from, &st)
 
 	case MsgWifiJoined:
+		if !h.allowWifiJoined(from) {
+			return
+		}
 		// 客户端检测到本机连接了「关注 WiFi」，转发给对方
 		payload := map[string]interface{}{"ts": time.Now().UnixMilli()}
 		if u, err := h.store.GetUserByID(from); err == nil {
@@ -241,13 +262,9 @@ func (h *Hub) handleIncoming(from int64, data []byte) {
 		h.route(partner, WsMessage{Type: MsgWifiJoined, Data: payload})
 
 	case MsgRingRequest, MsgComfortRequest, MsgCalmRequest:
-		var raw struct {
-			Data map[string]interface{} `json:"data"`
-		}
-		json.Unmarshal(data, &raw)
-		payload := raw.Data
-		if payload == nil {
-			payload = map[string]interface{}{}
+		payload, ok := clientInteractionPayload(data)
+		if !ok {
+			return
 		}
 		// 附加发送方昵称
 		if u, err := h.store.GetUserByID(from); err == nil {
@@ -280,20 +297,13 @@ func (h *Hub) handleIncoming(from int64, data []byte) {
 	case MsgRingCancel, MsgRingStopped:
 		// 撤回与回执：原样透传给对方，不限频、不入离线队列（见 transientEvents）。
 		// 撤回被限频会导致"想停却停不了"，比骚扰更糟。
-		var raw struct {
-			Data map[string]interface{} `json:"data"`
-		}
-		json.Unmarshal(data, &raw)
-		payload := raw.Data
-		if payload == nil {
-			payload = map[string]interface{}{}
+		payload, ok := clientInteractionPayload(data)
+		if !ok {
+			return
 		}
 		payload["ts"] = time.Now().UnixMilli()
 		h.route(partner, WsMessage{Type: m.Type, Data: payload})
 
-	default:
-		// 业务事件（todo_new / diary_new 等）由 HTTP handler 转发时调用
-		h.route(partner, m)
 	}
 }
 

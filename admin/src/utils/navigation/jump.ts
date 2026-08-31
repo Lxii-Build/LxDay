@@ -18,9 +18,19 @@ import { AppRouteRecord } from '@/types/router'
 import { router } from '@/router'
 import { isNavigableMenuItem } from './route'
 
-// 打开外部链接
+export const isExternalHttpUrl = (link: string): boolean => {
+  try {
+    const url = new URL(link)
+    return url.protocol === 'https:' || url.protocol === 'http:'
+  } catch {
+    return false
+  }
+}
+
+// 打开外部链接。显式断开 opener，避免新页面反向控制后台标签页。
 export const openExternalLink = (link: string) => {
-  window.open(link, '_blank')
+  if (!isExternalHttpUrl(link)) return null
+  return window.open(link, '_blank', 'noopener,noreferrer')
 }
 
 /**

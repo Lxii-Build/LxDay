@@ -131,7 +131,6 @@ class StatusForegroundService : Service() {
      */
     private val collectScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    private var lastBatteryNotified = -1 // 低电量去重
     private var lastNotificationState: NotificationRenderState? = null
 
     override fun onCreate() {
@@ -222,13 +221,8 @@ class StatusForegroundService : Service() {
                 val s = StatusCollector.collectAll(this@StatusForegroundService)
                 DeviceStatusHolder.current = s
                 StatusSyncManager.pushNow()
-                // 低电量(<15%)即时事件：从 >=20 降到低电量时触发一次，防止重复刷屏
-                if (s.batteryLevel in 1..14 && lastBatteryNotified != s.batteryLevel) {
-                    lastBatteryNotified = s.batteryLevel
-                    StatusSyncManager.sendEvent("low_battery")
-                } else if (s.batteryLevel >= 20) {
-                    lastBatteryNotified = -1
-                }
+                // 低电量提醒由服务端在状态落地时统一判定并推送，避免客户端额外
+                // 发送 low_battery 与状态上报产生重复通知或被绕过状态校验。
                 withContext(Dispatchers.Main) {
                     updateCardIfChanged(DeviceStatusHolder.partner)
                 }

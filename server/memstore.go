@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"log/slog"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -127,6 +128,32 @@ func (m *memStore) getStatus(uid int64) *DeviceStatus {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.status[uid]
+}
+
+// recordLowBattery 原子记录最近一次有效电量，并判断是否值得提醒伴侣。
+// 状态前台时每 10 秒上报一次，若每条低电量状态都路由为高优事件，离线队列和
+// 系统通知会被持续刷屏。只在首次低电量、跨过阈值或电量继续下降时提醒。
+func (m *memStore) recordLowBattery(uid int64, battery int) bool {
+	key := "lowbattery:" + strconv.FormatInt(uid, 10)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var previous *int
+	if entry, ok := m.kv[key]; ok && time.Now().Before(entry.exp) {
+		if value, err := strconv.Atoi(entry.val); err == nil {
+			previous = &value
+		}
+	}
+	m.ensureKVRoomLocked(key)
+	m.kv[key] = memEntry{val: strconv.Itoa(battery), exp: time.Now().Add(24 * time.Hour)}
+	return shouldNotifyLowBattery(previous, battery)
+}
+
+func shouldNotifyLowBattery(previous *int, battery int) bool {
+	if battery < 1 || battery >= 15 {
+		return false
+	}
+	return previous == nil || *previous >= 15 || battery < *previous
 }
 
 // 离线事件队列的上限与保鲜期。

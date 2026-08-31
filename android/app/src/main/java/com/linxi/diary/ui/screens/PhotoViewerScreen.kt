@@ -31,12 +31,13 @@ import coil3.compose.AsyncImage
 import com.linxi.diary.data.ApiClient
 import com.linxi.diary.data.AppImageLoader
 import com.linxi.diary.data.PhotoCommentItem
+import com.linxi.diary.ui.components.LxButton as Button
+import com.linxi.diary.ui.components.LxButtonVariant
 import com.linxi.diary.data.PhotoItem
 import com.linxi.diary.data.PhotoLoadSource
 import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.theme.BrandRed
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -89,6 +90,7 @@ fun PhotoViewerScreen(
     var captionDraft by remember { mutableStateOf("") }
     var editingCaption by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var commentToDelete by remember { mutableStateOf<PhotoCommentItem?>(null) }
     // 一次性提示（设封面成功/失败）。用文字条而非 Toast，避免与 miuix 观感割裂。
     var hintText by remember { mutableStateOf<String?>(null) }
 
@@ -138,6 +140,31 @@ fun PhotoViewerScreen(
                 }
             },
             onDismiss = { if (!busy) confirmDelete = false },
+        )
+    }
+
+    commentToDelete?.let { target ->
+        com.linxi.diary.ui.components.LxConfirmDialog(
+            show = true,
+            title = "删除评论",
+            message = "删除后无法恢复。",
+            confirmText = "删除评论",
+            destructive = true,
+            busy = busy,
+            busyText = "删除中…",
+            onConfirm = {
+                busy = true
+                scope.launch {
+                    runCatching { ApiClient.deletePhotoComment(current.id, target.id) }
+                        .onSuccess {
+                            comments = comments.filterNot { it.id == target.id }
+                            commentToDelete = null
+                        }
+                        .onFailure { hintText = "删除失败，请重试" }
+                    busy = false
+                }
+            },
+            onDismiss = { if (!busy) commentToDelete = null },
         )
     }
 
@@ -263,7 +290,7 @@ fun PhotoViewerScreen(
                     }
                     Text("$likeCount", modifier = Modifier.padding(start = 4.dp))
                     Spacer(Modifier.weight(1f))
-                    Button(onClick = { showComments = !showComments }) {
+                    Button(onClick = { showComments = !showComments }, variant = LxButtonVariant.Neutral) {
                         Text("评论 ${comments.size}", fontSize = 13.sp)
                     }
                 }
@@ -279,7 +306,7 @@ fun PhotoViewerScreen(
                     modifier = Modifier.weight(1f),
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
-                Button(onClick = { editingCaption = true }) { Text("编辑", fontSize = 12.sp) }
+                Button(onClick = { editingCaption = true }, variant = LxButtonVariant.Neutral) { Text("编辑", fontSize = 12.sp) }
             }
 
             if (editingCaption) {
@@ -300,6 +327,7 @@ fun PhotoViewerScreen(
                         ) {
                             Button(
                                 onClick = { editingCaption = false; captionDraft = caption },
+                                variant = LxButtonVariant.Neutral,
                                 modifier = Modifier.weight(1f),
                             ) { Text("取消") }
                             Button(
@@ -349,19 +377,9 @@ fun PhotoViewerScreen(
                                 // 只能删自己的（服务端同样会校验，这里只是不显示无用按钮）。
                                 if (c.userId == myId) {
                                     Button(
-                                        onClick = {
-                                            if (busy) return@Button
-                                            busy = true
-                                            scope.launch {
-                                                runCatching {
-                                                    ApiClient.deletePhotoComment(current.id, c.id)
-                                                }.onSuccess {
-                                                    comments = comments.filterNot { it.id == c.id }
-                                                }
-                                                busy = false
-                                            }
-                                        },
+                                        onClick = { if (!busy) commentToDelete = c },
                                         enabled = !busy,
+                                        variant = LxButtonVariant.Negative,
                                     ) { Text("删除", fontSize = 12.sp) }
                                 }
                             }

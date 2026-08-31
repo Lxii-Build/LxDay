@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -15,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import com.linxi.diary.ui.theme.BrandBlue
 import com.linxi.diary.ui.theme.BrandRed
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.theme.LocalContentColor
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -55,17 +57,40 @@ fun LxButton(
      */
     horizontalPadding: Int = 20,
 ) {
+    LxButton(
+        onClick = onClick,
+        modifier = modifier,
+        variant = variant,
+        enabled = enabled,
+        cornerRadius = cornerRadius,
+        horizontalPadding = horizontalPadding,
+    ) {
+        Text(text = text, color = buttonContentColor(variant, enabled))
+    }
+}
+
+/**
+ * 供需要图标、数字或紧凑字号的场景使用的内容式版本。
+ *
+ * 这能让所有可点控件仍走同一套语义色、圆角与 48dp 最小触达区，而不会为了展示
+ * 一个图标又退回裸 miuix Button。
+ */
+@Composable
+fun LxButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    variant: LxButtonVariant = LxButtonVariant.Positive,
+    enabled: Boolean = true,
+    cornerRadius: Int = 16,
+    horizontalPadding: Int = 20,
+    content: @Composable () -> Unit,
+) {
     val container = when (variant) {
         LxButtonVariant.Positive -> BrandBlue
         LxButtonVariant.Negative -> BrandRed
         LxButtonVariant.Neutral -> MiuixTheme.colorScheme.onBackground.copy(alpha = 0.08f)
     }
-    val contentColor = when (variant) {
-        LxButtonVariant.Neutral -> MiuixTheme.colorScheme.onBackground
-        else -> Color.White
-    }
     val bg = if (enabled) container else container.copy(alpha = 0.4f)
-    val fg = if (enabled) contentColor else contentColor.copy(alpha = 0.6f)
     Box(
         modifier = modifier
             // 下限在前、clip 在后：这样圆角与背景覆盖的是撑开后的尺寸。
@@ -77,6 +102,17 @@ fun LxButton(
             .padding(vertical = 13.dp, horizontal = horizontalPadding.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text = text, color = fg)
+        CompositionLocalProvider(LocalContentColor provides buttonContentColor(variant, enabled)) {
+            content()
+        }
     }
+}
+
+@Composable
+private fun buttonContentColor(variant: LxButtonVariant, enabled: Boolean): Color {
+    val color = when (variant) {
+        LxButtonVariant.Neutral -> MiuixTheme.colorScheme.onBackground
+        else -> Color.White
+    }
+    return if (enabled) color else color.copy(alpha = 0.6f)
 }

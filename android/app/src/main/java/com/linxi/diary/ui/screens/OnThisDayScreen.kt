@@ -28,8 +28,9 @@ import com.linxi.diary.data.AppImageLoader
 import com.linxi.diary.data.PhotoItem
 import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.components.KernelScreen
+import com.linxi.diary.ui.components.LxButton as Button
+import com.linxi.diary.ui.components.LxButtonVariant
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -97,6 +98,7 @@ fun OnThisDayScreen(
                     ) {
                         Button(
                             onClick = { shiftDay(month, day, -1).let { month = it.first; day = it.second } },
+                            variant = LxButtonVariant.Neutral,
                             modifier = Modifier.weight(1f),
                         ) { Text("前一天") }
                         Button(
@@ -104,10 +106,12 @@ fun OnThisDayScreen(
                                 month = today.get(Calendar.MONTH) + 1
                                 day = today.get(Calendar.DAY_OF_MONTH)
                             },
+                            variant = LxButtonVariant.Neutral,
                             modifier = Modifier.weight(1f),
                         ) { Text("今天") }
                         Button(
                             onClick = { shiftDay(month, day, 1).let { month = it.first; day = it.second } },
+                            variant = LxButtonVariant.Neutral,
                             modifier = Modifier.weight(1f),
                         ) { Text("后一天") }
                     }

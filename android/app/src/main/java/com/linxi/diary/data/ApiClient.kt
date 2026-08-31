@@ -98,69 +98,77 @@ object ApiClient {
 
     suspend fun get(path: String): JSONObject = withContext(Dispatchers.IO) {
         netCall {
-            val resp = client.newCall(request("GET", path, null).build()).execute()
-            val text = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
-            check(text).optJSONObject("data") ?: JSONObject()
+            client.newCall(request("GET", path, null).build()).execute().use { resp ->
+                val text = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
+                check(text).optJSONObject("data") ?: JSONObject()
+            }
         }
     }
 
     /** GET 且 data 为数组 */
     suspend fun getArray(path: String): org.json.JSONArray = withContext(Dispatchers.IO) {
         netCall {
-            val resp = client.newCall(request("GET", path, null).build()).execute()
-            val text = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
-            check(text).optJSONArray("data") ?: org.json.JSONArray()
+            client.newCall(request("GET", path, null).build()).execute().use { resp ->
+                val text = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
+                check(text).optJSONArray("data") ?: org.json.JSONArray()
+            }
         }
     }
 
     suspend fun postJson(path: String, body: JSONObject): JSONObject = withContext(Dispatchers.IO) {
         netCall {
             val reqBody = body.toString().toRequestBody(json)
-            val resp = client.newCall(request("POST", path, reqBody).build()).execute()
-            val text = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
-            check(text).optJSONObject("data") ?: JSONObject()
+            client.newCall(request("POST", path, reqBody).build()).execute().use { resp ->
+                val text = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
+                check(text).optJSONObject("data") ?: JSONObject()
+            }
         }
     }
 
     suspend fun putJson(path: String, body: JSONObject): JSONObject = withContext(Dispatchers.IO) {
         netCall {
             val reqBody = body.toString().toRequestBody(json)
-            val resp = client.newCall(request("PUT", path, reqBody).build()).execute()
-            val text = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
-            check(text).optJSONObject("data") ?: JSONObject()
+            client.newCall(request("PUT", path, reqBody).build()).execute().use { resp ->
+                val text = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
+                check(text).optJSONObject("data") ?: JSONObject()
+            }
         }
     }
 
     suspend fun delete(path: String): JSONObject = withContext(Dispatchers.IO) {
         netCall {
-            val resp = client.newCall(request("DELETE", path, null).build()).execute()
-            val text = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
-            check(text).optJSONObject("data") ?: JSONObject()
+            client.newCall(request("DELETE", path, null).build()).execute().use { resp ->
+                val text = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
+                check(text).optJSONObject("data") ?: JSONObject()
+            }
         }
     }
 
     /** 上传图片（multipart）→ 返回 {url} */
     suspend fun uploadImage(path: String, file: File): String = withContext(Dispatchers.IO) {
-        val ext = file.extension
-        val media = when (ext.lowercase()) {
-            "png" -> "image/png".toMediaType()
-            "webp" -> "image/webp".toMediaType()
-            "gif" -> "image/gif".toMediaType()
-            else -> "image/jpeg".toMediaType()
+        netCall {
+            val ext = file.extension
+            val media = when (ext.lowercase()) {
+                "png" -> "image/png".toMediaType()
+                "webp" -> "image/webp".toMediaType()
+                "gif" -> "image/gif".toMediaType()
+                else -> "image/jpeg".toMediaType()
+            }
+            val mb = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("file", file.name, file.asRequestBody(media))
+                .build()
+            uploadClient.newCall(request("POST", path, mb).build()).execute().use { resp ->
+                val text = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
+                check(text).optJSONObject("data")?.optString("url") ?: ""
+            }
         }
-        val mb = MultipartBody.Builder()
-            .setType(MultipartBody.FORM)
-            .addFormDataPart("file", file.name, file.asRequestBody(media))
-            .build()
-        val resp = uploadClient.newCall(request("POST", path, mb).build()).execute()
-        val text = resp.body?.string().orEmpty()
-        if (!resp.isSuccessful) throw ApiException(-1, "HTTP ${resp.code}")
-        check(text).optJSONObject("data")?.optString("url") ?: ""
     }
 
     // ============ 业务接口 ============
@@ -213,14 +221,6 @@ object ApiClient {
         put("birthday", birthday)
     })
 
-    /** 下载任意绝对 URL 的字节（用于无三方图片库时显示头像位图）。失败返回 null。 */
-    suspend fun downloadBytes(url: String): ByteArray? = withContext(Dispatchers.IO) {
-        runCatching {
-            val resp = client.newCall(Request.Builder().url(url).build()).execute()
-            if (!resp.isSuccessful) null else resp.body?.bytes()
-        }.getOrNull()
-    }
-
     /** 更新本人昵称，返回双方权威资料 */
     suspend fun updateNickname(nickname: String): JSONObject =
         putJson("/profile", JSONObject().put("nickname", nickname))
@@ -238,12 +238,15 @@ object ApiClient {
                 file.asRequestBody("application/octet-stream".toMediaType()),
             )
             .build()
-        val resp = uploadClient.newCall(request("POST", "/profile/avatar", mb).build()).execute()
-        val text = resp.body?.string().orEmpty()
-        // 走统一的失败处理：服务端会返回中文原因（如"暂不支持该图片格式"），
-        // 此前直接抛 "HTTP 400" 把有用信息丢掉了。
-        if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
-        check(text).optJSONObject("data") ?: JSONObject()
+        netCall {
+            uploadClient.newCall(request("POST", "/profile/avatar", mb).build()).execute().use { resp ->
+                val text = resp.body?.string().orEmpty()
+                // 走统一的失败处理：服务端会返回中文原因（如"暂不支持该图片格式"），
+                // 此前直接抛 "HTTP 400" 把有用信息丢掉了。
+                if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
+                check(text).optJSONObject("data") ?: JSONObject()
+            }
+        }
     }
 
     /**
@@ -271,10 +274,11 @@ object ApiClient {
                         header("Idempotency-Key", idempotencyKey)
                     }
                 }.build()
-                val resp = uploadClient.newCall(req).execute()
-                val text = resp.body?.string().orEmpty()
-                if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
-                check(text).optJSONObject("data") ?: JSONObject()
+                uploadClient.newCall(req).execute().use { resp ->
+                    val text = resp.body?.string().orEmpty()
+                    if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
+                    check(text).optJSONObject("data") ?: JSONObject()
+                }
             }
         }
 

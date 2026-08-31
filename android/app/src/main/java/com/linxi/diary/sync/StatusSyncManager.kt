@@ -194,6 +194,10 @@ object StatusSyncManager {
      */
     fun sendEvent(type: String, ringId: String? = null): Boolean {
         return try {
+            if (type !in outboundEventTypes) {
+                Logs.w("Sync", "Unsupported outbound event: $type")
+                return false
+            }
             if (!SharingRuntimePolicy.canRunNow()) {
                 Logs.w("Sync", "Sharing disabled; event dropped: $type")
                 return false
@@ -381,4 +385,12 @@ object StatusSyncManager {
 
     const val MSG_RING_CANCEL = "ring_cancel"
     const val MSG_RING_STOPPED = "ring_stopped"
+    private val outboundEventTypes = setOf(
+        "wifi_joined",
+        "comfort_request",
+        "calm_request",
+        "ring_request",
+        MSG_RING_CANCEL,
+        MSG_RING_STOPPED,
+    )
 }

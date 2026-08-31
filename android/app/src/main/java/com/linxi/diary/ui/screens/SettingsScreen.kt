@@ -27,7 +27,6 @@ import top.yukonga.miuix.kmp.icon.extended.Send
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.icon.extended.Share
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.Button as MiuixButton
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
@@ -39,6 +38,8 @@ import com.linxi.diary.core.PermissionHelper
 import com.linxi.diary.service.StatusForegroundService
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.ui.components.KernelScreen
+import com.linxi.diary.ui.components.LxButton
+import com.linxi.diary.ui.components.LxButtonVariant
 import com.linxi.diary.util.DiagnosticExporter
 import com.linxi.diary.util.UserPrefs
 
@@ -290,11 +291,13 @@ fun SettingsScreen(
                         activity?.let { act -> lifecycleOwner.lifecycleScope.launch { DiagnosticExporter.share(act) } }
                     }
                 )
-                MiuixButton(
+                LxButton(
+                    text = "取消",
                     onClick = { showLogSheet = false },
-                    cornerRadius = 12.dp,
+                    variant = LxButtonVariant.Neutral,
+                    cornerRadius = 12,
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("取消") }
+                )
             }
         }
     }

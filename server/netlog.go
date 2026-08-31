@@ -122,7 +122,7 @@ func RequestLogger() gin.HandlerFunc {
 	// 后台「网络日志」页对管理员是可读的 → 任何管理员都能从日志里直接点开情侣的私密相册。
 	// 这些静态资源本身也没有记录价值，只会把日志表撑爆。
 	skip := func(p string) bool {
-		return p == "/healthz" ||
+		return p == "/healthz" || p == "/readyz" ||
 			strings.HasPrefix(p, "/ws") ||
 			strings.HasPrefix(p, "/upload") || // 覆盖 /upload 与 /uploads
 			strings.HasPrefix(p, "/media") || // 鉴权图片代理

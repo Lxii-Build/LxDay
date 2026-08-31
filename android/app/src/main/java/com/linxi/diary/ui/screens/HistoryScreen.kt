@@ -15,8 +15,9 @@ import com.linxi.diary.data.BatteryPoint
 import com.linxi.diary.data.HistoryEntry
 import com.linxi.diary.data.PagingMerge
 import com.linxi.diary.ui.components.KernelScreen
+import com.linxi.diary.ui.components.LxButton as Button
+import com.linxi.diary.ui.components.LxButtonVariant
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -270,9 +271,9 @@ private fun HistoryDatePickerDialog(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Button(onClick = { draft = shiftDate(draft, -30) }, modifier = Modifier.weight(1f)) { Text("-30 天") }
-                Button(onClick = { draft = shiftDate(draft, -7) }, modifier = Modifier.weight(1f)) { Text("-7 天") }
-                Button(onClick = { draft = shiftDate(draft, -1) }, modifier = Modifier.weight(1f)) { Text("-1 天") }
+                Button(onClick = { draft = shiftDate(draft, -30) }, variant = LxButtonVariant.Neutral, modifier = Modifier.weight(1f)) { Text("-30 天") }
+                Button(onClick = { draft = shiftDate(draft, -7) }, variant = LxButtonVariant.Neutral, modifier = Modifier.weight(1f)) { Text("-7 天") }
+                Button(onClick = { draft = shiftDate(draft, -1) }, variant = LxButtonVariant.Neutral, modifier = Modifier.weight(1f)) { Text("-1 天") }
             }
             Spacer(Modifier.height(8.dp))
             Row(
@@ -282,14 +283,16 @@ private fun HistoryDatePickerDialog(
                 Button(
                     onClick = { draft = shiftDate(draft, 1) },
                     enabled = shiftDate(draft, 1) <= todayStr(),
+                    variant = LxButtonVariant.Neutral,
                     modifier = Modifier.weight(1f),
                 ) { Text("+1 天") }
                 Button(
                     onClick = { draft = shiftDate(draft, 7) },
                     enabled = shiftDate(draft, 7) <= todayStr(),
+                    variant = LxButtonVariant.Neutral,
                     modifier = Modifier.weight(1f),
                 ) { Text("+7 天") }
-                Button(onClick = { draft = todayStr() }, modifier = Modifier.weight(1f)) { Text("今天") }
+                Button(onClick = { draft = todayStr() }, variant = LxButtonVariant.Neutral, modifier = Modifier.weight(1f)) { Text("今天") }
             }
             Spacer(Modifier.height(12.dp))
             Text(draft, style = MiuixTheme.textStyles.headline1)
@@ -298,7 +301,7 @@ private fun HistoryDatePickerDialog(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("取消") }
+                Button(onClick = onDismiss, variant = LxButtonVariant.Neutral, modifier = Modifier.weight(1f)) { Text("取消") }
                 Button(
                     onClick = { onPick(draft) },
                     enabled = !isFuture,
