@@ -130,7 +130,7 @@ object AvatarCropper {
                 )
             } ?: ExifInterface.ORIENTATION_NORMAL
         }.getOrElse {
-            Logs.i("AvatarCropper", "EXIF unreadable, continuing", it)
+            Logs.w("AvatarCropper", "EXIF unreadable, continuing", it)
             ExifInterface.ORIENTATION_NORMAL
         }
 

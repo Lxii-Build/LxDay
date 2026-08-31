@@ -114,7 +114,7 @@ fun AvatarCropScreen(
                         )
                     } ?: ExifInterface.ORIENTATION_NORMAL
                 }.getOrElse {
-                    Logs.i("AvatarCrop", "EXIF unreadable, using normal orientation", it)
+                    Logs.w("AvatarCrop", "EXIF unreadable, using normal orientation", it)
                     ExifInterface.ORIENTATION_NORMAL
                 }
                 // 预览只需屏幕级尺寸，降采样到长边 ~1080 足够，且不会 OOM。

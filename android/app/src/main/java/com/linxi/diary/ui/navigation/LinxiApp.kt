@@ -314,6 +314,7 @@ fun LinxiApp() {
                 )
                 Screen.Main -> MainTabs(
                     initialPage = mainInitialPage,
+                    albumEnabled = albumEnabled,
                     onOpenHistory = { screen = Screen.History },
                     onOpenBind = { screen = Screen.Bind },
                     onOpenAppearance = { screen = Screen.Appearance },
@@ -335,6 +336,7 @@ fun LinxiApp() {
 @Composable
 private fun MainTabs(
     initialPage: Int,
+    albumEnabled: Boolean,
     onOpenHistory: () -> Unit,
     onOpenBind: () -> Unit,
     onOpenAppearance: () -> Unit,
