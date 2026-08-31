@@ -70,3 +70,10 @@ jobs:
           gradle-version: '9.7.0'
       - run: gradle wrapper --gradle-version 9.7.0 --no-daemon
       - run: ./gradlew :app:compileDebugKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon
+      - name: 上传 Android Lint 报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-lint-report
+          path: android/app/build/reports/lint-results-*
+          if-no-files-found: warn
