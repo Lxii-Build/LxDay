@@ -9,6 +9,15 @@
 
 （暂无）
 
+## [1.0.4] - 2026-08-31
+
+### 部署与可靠性
+
+- **修复历史 Docker 数据卷导致 SQLite 只读**：镜像启动时一次性修复旧命名卷的属主，
+  随后仍以非 root 用户运行服务；不需要修改 `docker-compose.yml`、`.env` 或现有卷配置。
+- 保持 `/app/data`、`/app/uploads` 与 `/app/uploads-private` 的持久化路径和权限边界不变，
+  配置文件缺失继续按默认值与环境变量启动。
+
 ## [1.0.3] - 2026-08-31
 
 **GIF 帧炸弹的实证修复 + 单张图片最坏内存的下限**。外部报告指出
@@ -542,7 +551,8 @@ GIF 帧炸弹与提前中止、旋正缩放合并前后产物尺寸一致、壁�
   含「本机代理会造成假 502」的排查警告）、[docs/SELFTEST_0821.md](docs/SELFTEST_0821.md)
   （真机自测清单，含「我已验证 / 我无法验证」的分界）。
 
-[Unreleased]: https://github.com/Lxii-Build/LxDay/compare/v1.0.3...HEAD
+[Unreleased]: https://github.com/Lxii-Build/LxDay/compare/v1.0.4...HEAD
+[1.0.4]: https://github.com/Lxii-Build/LxDay/releases/tag/v1.0.4
 [1.0.3]: https://github.com/Lxii-Build/LxDay/releases/tag/v1.0.3
 [1.0.2]: https://github.com/Lxii-Build/LxDay/releases/tag/v1.0.2
 [1.0.1]: https://github.com/Lxii-Build/LxDay/compare/v1.0.0...v1.0.1
