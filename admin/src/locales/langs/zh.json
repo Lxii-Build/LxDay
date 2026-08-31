@@ -325,7 +325,23 @@
     "enableConfirm": "确定要启用用户「{name}」吗？",
     "disableConfirm": "确定要禁用用户「{name}」吗？禁用后该用户将无法登录。",
     "enableSuccess": "已启用该用户",
-    "disableSuccess": "已禁用该用户"
+    "disableSuccess": "已禁用该用户",
+    "editTitle": "编辑用户资料",
+    "editSuccess": "用户资料已保存",
+    "form": {
+      "username": "用户名",
+      "nickname": "昵称",
+      "email": "邮箱",
+      "gender": "性别",
+      "signature": "简介",
+      "birthday": "生日"
+    },
+    "rules": {
+      "nickname": "请输入昵称",
+      "nicknameLength": "昵称长度为 2-32 个字",
+      "email": "邮箱格式不正确",
+      "signature": "简介不能超过 200 个字"
+    }
   },
   "pairManage": {
     "searchPlaceholder": "搜索昵称",
@@ -335,6 +351,7 @@
       "userA": "用户 A",
       "userB": "用户 B",
       "inviteState": "邀请状态",
+      "anniversary": "纪念日",
       "status": "状态",
       "createdAt": "绑定时间"
     },
@@ -349,7 +366,13 @@
     "unbind": "解绑",
     "unbindTitle": "解除绑定",
     "unbindConfirm": "确定要解除该绑定关系（#{id}）吗？解绑后双方将不再共享数据。",
-    "unbindSuccess": "已解绑"
+    "unbindSuccess": "已解绑",
+    "editTitle": "编辑绑定关系",
+    "editSuccess": "绑定关系已保存",
+    "form": {
+      "members": "成员",
+      "anniversary": "纪念日"
+    }
   },
   "contentAudit": {
     "tabs": {
@@ -373,7 +396,9 @@
       },
       "remind": {
         "on": "开",
-        "off": "关"
+        "off": "关",
+        "normal": "普通提醒",
+        "strong": "强提醒"
       },
       "repeat": {
         "once": "仅一次",
@@ -385,6 +410,33 @@
         "done": "已完成",
         "deleted": "已删除"
       },
+      "weekdays": {
+        "mon": "周一",
+        "tue": "周二",
+        "wed": "周三",
+        "thu": "周四",
+        "fri": "周五",
+        "sat": "周六",
+        "sun": "周日"
+      },
+      "form": {
+        "title": "事件",
+        "note": "详情",
+        "assignee": "被提醒者",
+        "remindEnabled": "提醒开关",
+        "remindAt": "提醒时间",
+        "remindType": "提醒类型",
+        "repeatType": "重复规则",
+        "weekdays": "重复日期"
+      },
+      "rules": {
+        "title": "请输入事件标题",
+        "titleLength": "事件标题不能超过 200 个字",
+        "note": "详情不能超过 5000 个字",
+        "assignee": "请选择被提醒者"
+      },
+      "editTitle": "编辑待办",
+      "editSuccess": "待办已保存",
       "deleteTitle": "删除待办",
       "deleteConfirm": "确定要删除待办「{title}」吗？"
     },
@@ -412,7 +464,15 @@
       },
       "deleteTitle": "删除照片",
       "deleteConfirm": "照片（#{id}）将被软删除，进入用户的回收站，用户可自行恢复；磁盘文件不会删除。确定继续吗？",
-      "deleteSuccess": "已移入用户回收站"
+      "deleteSuccess": "已移入用户回收站",
+      "editTitle": "编辑照片描述",
+      "editSuccess": "照片描述已保存",
+      "form": {
+        "caption": "描述"
+      },
+      "rules": {
+        "caption": "描述不能超过 500 个字"
+      }
     }
   },
   "appVersion": {
@@ -424,6 +484,7 @@
     "onlineSuccess": "已上架",
     "offlineSuccess": "已下架",
     "publishSuccess": "发布成功",
+    "editSuccess": "版本信息已保存",
     "uploadSuccess": "上传成功",
     "uploadNoUrl": "上传成功，但未返回地址，请手动填写",
     "uploadFailed": "上传失败，请稍后重试或直接填写 APK 地址",
@@ -454,6 +515,7 @@
     },
     "dialog": {
       "title": "发布新版本",
+      "editTitle": "编辑版本信息",
       "submit": "发布"
     },
     "form": {
@@ -477,6 +539,30 @@
     },
     "deleteTitle": "删除版本",
     "deleteConfirm": "确定要删除版本「{name}」吗？"
+  },
+  "albumManage": {
+    "searchPlaceholder": "搜索相册名",
+    "pairIdPlaceholder": "情侣 ID",
+    "empty": "暂无相册",
+    "editTitle": "编辑相册",
+    "editSuccess": "相册已保存",
+    "form": {
+      "name": "相册名"
+    },
+    "rules": {
+      "name": "请输入相册名",
+      "nameLength": "相册名不能超过 32 个字"
+    },
+    "table": {
+      "name": "相册名",
+      "couple": "所属情侣",
+      "pairId": "情侣 ID",
+      "photoCount": "照片数",
+      "size": "占用空间",
+      "createdAt": "创建时间"
+    },
+    "deleteTitle": "删除相册",
+    "deleteConfirm": "确定删除相册「{name}」？其中 {count} 张照片不会被删除，会退回该情侣的「未归类」。"
   },
   "notify": {
     "tabs": {

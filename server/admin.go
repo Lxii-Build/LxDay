@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -748,6 +749,117 @@ func handleAdminListUsers(c *gin.Context) {
 	pageResp(c, list, total, current, size)
 }
 
+// handleAdminUpdateUser 修改后台可编辑的用户资料，不触碰用户名、头像与登录状态。
+func handleAdminUpdateUser(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		afail(c, 400, 400, "用户 ID 非法")
+		return
+	}
+	var req struct {
+		Email     *string `json:"email"`
+		Nickname  string  `json:"nickname"`
+		Gender    int     `json:"gender"`
+		Signature *string `json:"signature"`
+		Birthday  *string `json:"birthday"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		afail(c, 400, 400, "参数错误")
+		return
+	}
+	nickname, err := normalizeNickname(req.Nickname)
+	if err != nil {
+		afail(c, 400, 400, "昵称长度 2-32")
+		return
+	}
+	if req.Gender < 0 || req.Gender > 2 {
+		afail(c, 400, 400, "性别只能是 0(保密)、1(男) 或 2(女)")
+		return
+	}
+	var signature *string
+	if req.Signature != nil {
+		s := strings.TrimSpace(*req.Signature)
+		if utf8.RuneCountInString(s) > 200 {
+			afail(c, 400, 400, "简介不能超过 200 字")
+			return
+		}
+		if s != "" {
+			signature = &s
+		}
+	}
+	var birthday *string
+	if req.Birthday != nil && strings.TrimSpace(*req.Birthday) != "" {
+		b := strings.TrimSpace(*req.Birthday)
+		if _, err := parseAnniversary(b, time.Now()); err != nil {
+			afail(c, 400, 400, "生日日期无效")
+			return
+		}
+		birthday = &b
+	}
+	rawEmail := ""
+	if req.Email != nil {
+		rawEmail = *req.Email
+	}
+	email, err := normalizeAdminEmail(rawEmail)
+	if err != nil {
+		afail(c, 400, 400, err.Error())
+		return
+	}
+	if err := ensureAdminUserExists(id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			afail(c, 404, 404, "用户不存在")
+		} else {
+			afail(c, 500, 500, "查询失败")
+		}
+		return
+	}
+	if conflict, err := adminUserFieldConflict("nickname", nickname, id); err != nil {
+		afail(c, 500, 500, "查询失败")
+		return
+	} else if conflict {
+		afail(c, 400, 400, "昵称已被占用")
+		return
+	}
+	if email != nil {
+		if conflict, err := adminUserFieldConflict("email", *email, id); err != nil {
+			afail(c, 500, 500, "查询失败")
+			return
+		} else if conflict {
+			afail(c, 400, 400, "邮箱已被占用")
+			return
+		}
+	}
+	if err := st.UpdateAdminUserProfile(id, email, nickname, req.Gender, signature, birthday); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			afail(c, 404, 404, "用户不存在")
+			return
+		}
+		afail(c, 500, 500, "更新失败")
+		return
+	}
+	st.AddAudit(c.GetInt64("aid"), c.GetString("admin_name"), "update_user_profile",
+		"user="+strconv.FormatInt(id, 10), c.ClientIP())
+	aok(c, gin.H{"ok": true})
+}
+
+func ensureAdminUserExists(id int64) error {
+	var exists int
+	return st.DB.QueryRow("SELECT 1 FROM `user` WHERE id=?", id).Scan(&exists)
+}
+
+// adminUserFieldConflict 使用固定字段名调用，避免把请求内容拼进 SQL。
+func adminUserFieldConflict(field, value string, id int64) (bool, error) {
+	if field != "nickname" && field != "email" {
+		return false, errors.New("invalid user field")
+	}
+	var otherID int64
+	err := st.DB.QueryRow("SELECT id FROM `user` WHERE "+field+"=? AND id<>? LIMIT 1", value, id).Scan(&otherID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 func handleAdminSetUserStatus(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
@@ -799,7 +911,7 @@ func (s *Store) ListPairs(limit, offset int) ([]gin.H, int, error) {
 	// 成倍缩小爆破空间（invite.go 把它从 6 位数字加长到 8 位混合字符正是为了这个）。
 	rows, err := s.DB.Query(
 		"SELECT p.id,p.user_a_id,p.user_b_id,COALESCE(ua.nickname,''),COALESCE(ub.nickname,''),p.status,"+
-			"CASE WHEN p.status=1 AND p.user_a_id>0 AND p.user_b_id=0 AND p.invite_code IS NOT NULL AND p.invite_code<>'' THEN 1 ELSE 0 END,p.created_at "+
+			"CASE WHEN p.status=1 AND p.user_a_id>0 AND p.user_b_id=0 AND p.invite_code IS NOT NULL AND p.invite_code<>'' THEN 1 ELSE 0 END,p.created_at,p.anniversary_date "+
 			"FROM pair p LEFT JOIN `user` ua ON ua.id=p.user_a_id LEFT JOIN `user` ub ON ub.id=p.user_b_id "+
 			"ORDER BY p.id DESC LIMIT ? OFFSET ?", limit, offset)
 	if err != nil {
@@ -812,13 +924,19 @@ func (s *Store) ListPairs(limit, offset int) ([]gin.H, int, error) {
 		var na, nb string
 		var status, hasCode int
 		var created time.Time
-		if err := rows.Scan(&id, &ua, &ub, &na, &nb, &status, &hasCode, &created); err != nil {
+		var anniversary sql.NullTime
+		if err := rows.Scan(&id, &ua, &ub, &na, &nb, &status, &hasCode, &created, &anniversary); err != nil {
 			// 坏行跳过并留痕：忽略 Scan 错误会让 NULL 列静默变成零值。
 			slog.Error("scan pair_row failed", "err", err)
 			continue
 		}
+		var anniversaryValue interface{}
+		if anniversary.Valid {
+			anniversaryValue = anniversary.Time.Format("2006-01-02")
+		}
 		out = append(out, gin.H{"id": id, "user_a_id": ua, "user_b_id": ub, "name_a": na, "name_b": nb,
-			"status": status, "has_invite": hasCode == 1, "created_at": created})
+			"status": status, "has_invite": hasCode == 1, "created_at": created,
+			"anniversary": anniversaryValue})
 	}
 	// 遍历中途出错时 rows.Next() 会返回 false，与"正常读完"无法区分。
 	// 不检查就等于把"少了几行的结果"当成功返回，而分页页面上看不出任何异常。
@@ -843,6 +961,43 @@ func handleAdminListPairs(c *gin.Context) {
 	pageResp(c, list, total, current, size)
 }
 
+// handleAdminUpdatePair 修改关系级的纪念日；邀请码与成员关系不可通过后台编辑。
+func handleAdminUpdatePair(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		afail(c, 400, 400, "关系 ID 非法")
+		return
+	}
+	var req struct {
+		AnniversaryDate *string `json:"anniversary_date"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		afail(c, 400, 400, "参数错误")
+		return
+	}
+	var anniversary *time.Time
+	if req.AnniversaryDate != nil && strings.TrimSpace(*req.AnniversaryDate) != "" {
+		value := strings.TrimSpace(*req.AnniversaryDate)
+		parsed, err := parseAnniversary(value, time.Now())
+		if err != nil {
+			afail(c, 400, 400, "纪念日无效")
+			return
+		}
+		anniversary = &parsed
+	}
+	if err := st.UpdateAdminPairAnniversary(id, anniversary); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			afail(c, 404, 404, "已绑定关系不存在")
+			return
+		}
+		afail(c, 500, 500, "更新失败")
+		return
+	}
+	st.AddAudit(c.GetInt64("aid"), c.GetString("admin_name"), "update_pair_anniversary",
+		"pair="+strconv.FormatInt(id, 10), c.ClientIP())
+	aok(c, gin.H{"ok": true})
+}
+
 func handleAdminUnbindPair(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
@@ -862,7 +1017,7 @@ func handleAdminUnbindPair(c *gin.Context) {
 // ---------- 内容审核（待办 / 日记） ----------
 
 // ListTodosAll 后台待办列表（分页 + keyword，creator/assignee 名字从 user 解析）。
-// 契约字段：id,title,note,creator_id,creator_name,assignee_id,assignee_name,remind_enabled,remind_type,repeat_type,remind_at,status,pair_id
+// 契约字段：id,title,note,creator_id,creator_name,assignee_id,assignee_name,remind_enabled,remind_type,repeat_type,weekdays,remind_at,status,pair_id,created_at
 func (s *Store) ListTodosAll(keyword string, limit, offset int) ([]gin.H, int, error) {
 	base := "FROM todo t " +
 		"LEFT JOIN `user` uc ON uc.id=t.creator_id " +
@@ -879,7 +1034,7 @@ func (s *Store) ListTodosAll(keyword string, limit, offset int) ([]gin.H, int, e
 	}
 	rows, err := s.DB.Query(
 		"SELECT t.id,t.pair_id,t.creator_id,COALESCE(uc.nickname,''),t.assignee_id,COALESCE(ua.nickname,''),"+
-			"t.title,COALESCE(t.note,''),t.remind_at,t.remind_type,t.repeat_type,t.remind_enabled,t.status "+
+			"t.title,COALESCE(t.note,''),t.remind_at,t.remind_type,t.repeat_type,t.weekdays,t.remind_enabled,t.status,t.created_at "+
 			base+" ORDER BY t.id DESC LIMIT ? OFFSET ?", append(args, limit, offset)...)
 	if err != nil {
 		return nil, 0, err
@@ -890,10 +1045,11 @@ func (s *Store) ListTodosAll(keyword string, limit, offset int) ([]gin.H, int, e
 		var id, pid, cid, aid int64
 		var creatorName, assigneeName, title, note string
 		var remindAt sql.NullTime
-		var remindType, repeatType, status int
+		var remindType, repeatType, weekdays, status int
 		var remindEnabled bool
+		var created time.Time
 		if err := rows.Scan(&id, &pid, &cid, &creatorName, &aid, &assigneeName,
-			&title, &note, &remindAt, &remindType, &repeatType, &remindEnabled, &status); err != nil {
+			&title, &note, &remindAt, &remindType, &repeatType, &weekdays, &remindEnabled, &status, &created); err != nil {
 			// 坏行跳过并留痕：忽略 Scan 错误会让 NULL 列静默变成零值。
 			slog.Error("scan admin_todo_row failed", "err", err)
 			continue
@@ -906,9 +1062,9 @@ func (s *Store) ListTodosAll(keyword string, limit, offset int) ([]gin.H, int, e
 			"id": id, "title": title, "note": note,
 			"creator_id": cid, "creator_name": creatorName,
 			"assignee_id": aid, "assignee_name": assigneeName,
-			"remind_enabled": remindEnabled, "remind_type": remindType,
+			"remind_enabled": remindEnabled, "remind_type": remindType, "weekdays": weekdays,
 			"repeat_type": repeatType, "remind_at": ra,
-			"status": status, "pair_id": pid,
+			"status": status, "pair_id": pid, "created_at": created,
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -926,6 +1082,95 @@ func handleAdminListTodos(c *gin.Context) {
 	}
 	// 契约：data:{list,total}
 	aok(c, gin.H{"list": list, "total": total})
+}
+
+// handleAdminUpdateTodo 编辑待办内容、提醒规则与被提醒者，不允许把已删除记录复活。
+func handleAdminUpdateTodo(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		afail(c, 400, 400, "待办 ID 非法")
+		return
+	}
+	todo, err := st.GetTodo(id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			afail(c, 404, 404, "待办不存在")
+		} else {
+			afail(c, 500, 500, "查询失败")
+		}
+		return
+	}
+	if todo.Status == 2 {
+		afail(c, 409, 409, "已删除的待办不能编辑")
+		return
+	}
+	var req struct {
+		AssigneeID    int64   `json:"assignee_id"`
+		Title         string  `json:"title"`
+		Note          string  `json:"note"`
+		RemindAt      *string `json:"remind_at"`
+		RemindType    int     `json:"remind_type"`
+		RepeatType    int     `json:"repeat_type"`
+		Weekdays      int     `json:"weekdays"`
+		RemindEnabled bool    `json:"remind_enabled"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		afail(c, 400, 400, "参数错误")
+		return
+	}
+	title := strings.TrimSpace(req.Title)
+	if title == "" || utf8.RuneCountInString(title) > 200 {
+		afail(c, 400, 400, "待办标题长度 1-200 字")
+		return
+	}
+	note := strings.TrimSpace(req.Note)
+	if utf8.RuneCountInString(note) > 5000 {
+		afail(c, 400, 400, "待办详情不能超过 5000 字")
+		return
+	}
+	if req.AssigneeID <= 0 {
+		afail(c, 400, 400, "被提醒者非法")
+		return
+	}
+	if req.RemindType != 0 && req.RemindType != 1 {
+		afail(c, 400, 400, "提醒类型非法")
+		return
+	}
+	if req.RepeatType < 0 || req.RepeatType > 2 || req.Weekdays < 0 || req.Weekdays > allWeekdaysMask {
+		afail(c, 400, 400, "重复规则非法")
+		return
+	}
+	var userA, userB int64
+	if err := st.DB.QueryRow("SELECT user_a_id,user_b_id FROM pair WHERE id=?", todo.PairID).Scan(&userA, &userB); err != nil {
+		afail(c, 400, 400, "所属关系不存在")
+		return
+	}
+	if req.AssigneeID != userA && req.AssigneeID != userB {
+		afail(c, 400, 400, "被提醒者不属于该关系")
+		return
+	}
+	var remindAt *time.Time
+	if req.RemindAt != nil && strings.TrimSpace(*req.RemindAt) != "" {
+		parsed, ok := parseSQLiteLocalTime(strings.TrimSpace(*req.RemindAt))
+		if !ok {
+			afail(c, 400, 400, "提醒时间格式无效")
+			return
+		}
+		remindAt = &parsed
+	}
+	repeatType, weekdays := normalizeRepeat(req.RepeatType, req.Weekdays)
+	if err := st.UpdateAdminTodo(id, req.AssigneeID, title, note, remindAt,
+		req.RemindType, repeatType, weekdays, req.RemindEnabled); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			afail(c, 409, 409, "待办已不存在或已删除")
+			return
+		}
+		afail(c, 500, 500, "更新失败")
+		return
+	}
+	st.AddAudit(c.GetInt64("aid"), c.GetString("admin_name"), "update_todo",
+		"todo="+strconv.FormatInt(id, 10), c.ClientIP())
+	aok(c, gin.H{"ok": true})
 }
 
 func handleAdminDeleteTodo(c *gin.Context) {
@@ -977,6 +1222,47 @@ func handleAdminDeletePhoto(c *gin.Context) {
 		return
 	}
 	st.AddAudit(c.GetInt64("aid"), c.GetString("admin_name"), "delete_photo",
+		"photo="+strconv.FormatInt(id, 10), c.ClientIP())
+	aok(c, gin.H{"ok": true})
+}
+
+// handleAdminUpdatePhoto 修改照片描述，不回传照片地址，也不允许编辑回收站中的照片。
+func handleAdminUpdatePhoto(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		afail(c, 400, 400, "参数错误")
+		return
+	}
+	var req struct {
+		Caption string `json:"caption"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		afail(c, 400, 400, "参数错误")
+		return
+	}
+	caption := strings.TrimSpace(req.Caption)
+	if utf8.RuneCountInString(caption) > maxCaptionLen {
+		afail(c, 400, 400, "照片描述不能超过 500 字")
+		return
+	}
+	photo, err := st.GetPhoto(id)
+	if err != nil || photo == nil {
+		afail(c, 404, 404, "照片不存在")
+		return
+	}
+	if photo.Status != 1 {
+		afail(c, 409, 409, "回收站中的照片不能编辑")
+		return
+	}
+	if err := st.UpdateAdminPhotoCaption(id, caption); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			afail(c, 409, 409, "照片已不存在或已移入回收站")
+			return
+		}
+		afail(c, 500, 500, "更新失败")
+		return
+	}
+	st.AddAudit(c.GetInt64("aid"), c.GetString("admin_name"), "update_photo_caption",
 		"photo="+strconv.FormatInt(id, 10), c.ClientIP())
 	aok(c, gin.H{"ok": true})
 }
@@ -1146,6 +1432,50 @@ func handleAdminCreateVersion(c *gin.Context) {
 	}
 	st.AddAudit(c.GetInt64("aid"), "", "create_version", v.VersionName, c.ClientIP())
 	aok(c, gin.H{"id": id})
+}
+
+func handleAdminUpdateVersion(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		afail(c, 400, 400, "版本 ID 非法")
+		return
+	}
+	var req struct {
+		VersionName string `json:"version_name"`
+		APKURL      string `json:"apk_url"`
+		Notes       string `json:"notes"`
+		ForceUpdate bool   `json:"force_update"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		afail(c, 400, 400, "参数错误")
+		return
+	}
+	versionName := strings.TrimSpace(req.VersionName)
+	if versionName == "" || utf8.RuneCountInString(versionName) > 64 {
+		afail(c, 400, 400, "版本名长度 1-64 字")
+		return
+	}
+	apkURL := strings.TrimSpace(req.APKURL)
+	if len([]byte(apkURL)) > 2048 {
+		afail(c, 400, 400, "APK 地址不能超过 2048 字节")
+		return
+	}
+	notes := strings.TrimSpace(req.Notes)
+	if utf8.RuneCountInString(notes) > 10000 {
+		afail(c, 400, 400, "更新说明不能超过 10000 字")
+		return
+	}
+	if err := st.UpdateAppVersion(id, versionName, apkURL, notes, req.ForceUpdate); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			afail(c, 404, 404, "版本不存在")
+			return
+		}
+		afail(c, 500, 500, "更新失败")
+		return
+	}
+	st.AddAudit(c.GetInt64("aid"), c.GetString("admin_name"), "update_version",
+		"version="+strconv.FormatInt(id, 10), c.ClientIP())
+	aok(c, gin.H{"ok": true})
 }
 
 func handleAdminSetVersionStatus(c *gin.Context) {
@@ -1951,14 +2281,19 @@ func registerAdminRoutes(r *gin.Engine) {
 	// 能上传 300MB 文件落盘。这与「分角色」的初衷完全背离。
 	sup := g.Group("", AdminAuth(), requireSuper())
 	sup.POST("/upload", handleAdminUpload)
+	sup.PUT("/users/:id", handleAdminUpdateUser)
 	sup.PUT("/users/:id/status", handleAdminSetUserStatus)
+	sup.PUT("/pairs/:id", handleAdminUpdatePair)
 	sup.POST("/pairs/:id/unbind", handleAdminUnbindPair)
+	sup.PUT("/todos/:id", handleAdminUpdateTodo)
 	sup.DELETE("/todos/:id", handleAdminDeleteTodo)
 	// 相册照片是全站最私密的内容，列表与删除都收敛到超管（普通 admin 连元数据都不给看）。
 	sup.GET("/photos", handleAdminListPhotos)
+	sup.PUT("/photos/:id", handleAdminUpdatePhoto)
 	sup.DELETE("/photos/:id", handleAdminDeletePhoto)
 
 	sup.POST("/app-versions", handleAdminCreateVersion)
+	sup.PUT("/app-versions/:id", handleAdminUpdateVersion)
 	sup.PUT("/app-versions/:id/status", handleAdminSetVersionStatus)
 	sup.DELETE("/app-versions/:id", handleAdminDeleteVersion)
 

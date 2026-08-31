@@ -94,6 +94,13 @@ declare namespace Api {
     }
     type UserList = Api.Common.PaginatedResponse<UserItem>
     type UserSearchParams = Partial<Api.Common.CommonSearchParams & { keyword: string }>
+    interface UserUpdateParams {
+      email?: string | null
+      nickname: string
+      gender: number
+      signature?: string | null
+      birthday?: string | null
+    }
 
     /** 绑定关系列表项 */
     interface PairItem {
@@ -110,10 +117,14 @@ declare namespace Api {
        * 相册、状态历史与待办（那些接口本身早已收敛到超管）。
        */
       has_invite: boolean
+      anniversary: string | null
       created_at: string
     }
     type PairList = Api.Common.PaginatedResponse<PairItem>
     type PairSearchParams = Partial<Api.Common.CommonSearchParams & { keyword: string }>
+    interface PairUpdateParams {
+      anniversary_date?: string | null
+    }
 
     /** 待办列表项 */
     interface TodoItem {
@@ -128,12 +139,23 @@ declare namespace Api {
       remind_enabled: boolean
       remind_type: number
       repeat_type: number
-      remind_at: string
+      weekdays: number
+      remind_at: string | null
       status: number
       created_at: string
     }
     type TodoList = Api.Common.PaginatedResponse<TodoItem>
     type TodoSearchParams = Partial<Api.Common.CommonSearchParams & { keyword: string }>
+    interface TodoUpdateParams {
+      assignee_id: number
+      title: string
+      note: string
+      remind_at?: string | null
+      remind_type: number
+      repeat_type: number
+      weekdays: number
+      remind_enabled: boolean
+    }
 
     /** 相册列表项（后台管理用） */
     interface AlbumItem {
@@ -241,6 +263,9 @@ declare namespace Api {
         pair_id: number
       }
     >
+    interface PhotoUpdateParams {
+      caption: string
+    }
 
     /** APP 版本项 */
     interface AppVersionItem {
@@ -263,6 +288,16 @@ declare namespace Api {
       apk_url?: string
       notes?: string
       force_update?: boolean
+    }
+    interface AppVersionUpdateParams {
+      version_name: string
+      apk_url: string
+      notes: string
+      force_update: boolean
+    }
+
+    interface AlbumUpdateParams {
+      name: string
     }
 
     /** 通知模板 */

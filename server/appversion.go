@@ -71,6 +71,25 @@ func (s *Store) CreateAppVersion(v *AppVersion) (int64, error) {
 	return res.LastInsertId()
 }
 
+// UpdateAppVersion 修改已存在版本的展示与分发信息。
+// platform/version_code 是更新排序身份，创建后保持不变；status 由单独的上下架接口管理。
+func (s *Store) UpdateAppVersion(id int64, versionName, apkURL, notes string, forceUpdate bool) error {
+	res, err := s.DB.Exec(
+		`UPDATE app_version SET version_name=?, apk_url=?, notes=?, force_update=? WHERE id=?`,
+		versionName, apkURL, notes, forceUpdate, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *Store) SetAppVersionStatus(id int64, status int) error {
 	res, err := s.DB.Exec(`UPDATE app_version SET status=? WHERE id=?`, status, id)
 	if err != nil {

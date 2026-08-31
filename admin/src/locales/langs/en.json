@@ -325,7 +325,23 @@
     "enableConfirm": "Enable the user \"{name}\"?",
     "disableConfirm": "Disable the user \"{name}\"? They will no longer be able to sign in.",
     "enableSuccess": "User enabled",
-    "disableSuccess": "User disabled"
+    "disableSuccess": "User disabled",
+    "editTitle": "Edit user profile",
+    "editSuccess": "User profile saved",
+    "form": {
+      "username": "Username",
+      "nickname": "Nickname",
+      "email": "Email",
+      "gender": "Gender",
+      "signature": "Bio",
+      "birthday": "Birthday"
+    },
+    "rules": {
+      "nickname": "Enter a nickname",
+      "nicknameLength": "Nickname must be 2-32 characters",
+      "email": "Enter a valid email",
+      "signature": "Bio must be 200 characters or fewer"
+    }
   },
   "pairManage": {
     "searchPlaceholder": "Search by nickname",
@@ -335,6 +351,7 @@
       "userA": "User A",
       "userB": "User B",
       "inviteState": "Invite",
+      "anniversary": "Anniversary",
       "status": "Status",
       "createdAt": "Paired at"
     },
@@ -349,7 +366,13 @@
     "unbind": "Unpair",
     "unbindTitle": "Unpair",
     "unbindConfirm": "Unpair this couple (#{id})? They will stop sharing data with each other.",
-    "unbindSuccess": "Unpaired"
+    "unbindSuccess": "Unpaired",
+    "editTitle": "Edit pairing",
+    "editSuccess": "Pairing saved",
+    "form": {
+      "members": "Members",
+      "anniversary": "Anniversary"
+    }
   },
   "contentAudit": {
     "tabs": {
@@ -373,7 +396,9 @@
       },
       "remind": {
         "on": "On",
-        "off": "Off"
+        "off": "Off",
+        "normal": "Standard",
+        "strong": "Strong"
       },
       "repeat": {
         "once": "Once",
@@ -385,6 +410,33 @@
         "done": "Completed",
         "deleted": "Deleted"
       },
+      "weekdays": {
+        "mon": "Mon",
+        "tue": "Tue",
+        "wed": "Wed",
+        "thu": "Thu",
+        "fri": "Fri",
+        "sat": "Sat",
+        "sun": "Sun"
+      },
+      "form": {
+        "title": "Task",
+        "note": "Note",
+        "assignee": "Assigned to",
+        "remindEnabled": "Reminder",
+        "remindAt": "Remind at",
+        "remindType": "Reminder type",
+        "repeatType": "Repeat rule",
+        "weekdays": "Weekdays"
+      },
+      "rules": {
+        "title": "Enter a task title",
+        "titleLength": "Task title must be 200 characters or fewer",
+        "note": "Note must be 5000 characters or fewer",
+        "assignee": "Select an assignee"
+      },
+      "editTitle": "Edit todo",
+      "editSuccess": "Todo saved",
       "deleteTitle": "Delete todo",
       "deleteConfirm": "Delete the todo \"{title}\"?"
     },
@@ -412,7 +464,15 @@
       },
       "deleteTitle": "Delete photo",
       "deleteConfirm": "Photo #{id} will be soft-deleted and moved to the owner's trash, where they can restore it themselves. The file on disk is kept. Continue?",
-      "deleteSuccess": "Moved to the owner's trash"
+      "deleteSuccess": "Moved to the owner's trash",
+      "editTitle": "Edit photo caption",
+      "editSuccess": "Photo caption saved",
+      "form": {
+        "caption": "Caption"
+      },
+      "rules": {
+        "caption": "Caption must be 500 characters or fewer"
+      }
     }
   },
   "appVersion": {
@@ -424,6 +484,7 @@
     "onlineSuccess": "Release published",
     "offlineSuccess": "Release unpublished",
     "publishSuccess": "Release created",
+    "editSuccess": "Release details saved",
     "uploadSuccess": "Upload complete",
     "uploadNoUrl": "Upload finished but no URL was returned. Please fill it in manually.",
     "uploadFailed": "Upload failed. Try again or paste the APK URL directly.",
@@ -454,6 +515,7 @@
     },
     "dialog": {
       "title": "New release",
+      "editTitle": "Edit release",
       "submit": "Publish"
     },
     "form": {
@@ -477,6 +539,30 @@
     },
     "deleteTitle": "Delete release",
     "deleteConfirm": "Delete the release \"{name}\"?"
+  },
+  "albumManage": {
+    "searchPlaceholder": "Search album name",
+    "pairIdPlaceholder": "Pair ID",
+    "empty": "No albums yet",
+    "editTitle": "Edit album",
+    "editSuccess": "Album saved",
+    "form": {
+      "name": "Album name"
+    },
+    "rules": {
+      "name": "Enter an album name",
+      "nameLength": "Album name must be 32 characters or fewer"
+    },
+    "table": {
+      "name": "Album name",
+      "couple": "Couple",
+      "pairId": "Pair ID",
+      "photoCount": "Photos",
+      "size": "Storage",
+      "createdAt": "Created"
+    },
+    "deleteTitle": "Delete album",
+    "deleteConfirm": "Delete album \"{name}\"? Its {count} photos will be kept and moved to the couple's unfiled photos."
   },
   "notify": {
     "tabs": {

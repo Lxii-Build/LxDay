@@ -30,15 +30,47 @@
       >
       </ArtTable>
     </ElCard>
+
+    <ElDialog v-model="editVisible" :title="$t('pairManage.editTitle')" width="420px" align-center>
+      <ElForm ref="editFormRef" :model="editForm" label-width="90px">
+        <ElFormItem :label="$t('pairManage.form.members')">
+          <span>{{ editingPair ? `${editingPair.name_a} / ${editingPair.name_b}` : '-' }}</span>
+        </ElFormItem>
+        <ElFormItem :label="$t('pairManage.form.anniversary')">
+          <ElDatePicker
+            v-model="editForm.anniversary_date"
+            type="date"
+            value-format="YYYY-MM-DD"
+            clearable
+            style="width: 100%"
+          />
+        </ElFormItem>
+      </ElForm>
+      <template #footer>
+        <ElButton @click="editVisible = false">{{ $t('common.cancel') }}</ElButton>
+        <ElButton type="primary" :loading="editSubmitting" @click="handleEditSubmit">
+          {{ $t('common.save') }}
+        </ElButton>
+      </template>
+    </ElDialog>
   </div>
 </template>
 
 <script setup lang="ts">
   import { useI18n } from 'vue-i18n'
   import { useTable } from '@/hooks/core/useTable'
-  import { fetchPairList, unbindPair } from '@/api/admin'
-  import { formatDateTime } from '@/utils/format/datetime'
-  import { ElButton, ElMessage, ElMessageBox, ElTag } from 'element-plus'
+  import { fetchPairList, updatePair, unbindPair } from '@/api/admin'
+  import { formatDate, formatDateTime } from '@/utils/format/datetime'
+  import {
+    ElButton,
+    ElDatePicker,
+    ElForm,
+    ElFormItem,
+    ElMessage,
+    ElMessageBox,
+    ElTag,
+    type FormInstance
+  } from 'element-plus'
 
   defineOptions({ name: 'PairManage' })
 
@@ -47,6 +79,11 @@
   const { t } = useI18n()
 
   const searchForm = ref({ keyword: '' })
+  const editVisible = ref(false)
+  const editSubmitting = ref(false)
+  const editingPair = ref<PairItem | null>(null)
+  const editFormRef = ref<FormInstance>()
+  const editForm = reactive({ anniversary_date: '' })
 
   const {
     columns,
@@ -87,10 +124,14 @@
           width: 120,
           formatter: (row) =>
             h(ElTag, { type: row.has_invite ? 'warning' : 'info' }, () =>
-              row.has_invite
-                ? t('pairManage.invite.pending')
-                : t('pairManage.invite.none')
+              row.has_invite ? t('pairManage.invite.pending') : t('pairManage.invite.none')
             )
+        },
+        {
+          prop: 'anniversary',
+          label: t('pairManage.table.anniversary'),
+          width: 130,
+          formatter: (row) => formatDate(row.anniversary)
         },
         {
           prop: 'status',
@@ -110,15 +151,20 @@
         {
           prop: 'operation',
           label: t('common.operation'),
-          width: 100,
+          width: 180,
           fixed: 'right',
           formatter: (row) =>
             row.status === 1
-              ? h(
-                  ElButton,
-                  { type: 'danger', link: true, onClick: () => handleUnbind(row) },
-                  () => t('pairManage.unbind')
-                )
+              ? h('div', [
+                  h(ElButton, { type: 'primary', link: true, onClick: () => openEdit(row) }, () =>
+                    t('common.edit')
+                  ),
+                  h(
+                    ElButton,
+                    { type: 'danger', link: true, onClick: () => handleUnbind(row) },
+                    () => t('pairManage.unbind')
+                  )
+                ])
               : h('span', { class: 'art-text-gray-400' }, '-')
         }
       ]
@@ -133,6 +179,27 @@
   const handleReset = () => {
     searchForm.value.keyword = ''
     resetSearchParams()
+  }
+
+  const openEdit = (row: PairItem) => {
+    editingPair.value = row
+    editForm.anniversary_date = row.anniversary || ''
+    editVisible.value = true
+  }
+
+  const handleEditSubmit = async () => {
+    if (!editingPair.value) return
+    editSubmitting.value = true
+    try {
+      await updatePair(editingPair.value.id, {
+        anniversary_date: editForm.anniversary_date || null
+      })
+      ElMessage.success(t('pairManage.editSuccess'))
+      editVisible.value = false
+      refreshData()
+    } finally {
+      editSubmitting.value = false
+    }
   }
 
   const handleUnbind = (row: PairItem) => {

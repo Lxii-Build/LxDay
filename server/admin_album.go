@@ -1,6 +1,8 @@
 package main
 
 import (
+	"database/sql"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -111,6 +113,43 @@ func handleAdminDeleteAlbum(c *gin.Context) {
 		return
 	}
 	st.AddAudit(c.GetInt64("aid"), c.GetString("admin_name"), "delete_album",
+		"album_id="+strconv.FormatInt(id, 10), c.ClientIP())
+	aok(c, gin.H{"ok": true})
+}
+
+// handleAdminUpdateAlbum 修改相册名称；照片归属与封面仍由用户侧相册接口管理。
+func handleAdminUpdateAlbum(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		afail(c, 400, 400, "相册 ID 非法")
+		return
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		afail(c, 400, 400, "参数错误")
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" || len([]rune(name)) > maxAlbumNameLen {
+		afail(c, 400, 400, "相册名长度 1-32")
+		return
+	}
+	album, err := st.GetAlbum(id)
+	if err != nil || album == nil || album.Status != 1 {
+		afail(c, 404, 404, "相册不存在")
+		return
+	}
+	if err := st.UpdateAlbum(id, album.PairID, &name, nil); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			afail(c, 404, 404, "相册不存在")
+			return
+		}
+		afail(c, 500, 500, "更新失败")
+		return
+	}
+	st.AddAudit(c.GetInt64("aid"), c.GetString("admin_name"), "update_album",
 		"album_id="+strconv.FormatInt(id, 10), c.ClientIP())
 	aok(c, gin.H{"ok": true})
 }
@@ -282,6 +321,7 @@ func handleAdminPhotoThumb(c *gin.Context) {
 // 全部挂 sup（超管）：相册是全站最私密的内容。
 func registerAdminAlbumRoutes(sup *gin.RouterGroup) {
 	sup.GET("/albums", handleAdminListAlbums)
+	sup.PUT("/albums/:id", handleAdminUpdateAlbum)
 	sup.DELETE("/albums/:id", handleAdminDeleteAlbum)
 	sup.GET("/storage-stats", handleAdminStorageStats)
 	sup.POST("/pairs/:id/purge-recycle-bin", handleAdminPurgeRecycleBin)

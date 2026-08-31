@@ -15,6 +15,10 @@ export function fetchUserList(params: Api.Admin.UserSearchParams) {
   return request.get<Api.Admin.UserList>({ url: '/api/admin/users', params })
 }
 
+export function updateUserProfile(id: number, data: Api.Admin.UserUpdateParams) {
+  return request.put<{ ok: boolean }>({ url: `/api/admin/users/${id}`, data })
+}
+
 export function updateUserStatus(id: number, status: number) {
   return request.put<{ ok: boolean }>({
     url: `/api/admin/users/${id}/status`,
@@ -27,6 +31,10 @@ export function fetchPairList(params: Api.Admin.PairSearchParams) {
   return request.get<Api.Admin.PairList>({ url: '/api/admin/pairs', params })
 }
 
+export function updatePair(id: number, data: Api.Admin.PairUpdateParams) {
+  return request.put<{ ok: boolean }>({ url: `/api/admin/pairs/${id}`, data })
+}
+
 export function unbindPair(id: number) {
   return request.post<{ ok: boolean }>({ url: `/api/admin/pairs/${id}/unbind` })
 }
@@ -34,6 +42,10 @@ export function unbindPair(id: number) {
 // ---------- 内容审核 ----------
 export function fetchTodoList(params: Api.Admin.TodoSearchParams) {
   return request.get<Api.Admin.TodoList>({ url: '/api/admin/todos', params })
+}
+
+export function updateTodo(id: number, data: Api.Admin.TodoUpdateParams) {
+  return request.put<{ ok: boolean }>({ url: `/api/admin/todos/${id}`, data })
 }
 
 export function deleteTodo(id: number) {
@@ -49,6 +61,10 @@ export function fetchPhotoList(params: Api.Admin.PhotoSearchParams) {
   return request.get<Api.Admin.PhotoList>({ url: '/api/admin/photos', params })
 }
 
+export function updatePhoto(id: number, data: Api.Admin.PhotoUpdateParams) {
+  return request.put<{ ok: boolean }>({ url: `/api/admin/photos/${id}`, data })
+}
+
 /** 删除照片：软删进用户回收站，用户可自行恢复，不删磁盘文件 */
 export function deletePhoto(id: number) {
   return request.del<{ ok: boolean }>({ url: `/api/admin/photos/${id}` })
@@ -61,6 +77,10 @@ export function fetchAppVersionList(params: Api.Admin.AppVersionSearchParams) {
 
 export function createAppVersion(data: Api.Admin.AppVersionCreateParams) {
   return request.post<{ id: number }>({ url: '/api/admin/app-versions', data })
+}
+
+export function updateAppVersion(id: number, data: Api.Admin.AppVersionUpdateParams) {
+  return request.put<{ ok: boolean }>({ url: `/api/admin/app-versions/${id}`, data })
 }
 
 export function updateAppVersionStatus(id: number, status: number) {
@@ -171,6 +191,10 @@ export function deleteAdmin(id: number) {
 /** 相册列表（按 pair 聚合，含张数与占用空间） */
 export function fetchAlbumList(params: Api.Admin.AlbumSearchParams) {
   return request.get<Api.Admin.AlbumList>({ url: '/api/admin/albums', params })
+}
+
+export function updateAlbum(id: number, data: Api.Admin.AlbumUpdateParams) {
+  return request.put<{ ok: boolean }>({ url: `/api/admin/albums/${id}`, data })
 }
 
 /** 删相册（软删，其中照片退回「未归类」） */

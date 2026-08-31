@@ -42,16 +42,50 @@
       @pagination:current-change="handleCurrentChange"
     >
     </ArtTable>
+
+    <ElDialog
+      v-model="editVisible"
+      :title="$t('contentAudit.photo.editTitle')"
+      width="520px"
+      align-center
+    >
+      <ElForm ref="editFormRef" :model="editForm" :rules="editRules" label-width="76px">
+        <ElFormItem :label="$t('contentAudit.photo.form.caption')" prop="caption">
+          <ElInput
+            v-model="editForm.caption"
+            type="textarea"
+            :rows="5"
+            maxlength="500"
+            show-word-limit
+          />
+        </ElFormItem>
+      </ElForm>
+      <template #footer>
+        <ElButton @click="editVisible = false">{{ $t('common.cancel') }}</ElButton>
+        <ElButton type="primary" :loading="editSubmitting" @click="handleEditSubmit">
+          {{ $t('common.save') }}
+        </ElButton>
+      </template>
+    </ElDialog>
   </div>
 </template>
 
 <script setup lang="ts">
   import { useI18n } from 'vue-i18n'
   import { useTable } from '@/hooks/core/useTable'
-  import { fetchPhotoList, deletePhoto } from '@/api/admin'
+  import { deletePhoto, fetchPhotoList, updatePhoto } from '@/api/admin'
   import { formatDateTime } from '@/utils/format/datetime'
   import { formatFileSize } from '@/utils/format/filesize'
-  import { ElButton, ElMessage, ElMessageBox, ElTag } from 'element-plus'
+  import {
+    ElButton,
+    ElForm,
+    ElInput,
+    ElMessage,
+    ElMessageBox,
+    ElTag,
+    type FormInstance,
+    type FormRules
+  } from 'element-plus'
 
   defineOptions({ name: 'ContentAuditPhoto' })
 
@@ -61,6 +95,14 @@
 
   /** pair_id 用字符串收集：ElInput 的 clearable 清空后是 ''，转数字才好判断「没填」 */
   const searchForm = ref({ keyword: '', pairId: '' })
+  const editVisible = ref(false)
+  const editSubmitting = ref(false)
+  const editingPhoto = ref<PhotoItem | null>(null)
+  const editFormRef = ref<FormInstance>()
+  const editForm = reactive({ caption: '' })
+  const editRules = computed<FormRules>(() => ({
+    caption: [{ max: 500, message: t('contentAudit.photo.rules.caption'), trigger: 'blur' }]
+  }))
 
   /**
    * 状态映射，取值与服务端 album_store.go 一致：
@@ -156,20 +198,27 @@
         {
           prop: 'operation',
           label: t('common.operation'),
-          width: 100,
+          width: 160,
           fixed: 'right',
           formatter: (row) =>
-            h(
-              ElButton,
-              {
-                type: 'danger',
-                link: true,
-                // 已在回收站的照片再删一次无意义（服务端同样只会把 status 置 2）
-                disabled: row.status === 2,
-                onClick: () => handleDelete(row)
-              },
-              () => t('common.delete')
-            )
+            h('div', [
+              row.status === 1
+                ? h(ElButton, { type: 'primary', link: true, onClick: () => openEdit(row) }, () =>
+                    t('common.edit')
+                  )
+                : null,
+              h(
+                ElButton,
+                {
+                  type: 'danger',
+                  link: true,
+                  // 已在回收站的照片再删一次无意义（服务端同样只会把 status 置 2）
+                  disabled: row.status === 2,
+                  onClick: () => handleDelete(row)
+                },
+                () => t('common.delete')
+              )
+            ])
         }
       ]
     }
@@ -189,6 +238,28 @@
     searchForm.value.keyword = ''
     searchForm.value.pairId = ''
     resetSearchParams()
+  }
+
+  const openEdit = (row: PhotoItem) => {
+    editingPhoto.value = row
+    editForm.caption = row.caption || ''
+    editVisible.value = true
+    nextTick(() => editFormRef.value?.clearValidate())
+  }
+
+  const handleEditSubmit = async () => {
+    if (!editingPhoto.value || !editFormRef.value) return
+    const valid = await editFormRef.value.validate().catch(() => false)
+    if (!valid) return
+    editSubmitting.value = true
+    try {
+      await updatePhoto(editingPhoto.value.id, { caption: editForm.caption.trim() })
+      ElMessage.success(t('contentAudit.photo.editSuccess'))
+      editVisible.value = false
+      refreshData()
+    } finally {
+      editSubmitting.value = false
+    }
   }
 
   /** 后台删除是软删（进用户回收站，用户可自行恢复、不删磁盘文件），二次确认里必须说清 */

@@ -15,7 +15,7 @@
         <ElSpace wrap>
           <ElInput
             v-model="searchForm.keyword"
-            placeholder="搜索相册名"
+            :placeholder="$t('albumManage.searchPlaceholder')"
             clearable
             style="width: 240px"
             @keyup.enter="handleSearch"
@@ -23,14 +23,14 @@
           />
           <ElInput
             v-model="searchForm.pairId"
-            placeholder="情侣 ID"
+            :placeholder="$t('albumManage.pairIdPlaceholder')"
             clearable
             style="width: 160px"
             @keyup.enter="handleSearch"
             @clear="handleSearch"
           />
-          <ElButton type="primary" @click="handleSearch">搜索</ElButton>
-          <ElButton @click="handleReset">重置</ElButton>
+          <ElButton type="primary" @click="handleSearch">{{ $t('common.search') }}</ElButton>
+          <ElButton @click="handleReset">{{ $t('common.reset') }}</ElButton>
         </ElSpace>
       </template>
     </ArtTableHeader>
@@ -40,7 +40,7 @@
       :data="data"
       :columns="columns"
       :pagination="pagination"
-      empty-text="暂无相册"
+      :empty-text="$t('albumManage.empty')"
       @pagination:size-change="handleSizeChange"
       @pagination:current-change="handleCurrentChange"
     >
@@ -51,23 +51,61 @@
         {{ formatDateTime(row.created_at) }}
       </template>
       <template #operation="{ row }">
-        <ElButton type="danger" link @click="handleDelete(row)">删除</ElButton>
+        <ElButton type="primary" link @click="openEdit(row)">{{ $t('common.edit') }}</ElButton>
+        <ElButton type="danger" link @click="handleDelete(row)">{{ $t('common.delete') }}</ElButton>
       </template>
     </ArtTable>
+
+    <ElDialog v-model="editVisible" :title="$t('albumManage.editTitle')" width="440px" align-center>
+      <ElForm ref="editFormRef" :model="editForm" :rules="editRules" label-width="76px">
+        <ElFormItem :label="$t('albumManage.form.name')" prop="name">
+          <ElInput v-model.trim="editForm.name" maxlength="32" show-word-limit />
+        </ElFormItem>
+      </ElForm>
+      <template #footer>
+        <ElButton @click="editVisible = false">{{ $t('common.cancel') }}</ElButton>
+        <ElButton type="primary" :loading="editSubmitting" @click="handleEditSubmit">
+          {{ $t('common.save') }}
+        </ElButton>
+      </template>
+    </ElDialog>
   </div>
 </template>
 
 <script setup lang="ts">
+  import { useI18n } from 'vue-i18n'
   import { ref } from 'vue'
   import { useTable } from '@/hooks/core/useTable'
-  import { fetchAlbumList, deleteAlbum } from '@/api/admin'
+  import { deleteAlbum, fetchAlbumList, updateAlbum } from '@/api/admin'
   import { formatDateTime } from '@/utils/format/datetime'
   import { formatFileSize } from '@/utils/format/filesize'
-  import { ElButton, ElInput, ElMessage, ElMessageBox, ElSpace } from 'element-plus'
+  import {
+    ElButton,
+    ElForm,
+    ElInput,
+    ElMessage,
+    ElMessageBox,
+    ElSpace,
+    type FormInstance,
+    type FormRules
+  } from 'element-plus'
 
   defineOptions({ name: 'AlbumManage' })
 
   type AlbumItem = Api.Admin.AlbumItem
+
+  const { t } = useI18n()
+  const editVisible = ref(false)
+  const editSubmitting = ref(false)
+  const editingAlbum = ref<AlbumItem | null>(null)
+  const editFormRef = ref<FormInstance>()
+  const editForm = reactive({ name: '' })
+  const editRules = computed<FormRules>(() => ({
+    name: [
+      { required: true, message: t('albumManage.rules.name'), trigger: 'blur' },
+      { max: 32, message: t('albumManage.rules.nameLength'), trigger: 'blur' }
+    ]
+  }))
 
   /** pair_id 用字符串收集：ElInput 清空后是 ''，转数字才好判断「没填」 */
   const searchForm = ref({ keyword: '', pairId: '' })
@@ -90,13 +128,24 @@
       apiParams: { current: 1, size: 20, keyword: '' },
       columnsFactory: () => [
         { prop: 'id', label: 'ID', width: 80 },
-        { prop: 'name', label: '相册名', minWidth: 140 },
-        { prop: 'couple', label: '所属情侣', minWidth: 160 },
-        { prop: 'pair_id', label: '情侣 ID', width: 100 },
-        { prop: 'photo_count', label: '照片数', width: 100 },
-        { prop: 'size_bytes', label: '占用空间', width: 120, useSlot: true },
-        { prop: 'created_at', label: '创建时间', minWidth: 160, useSlot: true },
-        { prop: 'operation', label: '操作', width: 100, fixed: 'right', useSlot: true }
+        { prop: 'name', label: t('albumManage.table.name'), minWidth: 140 },
+        { prop: 'couple', label: t('albumManage.table.couple'), minWidth: 160 },
+        { prop: 'pair_id', label: t('albumManage.table.pairId'), width: 100 },
+        { prop: 'photo_count', label: t('albumManage.table.photoCount'), width: 100 },
+        { prop: 'size_bytes', label: t('albumManage.table.size'), width: 120, useSlot: true },
+        {
+          prop: 'created_at',
+          label: t('albumManage.table.createdAt'),
+          minWidth: 160,
+          useSlot: true
+        },
+        {
+          prop: 'operation',
+          label: t('common.operation'),
+          width: 160,
+          fixed: 'right',
+          useSlot: true
+        }
       ]
     }
   })
@@ -116,16 +165,42 @@
     resetSearchParams()
   }
 
+  function openEdit(row: AlbumItem) {
+    editingAlbum.value = row
+    editForm.name = row.name
+    editVisible.value = true
+    nextTick(() => editFormRef.value?.clearValidate())
+  }
+
+  async function handleEditSubmit() {
+    if (!editingAlbum.value || !editFormRef.value) return
+    const valid = await editFormRef.value.validate().catch(() => false)
+    if (!valid) return
+    editSubmitting.value = true
+    try {
+      await updateAlbum(editingAlbum.value.id, { name: editForm.name.trim() })
+      ElMessage.success(t('albumManage.editSuccess'))
+      editVisible.value = false
+      refreshData()
+    } finally {
+      editSubmitting.value = false
+    }
+  }
+
   async function handleDelete(row: AlbumItem) {
     // 说清后果：删相册是软删，照片不会跟着消失。
     // 不写清楚的话管理员会以为「删相册 = 删掉里面的照片」而不敢点。
     await ElMessageBox.confirm(
-      `确定删除相册「${row.name}」？其中 ${row.photo_count} 张照片不会被删除，会退回该情侣的「未归类」。`,
-      '删除相册',
-      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+      t('albumManage.deleteConfirm', { name: row.name, count: row.photo_count }),
+      t('albumManage.deleteTitle'),
+      {
+        type: 'warning',
+        confirmButtonText: t('common.delete'),
+        cancelButtonText: t('common.cancel')
+      }
     )
     await deleteAlbum(row.id)
-    ElMessage.success('已删除')
+    ElMessage.success(t('common.deleteSuccess'))
     refreshRemove()
   }
 </script>

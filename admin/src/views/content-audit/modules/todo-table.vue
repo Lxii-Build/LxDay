@@ -28,15 +28,104 @@
       @pagination:current-change="handleCurrentChange"
     >
     </ArtTable>
+
+    <ElDialog
+      v-model="editVisible"
+      :title="$t('contentAudit.todo.editTitle')"
+      width="560px"
+      align-center
+    >
+      <ElForm ref="editFormRef" :model="editForm" :rules="editRules" label-width="92px">
+        <ElFormItem :label="$t('contentAudit.todo.form.title')" prop="title">
+          <ElInput v-model.trim="editForm.title" maxlength="200" show-word-limit />
+        </ElFormItem>
+        <ElFormItem :label="$t('contentAudit.todo.form.note')" prop="note">
+          <ElInput
+            v-model="editForm.note"
+            type="textarea"
+            :rows="4"
+            maxlength="5000"
+            show-word-limit
+          />
+        </ElFormItem>
+        <ElFormItem :label="$t('contentAudit.todo.form.assignee')" prop="assignee_id">
+          <ElSelect v-model="editForm.assignee_id" style="width: 100%">
+            <ElOption
+              v-for="option in assigneeOptions"
+              :key="option.id"
+              :label="`${option.name || '-'} (#${option.id})`"
+              :value="option.id"
+            />
+          </ElSelect>
+        </ElFormItem>
+        <ElFormItem :label="$t('contentAudit.todo.form.remindEnabled')" prop="remind_enabled">
+          <ElSwitch v-model="editForm.remind_enabled" />
+        </ElFormItem>
+        <ElFormItem :label="$t('contentAudit.todo.form.remindAt')" prop="remind_at">
+          <ElDatePicker
+            v-model="editForm.remind_at"
+            type="datetime"
+            value-format="YYYY-MM-DD HH:mm:ss"
+            clearable
+            style="width: 100%"
+          />
+        </ElFormItem>
+        <ElFormItem :label="$t('contentAudit.todo.form.remindType')" prop="remind_type">
+          <ElSelect v-model="editForm.remind_type" style="width: 100%">
+            <ElOption :label="$t('contentAudit.todo.remind.normal')" :value="0" />
+            <ElOption :label="$t('contentAudit.todo.remind.strong')" :value="1" />
+          </ElSelect>
+        </ElFormItem>
+        <ElFormItem :label="$t('contentAudit.todo.form.repeatType')" prop="repeat_type">
+          <ElSelect v-model="editForm.repeat_type" style="width: 100%">
+            <ElOption :label="$t('contentAudit.todo.repeat.once')" :value="0" />
+            <ElOption :label="$t('contentAudit.todo.repeat.daily')" :value="1" />
+            <ElOption :label="$t('contentAudit.todo.repeat.weekly')" :value="2" />
+          </ElSelect>
+        </ElFormItem>
+        <ElFormItem
+          v-if="editForm.repeat_type === 2"
+          :label="$t('contentAudit.todo.form.weekdays')"
+          prop="weekdays"
+        >
+          <ElCheckboxGroup v-model="editForm.weekdays">
+            <ElCheckbox v-for="day in weekdayOptions" :key="day.value" :value="day.value">
+              {{ day.label }}
+            </ElCheckbox>
+          </ElCheckboxGroup>
+        </ElFormItem>
+      </ElForm>
+      <template #footer>
+        <ElButton @click="editVisible = false">{{ $t('common.cancel') }}</ElButton>
+        <ElButton type="primary" :loading="editSubmitting" @click="handleEditSubmit">
+          {{ $t('common.save') }}
+        </ElButton>
+      </template>
+    </ElDialog>
   </div>
 </template>
 
 <script setup lang="ts">
   import { useI18n } from 'vue-i18n'
   import { useTable } from '@/hooks/core/useTable'
-  import { fetchTodoList, deleteTodo } from '@/api/admin'
+  import { deleteTodo, fetchTodoList, updateTodo } from '@/api/admin'
   import { formatDateTime } from '@/utils/format/datetime'
-  import { ElButton, ElMessage, ElMessageBox, ElTag } from 'element-plus'
+  import {
+    ElButton,
+    ElCheckbox,
+    ElCheckboxGroup,
+    ElDatePicker,
+    ElForm,
+    ElInput,
+    ElMessage,
+    ElMessageBox,
+    ElOption,
+    ElSelect,
+    ElSwitch,
+    ElTag,
+    type FormInstance,
+    type FormRules
+  } from 'element-plus'
 
   defineOptions({ name: 'ContentAuditTodo' })
 
@@ -45,6 +134,49 @@
   const { t } = useI18n()
 
   const searchForm = ref({ keyword: '' })
+  const editVisible = ref(false)
+  const editSubmitting = ref(false)
+  const editingTodo = ref<TodoItem | null>(null)
+  const editFormRef = ref<FormInstance>()
+  const editForm = reactive({
+    assignee_id: 0,
+    title: '',
+    note: '',
+    remind_at: '',
+    remind_type: 0,
+    repeat_type: 0,
+    weekdays: [] as number[],
+    remind_enabled: true
+  })
+  const weekdayOptions = computed(() => [
+    { value: 1, label: t('contentAudit.todo.weekdays.mon') },
+    { value: 2, label: t('contentAudit.todo.weekdays.tue') },
+    { value: 4, label: t('contentAudit.todo.weekdays.wed') },
+    { value: 8, label: t('contentAudit.todo.weekdays.thu') },
+    { value: 16, label: t('contentAudit.todo.weekdays.fri') },
+    { value: 32, label: t('contentAudit.todo.weekdays.sat') },
+    { value: 64, label: t('contentAudit.todo.weekdays.sun') }
+  ])
+  const assigneeOptions = computed(() => {
+    if (!editingTodo.value) return []
+    const options = [
+      { id: editingTodo.value.creator_id, name: editingTodo.value.creator_name },
+      { id: editingTodo.value.assignee_id, name: editingTodo.value.assignee_name }
+    ]
+    return options.filter(
+      (option, index) => option.id > 0 && options.findIndex((v) => v.id === option.id) === index
+    )
+  })
+  const editRules = computed<FormRules>(() => ({
+    title: [
+      { required: true, message: t('contentAudit.todo.rules.title'), trigger: 'blur' },
+      { max: 200, message: t('contentAudit.todo.rules.titleLength'), trigger: 'blur' }
+    ],
+    note: [{ max: 5000, message: t('contentAudit.todo.rules.note'), trigger: 'blur' }],
+    assignee_id: [
+      { required: true, message: t('contentAudit.todo.rules.assignee'), trigger: 'change' }
+    ]
+  }))
 
   /** 提醒频率映射：0 仅一次 / 1 每天 / 2 每周 */
   const repeatText = (type: number) => {
@@ -139,14 +271,26 @@
         {
           prop: 'operation',
           label: t('common.operation'),
-          width: 100,
+          width: 160,
           fixed: 'right',
           formatter: (row) =>
-            h(
-              ElButton,
-              { type: 'danger', link: true, onClick: () => handleDelete(row) },
-              () => t('common.delete')
-            )
+            h('div', [
+              row.status !== 2
+                ? h(ElButton, { type: 'primary', link: true, onClick: () => openEdit(row) }, () =>
+                    t('common.edit')
+                  )
+                : null,
+              h(
+                ElButton,
+                {
+                  type: 'danger',
+                  link: true,
+                  disabled: row.status === 2,
+                  onClick: () => handleDelete(row)
+                },
+                () => t('common.delete')
+              )
+            ])
         }
       ]
     }
@@ -160,6 +304,50 @@
   const handleReset = () => {
     searchForm.value.keyword = ''
     resetSearchParams()
+  }
+
+  const openEdit = (row: TodoItem) => {
+    editingTodo.value = row
+    Object.assign(editForm, {
+      assignee_id: row.assignee_id,
+      title: row.title || '',
+      note: row.note || '',
+      remind_at: formatDateTime(row.remind_at, ''),
+      remind_type: row.remind_type ?? 0,
+      repeat_type: row.repeat_type ?? 0,
+      weekdays: weekdayOptions.value
+        .map((day) => day.value)
+        .filter((day) => (row.weekdays & day) !== 0),
+      remind_enabled: row.remind_enabled
+    })
+    editVisible.value = true
+    nextTick(() => editFormRef.value?.clearValidate())
+  }
+
+  const handleEditSubmit = async () => {
+    if (!editingTodo.value || !editFormRef.value) return
+    const valid = await editFormRef.value.validate().catch(() => false)
+    if (!valid) return
+    const weekdays =
+      editForm.repeat_type === 2 ? editForm.weekdays.reduce((mask, day) => mask | day, 0) : 0
+    editSubmitting.value = true
+    try {
+      await updateTodo(editingTodo.value.id, {
+        assignee_id: editForm.assignee_id,
+        title: editForm.title.trim(),
+        note: editForm.note.trim(),
+        remind_at: editForm.remind_at || null,
+        remind_type: editForm.remind_type,
+        repeat_type: editForm.repeat_type,
+        weekdays,
+        remind_enabled: editForm.remind_enabled
+      })
+      ElMessage.success(t('contentAudit.todo.editSuccess'))
+      editVisible.value = false
+      refreshData()
+    } finally {
+      editSubmitting.value = false
+    }
   }
 
   const handleDelete = (row: TodoItem) => {

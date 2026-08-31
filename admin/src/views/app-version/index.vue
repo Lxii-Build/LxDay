@@ -32,14 +32,19 @@
       </ArtTable>
     </ElCard>
 
-    <VersionDialog v-model="dialogVisible" :existing="existing" @success="refreshData" />
+    <VersionDialog
+      v-model="dialogVisible"
+      :existing="existing"
+      :editing="editingVersion"
+      @success="refreshData"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
   import { useI18n } from 'vue-i18n'
   import { useTable } from '@/hooks/core/useTable'
-  import { fetchAppVersionList, updateAppVersionStatus, deleteAppVersion } from '@/api/admin'
+  import { deleteAppVersion, fetchAppVersionList, updateAppVersionStatus } from '@/api/admin'
   import { formatDateTime } from '@/utils/format/datetime'
   import VersionDialog from './modules/version-dialog.vue'
   import { ElButton, ElLink, ElMessage, ElMessageBox, ElTag } from 'element-plus'
@@ -52,6 +57,7 @@
 
   const platform = ref<string>('')
   const dialogVisible = ref(false)
+  const editingVersion = ref<AppVersionItem | null>(null)
 
   const {
     columns,
@@ -79,10 +85,8 @@
           minWidth: 200,
           formatter: (row) =>
             row.apk_url
-              ? h(
-                  ElLink,
-                  { type: 'primary', href: row.apk_url, target: '_blank' },
-                  () => t('appVersion.download')
+              ? h(ElLink, { type: 'primary', href: row.apk_url, target: '_blank' }, () =>
+                  t('appVersion.download')
                 )
               : h('span', '-')
         },
@@ -113,10 +117,13 @@
         {
           prop: 'operation',
           label: t('common.operation'),
-          width: 160,
+          width: 220,
           fixed: 'right',
           formatter: (row) =>
             h('div', [
+              h(ElButton, { type: 'primary', link: true, onClick: () => openEdit(row) }, () =>
+                t('common.edit')
+              ),
               h(
                 ElButton,
                 {
@@ -126,10 +133,8 @@
                 },
                 () => (row.status === 1 ? t('appVersion.offline') : t('appVersion.online'))
               ),
-              h(
-                ElButton,
-                { type: 'danger', link: true, onClick: () => handleDelete(row) },
-                () => t('common.delete')
+              h(ElButton, { type: 'danger', link: true, onClick: () => handleDelete(row) }, () =>
+                t('common.delete')
               )
             ])
         }
@@ -147,6 +152,12 @@
   )
 
   const openCreate = () => {
+    editingVersion.value = null
+    dialogVisible.value = true
+  }
+
+  const openEdit = (row: AppVersionItem) => {
+    editingVersion.value = row
     dialogVisible.value = true
   }
 

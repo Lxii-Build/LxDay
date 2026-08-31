@@ -1,9 +1,14 @@
-<!-- APP 版本 - 新增弹窗 -->
+<!-- APP 版本 - 新增/编辑弹窗 -->
 <template>
-  <ElDialog v-model="visible" :title="$t('appVersion.dialog.title')" width="520px" align-center>
+  <ElDialog
+    v-model="visible"
+    :title="isEdit ? $t('appVersion.dialog.editTitle') : $t('appVersion.dialog.title')"
+    width="520px"
+    align-center
+  >
     <ElForm ref="formRef" :model="formData" :rules="rules" label-width="100px">
       <ElFormItem :label="$t('appVersion.form.platform')" prop="platform">
-        <ElSelect v-model="formData.platform" style="width: 100%">
+        <ElSelect v-model="formData.platform" :disabled="isEdit" style="width: 100%">
           <ElOption :label="$t('appVersion.platform.android')" value="android" />
           <ElOption :label="$t('appVersion.platform.ios')" value="ios" />
         </ElSelect>
@@ -17,6 +22,7 @@
       <ElFormItem :label="$t('appVersion.form.versionCode')" prop="version_code">
         <ElInputNumber
           v-model="formData.version_code"
+          :disabled="isEdit"
           :min="1"
           :step="1"
           :precision="0"
@@ -57,7 +63,7 @@
     <template #footer>
       <ElButton @click="visible = false">{{ $t('common.cancel') }}</ElButton>
       <ElButton type="primary" :loading="submitting" @click="handleSubmit">
-        {{ $t('appVersion.dialog.submit') }}
+        {{ isEdit ? $t('common.save') : $t('appVersion.dialog.submit') }}
       </ElButton>
     </template>
   </ElDialog>
@@ -65,7 +71,7 @@
 
 <script setup lang="ts">
   import { useI18n } from 'vue-i18n'
-  import { createAppVersion } from '@/api/admin'
+  import { createAppVersion, updateAppVersion } from '@/api/admin'
   import { useUserStore } from '@/store/modules/user'
   import { toBearerToken } from '@/utils/http'
   import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
@@ -79,9 +85,14 @@
     version_name: string
   }
 
-  const props = withDefaults(defineProps<{ modelValue: boolean; existing?: ExistingVersion[] }>(), {
-    existing: () => []
-  })
+  const props = withDefaults(
+    defineProps<{
+      modelValue: boolean
+      existing?: ExistingVersion[]
+      editing?: Api.Admin.AppVersionItem | null
+    }>(),
+    { existing: () => [], editing: null }
+  )
 
   const emit = defineEmits<{
     (e: 'update:modelValue', v: boolean): void
@@ -94,6 +105,7 @@
     get: () => props.modelValue,
     set: (v) => emit('update:modelValue', v)
   })
+  const isEdit = computed(() => props.editing !== null && props.editing !== undefined)
 
   const userStore = useUserStore()
   const uploadAction = '/api/admin/upload'
@@ -112,6 +124,21 @@
   })
 
   const formData = reactive<Api.Admin.AppVersionCreateParams>(defaultForm())
+
+  const resetForm = () => {
+    if (props.editing) {
+      Object.assign(formData, {
+        platform: props.editing.platform,
+        version_name: props.editing.version_name,
+        version_code: props.editing.version_code,
+        apk_url: props.editing.apk_url,
+        notes: props.editing.notes,
+        force_update: props.editing.force_update
+      })
+    } else {
+      Object.assign(formData, defaultForm())
+    }
+  }
 
   /** version_code 必填且为正整数 */
   const validateVersionCode = (
@@ -137,7 +164,7 @@
 
   watch(visible, (v) => {
     if (v) {
-      Object.assign(formData, defaultForm())
+      resetForm()
       formRef.value?.clearValidate()
     }
   })
@@ -161,10 +188,13 @@
     const valid = await formRef.value.validate().catch(() => false)
     if (!valid) return
 
-    // 同平台下 version_code 重复：先提示，由操作者确认后再提交
-    const dup = props.existing.find(
-      (item) => item.platform === formData.platform && item.version_code === formData.version_code
-    )
+    // 新增时校验同平台 version_code；编辑只修改展示信息，不改变版本身份。
+    const dup = isEdit.value
+      ? undefined
+      : props.existing.find(
+          (item) =>
+            item.platform === formData.platform && item.version_code === formData.version_code
+        )
     if (dup) {
       const confirmed = await ElMessageBox.confirm(
         t('appVersion.rules.versionCodeDuplicate', {
@@ -183,8 +213,18 @@
 
     submitting.value = true
     try {
-      await createAppVersion({ ...formData })
-      ElMessage.success(t('appVersion.publishSuccess'))
+      if (props.editing) {
+        await updateAppVersion(props.editing.id, {
+          version_name: formData.version_name,
+          apk_url: formData.apk_url || '',
+          notes: formData.notes || '',
+          force_update: Boolean(formData.force_update)
+        })
+        ElMessage.success(t('appVersion.editSuccess'))
+      } else {
+        await createAppVersion({ ...formData })
+        ElMessage.success(t('appVersion.publishSuccess'))
+      }
       visible.value = false
       emit('success')
     } finally {

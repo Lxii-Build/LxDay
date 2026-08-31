@@ -338,6 +338,23 @@ func (s *Store) UpdatePhotoCaption(id, pairID int64, caption string) error {
 	return err
 }
 
+// UpdateAdminPhotoCaption 修改正常照片的描述，不需要把照片地址或内容下发给后台。
+func (s *Store) UpdateAdminPhotoCaption(id int64, caption string) error {
+	res, err := s.DB.Exec(
+		`UPDATE photo SET caption=? WHERE id=? AND status=1`, caption, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 // MovePhotosToAlbum 把已上传的照片挂进相册（批量）。
 // pair_id 进 WHERE：只允许移动自己 pair 名下的照片，传别人的 id 会静默无效而非改到别人数据。
 func (s *Store) MovePhotosToAlbum(pairID, albumID int64, photoIDs []int64) (int64, error) {

@@ -70,10 +70,40 @@ func (s *Store) GetUserProfile(id int64) (*UserProfile, error) {
 
 // UpdateUserProfile 更新昵称/性别/简介/生日；signature、birthday 传 nil 即置空。
 func (s *Store) UpdateUserProfile(id int64, nickname string, gender int, signature, birthday *string) error {
-	_, err := s.DB.Exec(
+	res, err := s.DB.Exec(
 		"UPDATE `user` SET nickname=?, gender=?, signature=?, birthday=? WHERE id=?",
 		nickname, gender, signature, birthday, id)
-	return err
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// UpdateAdminUserProfile 更新后台可编辑的用户资料（包含邮箱）。
+// username、头像与登录状态不在这里修改，避免把账号身份与内容管理混在一个表单里。
+func (s *Store) UpdateAdminUserProfile(id int64, email *string, nickname string, gender int,
+	signature, birthday *string) error {
+	res, err := s.DB.Exec(
+		"UPDATE `user` SET email=?, nickname=?, gender=?, signature=?, birthday=? WHERE id=?",
+		email, nickname, gender, signature, birthday, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // ---------- 后台/系统设置（键值） ----------
@@ -136,6 +166,28 @@ func (s *Store) GetPairByUserID(uid int64) (*Pair, error) {
 func (s *Store) UpdateAnniversary(pairID int64, anniversary time.Time) error {
 	_, err := s.DB.Exec("UPDATE pair SET anniversary_date=? WHERE id=?", anniversary, pairID)
 	return err
+}
+
+// UpdateAdminPairAnniversary 供后台修改已绑定关系的纪念日；传 nil 清空日期。
+func (s *Store) UpdateAdminPairAnniversary(pairID int64, anniversary *time.Time) error {
+	var value interface{}
+	if anniversary != nil {
+		value = *anniversary
+	}
+	res, err := s.DB.Exec(
+		"UPDATE pair SET anniversary_date=? WHERE id=? AND status=1",
+		value, pairID)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (s *Store) PartnerID(p *Pair, me int64) int64 {
@@ -331,6 +383,31 @@ func (s *Store) UpdateTodo(id int64, title, note *string, remindAt *time.Time, a
 	args = append(args, id)
 	_, err := s.DB.Exec("UPDATE todo SET "+strings.Join(sets, ",")+" WHERE id=?", args...)
 	return err
+}
+
+// UpdateAdminTodo 用完整表单更新后台待办，允许把提醒时间清空。
+// 管理员只能编辑未删除记录，assignee 的关系归属由 handler 校验。
+func (s *Store) UpdateAdminTodo(id, assigneeID int64, title, note string, remindAt *time.Time,
+	remindType, repeatType, weekdays int, remindEnabled bool) error {
+	var reminder interface{}
+	if remindAt != nil {
+		reminder = *remindAt
+	}
+	res, err := s.DB.Exec(
+		`UPDATE todo SET assignee_id=?, title=?, note=?, remind_at=?, remind_type=?, repeat_type=?,
+		 weekdays=?, remind_enabled=? WHERE id=? AND status<>2`,
+		assigneeID, title, note, reminder, remindType, repeatType, weekdays, remindEnabled, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (s *Store) CompleteTodo(id, uid int64) (*Todo, error) {
