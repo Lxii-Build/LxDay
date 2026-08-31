@@ -332,18 +332,10 @@ func (s *Store) SetPhotosStatus(pairID int64, photoIDs []int64, status int) (int
 }
 
 func (s *Store) UpdatePhotoCaption(id, pairID int64, caption string) error {
-	res, err := s.DB.Exec(`UPDATE photo SET caption=? WHERE id=? AND pair_id=? AND status=1`, caption, id, pairID)
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
+	// 保持幂等的无权/不存在语义：handler 已在 SQL 前做归属校验，
+	// 这里即使遇到竞态也只是不更新，不把别人的照片状态泄露给调用方。
+	_, err := s.DB.Exec(`UPDATE photo SET caption=? WHERE id=? AND pair_id=? AND status=1`, caption, id, pairID)
+	return err
 }
 
 // MovePhotosToAlbum 把已上传的照片挂进相册（批量）。

@@ -752,7 +752,9 @@ func Test照片回收时间只在首次软删时设置(t *testing.T) {
 		t.Fatalf("重复软删应返回 sql.ErrNoRows，实际 %v", err)
 	}
 	var got string
-	if err := s.DB.QueryRow("SELECT deleted_at FROM photo WHERE id=?", p.ID).Scan(&got); err != nil {
+	// DATETIME 列被 modernc 驱动扫描成 time.Time 时会规范化为 RFC3339；
+	// 显式 CAST 保留 SQLite 中的原始文本，才能准确验证重复软删没有改值。
+	if err := s.DB.QueryRow("SELECT CAST(deleted_at AS TEXT) FROM photo WHERE id=?", p.ID).Scan(&got); err != nil {
 		t.Fatalf("read deleted_at: %v", err)
 	}
 	if got != oldDeletedAt {
