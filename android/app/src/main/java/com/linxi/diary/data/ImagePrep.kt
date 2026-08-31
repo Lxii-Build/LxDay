@@ -11,6 +11,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /**
  * 上传前的图片预处理实现：降采样解码 → EXIF 旋正 → 长边压到 2048 → 按目标 MIME 重编码。
@@ -93,7 +97,7 @@ object ImagePrep {
                     orientation = exif.getAttributeInt(
                         ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL
                     )
-                    takenAtMs = exif.dateTimeOriginal ?: exif.dateTime
+                    takenAtMs = exifTakenAtMs(exif)
                 }
             }.onFailure {
                 if (it is CancellationException) throw it
@@ -155,6 +159,23 @@ object ImagePrep {
             }
         }.onFailure { if (it is CancellationException) throw it }
     }
+
+    // ExifInterface 的 dateTime/dateTimeOriginal Kotlin 属性标成库内受限 API；直接读取
+    // 标准 EXIF 标签再解析，既保持“读不到就留空”的上传语义，也避免依赖隐藏实现。
+    private fun exifTakenAtMs(exif: ExifInterface): Long? {
+        val raw = exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL)
+            ?: exif.getAttribute(ExifInterface.TAG_DATETIME)
+            ?: return null
+        return runCatching {
+            LocalDateTime.parse(raw, EXIF_DATE_TIME_FORMAT)
+                .atZone(ZoneId.systemDefault())
+                .toInstant()
+                .toEpochMilli()
+        }.getOrNull()
+    }
+
+    private val EXIF_DATE_TIME_FORMAT: DateTimeFormatter =
+        DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss", Locale.US)
 
     /**
      * 读 WebP 文件头判断是否动图。只读前 64 字节，不解码。

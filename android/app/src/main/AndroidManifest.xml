@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- ================= 普通权限 ================= -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -31,8 +32,13 @@
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
 
     <!-- ================= 特殊授权（设置页引导） ================= -->
-    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
-    <uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" />
+    <!-- UsageStats 是 app-op 特殊授权，不会在安装时自动获得；设置页会显式引导用户授权。
+         Lint 把它和纯 signature 权限归为同类，故只在这条经过核实的声明上抑制告警。 -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+    <!-- BIND_NOTIFICATION_LISTENER_SERVICE 只应写在下方 service 的 android:permission，
+         普通应用请求它永远不会获授，故不在 uses-permission 中声明。 -->
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
