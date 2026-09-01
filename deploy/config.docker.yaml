@@ -1,5 +1,5 @@
 # 林曦日记 服务端配置（Docker Compose 用）。
-# jwt_secret / app_key 建议用环境变量 JWT_SECRET / APP_KEY 注入（compose 从同目录 .env 读取），
+# jwt_secret 建议用环境变量 JWT_SECRET 注入（compose 从同目录 .env 读取），
 # 不要把真实密钥写进本文件并提交仓库。留空时下方环境变量优先。
 app:
   port: 7740
@@ -7,7 +7,7 @@ app:
   token_ttl_hours: 720
   ring_cooldown_seconds: 600
   ring_cooldown_limit: 3
-  app_key: ""                   # 通讯密钥（X-App-Key，仅 /api/v1/*）；由环境变量 APP_KEY 注入（.env），留空禁用
+  app_key: ""                   # 旧版兼容字段；当前客户端不再携带或校验共享通讯密钥
 
 db:
   path: "/app/data/lxday.db"       # SQLite 数据库文件（挂载到数据卷持久化）；也可用环境变量 DB_PATH 覆盖

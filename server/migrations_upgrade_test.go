@@ -176,6 +176,28 @@ func TestMigrateFreshDB(t *testing.T) {
 	}
 }
 
+// 旧版后台维护的版本记录不再是更新源；升级时必须明确移除，避免旧数据继续
+// 被误认为可发布版本或占用无用的数据库空间。
+func TestRetireLegacyAppVersionTable(t *testing.T) {
+	db := openTempDB(t)
+	if _, err := db.Exec(`CREATE TABLE app_version (id INTEGER PRIMARY KEY, version_name TEXT)`); err != nil {
+		t.Fatalf("创建旧版本表失败: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO app_version(id,version_name) VALUES(1,'1.0.8')`); err != nil {
+		t.Fatalf("写入旧版本数据失败: %v", err)
+	}
+	if err := runMigrations(db); err != nil {
+		t.Fatalf("移除旧版本表失败: %v", err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='app_version'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("旧版本表仍存在")
+	}
+}
+
 // 迁移记账必须在同一事务里提交：新库跑完只记录一次；重复启动不再重复执行整套
 // DDL。这个断言防止未来又把 runMigrations 退回“每次启动碰碰运气跑一遍”。
 func TestMigrationBaselineIsRecordedOnce(t *testing.T) {
@@ -190,8 +212,8 @@ func TestMigrationBaselineIsRecordedOnce(t *testing.T) {
 	if err := db.QueryRow(`SELECT COUNT(*), MAX(version) FROM schema_migrations`).Scan(&count, &version); err != nil {
 		t.Fatal(err)
 	}
-	if count != 1 || version != schemaBaselineVersion {
-		t.Fatalf("ledger count=%d version=%d, want one v%d row", count, version, schemaBaselineVersion)
+	if count != schemaBaselineVersion || version != schemaBaselineVersion {
+		t.Fatalf("ledger count=%d version=%d, want %d migrations through v%d", count, version, schemaBaselineVersion, schemaBaselineVersion)
 	}
 }
 

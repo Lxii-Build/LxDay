@@ -93,7 +93,7 @@ declare namespace Api {
       created_at: string
     }
     type UserList = Api.Common.PaginatedResponse<UserItem>
-    type UserSearchParams = Partial<Api.Common.CommonSearchParams & { keyword: string }>
+    type UserSearchParams = Partial<Api.Common.CommonSearchParams & { keyword: string; status: number }>
     interface UserUpdateParams {
       email?: string | null
       nickname: string
@@ -267,33 +267,34 @@ declare namespace Api {
       caption: string
     }
 
-    /** APP 版本项 */
-    interface AppVersionItem {
-      id: number
-      platform: string
+    interface AppReleaseAsset {
+      name: string
+      download_url: string
+      content_type: string
+      size: number
+    }
+    interface AppReleaseItem {
+      tag_name: string
       version_name: string
       version_code: number
-      apk_url: string
+      name: string
       notes: string
-      force_update: boolean
-      status: number
-      created_at: string
-    }
-    type AppVersionList = Api.Common.PaginatedResponse<AppVersionItem>
-    type AppVersionSearchParams = Partial<Api.Common.CommonSearchParams & { platform: string }>
-    interface AppVersionCreateParams {
-      platform: string
-      version_name: string
-      version_code: number
-      apk_url?: string
-      notes?: string
-      force_update?: boolean
-    }
-    interface AppVersionUpdateParams {
-      version_name: string
+      html_url: string
       apk_url: string
-      notes: string
-      force_update: boolean
+      prerelease: boolean
+      published_at: string
+      assets: AppReleaseAsset[]
+    }
+    interface AppReleasesResponse {
+      repository: string
+      releases: AppReleaseItem[]
+      server_version: string
+      server_commit: string
+    }
+    interface ServerInfo {
+      version: string
+      commit: string
+      go: string
     }
 
     interface AlbumUpdateParams {

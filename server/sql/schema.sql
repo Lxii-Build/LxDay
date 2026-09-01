@@ -174,19 +174,6 @@ CREATE TABLE IF NOT EXISTS admin_user (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uk_admin_username ON admin_user(username);
 
-CREATE TABLE IF NOT EXISTS app_version (
-  id           INTEGER PRIMARY KEY AUTOINCREMENT,
-  platform     TEXT    NOT NULL DEFAULT 'android',
-  version_name TEXT    NOT NULL,
-  version_code INTEGER NOT NULL DEFAULT 0,
-  apk_url      TEXT,
-  notes        TEXT,
-  force_update INTEGER NOT NULL DEFAULT 0,
-  status       INTEGER NOT NULL DEFAULT 1,
-  created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX IF NOT EXISTS idx_ver_platform_code ON app_version(platform, version_code);
-
 CREATE TABLE IF NOT EXISTS admin_audit_log (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   admin_id   INTEGER NOT NULL DEFAULT 0,
@@ -236,4 +223,3 @@ CREATE TABLE IF NOT EXISTS request_log (
 CREATE INDEX IF NOT EXISTS idx_reqlog_created ON request_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_reqlog_path ON request_log(path);
 CREATE INDEX IF NOT EXISTS idx_reqlog_status ON request_log(status);
-

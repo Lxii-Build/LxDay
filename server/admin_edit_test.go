@@ -1,8 +1,6 @@
 package main
 
 import (
-	"database/sql"
-	"errors"
 	"testing"
 	"time"
 )
@@ -81,34 +79,4 @@ func TestAdminEditableRecordsPersist(t *testing.T) {
 		t.Fatalf("photo caption did not persist: photo=%#v err=%v", gotPhoto, err)
 	}
 
-	version := &AppVersion{
-		Platform: "android", VersionName: "1.0.8", VersionCode: 10008,
-		APKURL: "https://example.com/app.apk", Notes: "初始说明", ForceUpdate: false, Status: 1,
-	}
-	versionID, err := s.CreateAppVersion(version)
-	if err != nil {
-		t.Fatalf("create app version: %v", err)
-	}
-	if err := s.UpdateAppVersion(versionID, "1.0.8-hotfix", "https://example.com/app-hotfix.apk", "修订说明", true); err != nil {
-		t.Fatalf("update app version: %v", err)
-	}
-	versions, _, err := s.ListAppVersions("android", 20, 0)
-	if err != nil {
-		t.Fatalf("list app versions: %v", err)
-	}
-	var found *AppVersion
-	for i := range versions {
-		if versions[i].ID == versionID {
-			found = &versions[i]
-			break
-		}
-	}
-	if found == nil || found.VersionName != "1.0.8-hotfix" || found.APKURL != "https://example.com/app-hotfix.apk" ||
-		found.Notes != "修订说明" || !found.ForceUpdate {
-		t.Fatalf("app version did not persist: %#v", found)
-	}
-
-	if err := s.UpdateAppVersion(999999, "missing", "", "", false); !errors.Is(err, sql.ErrNoRows) {
-		t.Fatalf("missing app version should return sql.ErrNoRows, got %v", err)
-	}
 }

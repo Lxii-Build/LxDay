@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"log/slog"
 	"strconv"
 	"sync"
@@ -196,6 +197,39 @@ func (m *memStore) popEvents(uid int64) []string {
 		msgs = append(msgs, e.msg)
 	}
 	return msgs
+}
+
+// removeInteraction removes an offline request when its sender retracts it
+// before the recipient reconnects. Without this, the cancellation itself is
+// transient but the original request remains queued and is delivered later.
+func (m *memStore) removeInteraction(uid int64, requestType, id string) bool {
+	if id == "" {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	queued := m.eventQ[uid]
+	kept := queued[:0]
+	removed := false
+	for _, event := range queued {
+		var msg struct {
+			Type string `json:"type"`
+			Data struct {
+				RingID string `json:"ring_id"`
+			} `json:"data"`
+		}
+		if json.Unmarshal([]byte(event.msg), &msg) == nil && msg.Type == requestType && msg.Data.RingID == id {
+			removed = true
+			continue
+		}
+		kept = append(kept, event)
+	}
+	if len(kept) == 0 {
+		delete(m.eventQ, uid)
+	} else {
+		m.eventQ[uid] = kept
+	}
+	return removed
 }
 
 // kvSet 写入带 TTL 的字符串（如邮箱验证码）。

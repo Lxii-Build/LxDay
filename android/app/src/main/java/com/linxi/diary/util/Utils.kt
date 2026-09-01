@@ -68,9 +68,10 @@ object UserPrefs {
         set(v) { sp.edit().putInt("color_mode", v).apply() }
 
 
-    // 状态共享总开关：false = 停止采集 + 本地清空
+    // 状态共享总开关：默认开启；只有用户明确关闭过才保持关闭。
+    // 读取缺失键时返回 true，修复升级后用户明明默认开启却被提示"请先开启"的问题。
     var sharingEnabled: Boolean
-        get() = sp.getBoolean("sharing_enabled", false) // 默认关，绑定+授权后才开
+        get() = sp.getBoolean("sharing_enabled", true)
         set(v) { sp.edit().putBoolean("sharing_enabled", v).apply() }
 
     // 是否已完成双方知情授权

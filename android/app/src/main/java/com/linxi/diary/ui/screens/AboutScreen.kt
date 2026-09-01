@@ -2,10 +2,8 @@ package com.linxi.diary.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,8 +12,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,7 +24,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
@@ -43,7 +41,6 @@ import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.components.KernelScreen
 import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
-import com.linxi.diary.ui.theme.BrandBlue
 import com.linxi.diary.ui.theme.BrandRed
 import com.linxi.diary.util.Logs
 import com.linxi.diary.util.UserPrefs
@@ -51,7 +48,6 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.File
-import top.yukonga.miuix.kmp.icon.extended.Translate
 import top.yukonga.miuix.kmp.icon.extended.Update
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Card
@@ -59,33 +55,75 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 private const val REPO_URL = "https://github.com/Lxii-Build/LxDay"
-private const val SITE_URL = "https://love.lxii.cc"
 
-/** 更新信息（/app/latest 的 data）。 */
+data class ReleaseHistory(
+    val versionName: String,
+    val versionCode: Int,
+    val name: String,
+    val notes: String,
+    val apkUrl: String,
+    val htmlUrl: String,
+    val prerelease: Boolean,
+    val publishedAt: String,
+)
+
+/** GitHub Releases 更新信息（包含当前候选版本与历代更新日志）。 */
 data class UpdateInfo(
     val hasUpdate: Boolean,
-    val force: Boolean,
-    val versionName: String,
-    val apkUrl: String,
-    val notes: String,
+    val force: Boolean = false,
+    val channel: String,
+    val version: ReleaseHistory?,
+    val history: List<ReleaseHistory>,
 ) {
     companion object {
         fun fromJson(j: JSONObject): UpdateInfo {
-            val v = j.optJSONObject("version") ?: JSONObject()
+            fun parseRelease(v: JSONObject): ReleaseHistory = ReleaseHistory(
+                versionName = v.optString("version_name", v.optString("tag_name")),
+                versionCode = v.optInt("version_code"),
+                name = v.optString("name"),
+                notes = v.optString("notes"),
+                apkUrl = v.optString("apk_url"),
+                htmlUrl = v.optString("html_url"),
+                prerelease = v.optBoolean("prerelease"),
+                publishedAt = v.optString("published_at"),
+            )
+
+            val historyJson = j.optJSONArray("history")
+            val history = buildList {
+                if (historyJson != null) {
+                    for (i in 0 until historyJson.length()) {
+                        historyJson.optJSONObject(i)?.let { add(parseRelease(it)) }
+                    }
+                }
+            }
+            val candidate = j.optJSONObject("version")?.let(::parseRelease)
             return UpdateInfo(
                 hasUpdate = j.optBoolean("has_update"),
-                force = j.optBoolean("force"),
-                versionName = v.optString("version_name"),
-                apkUrl = v.optString("apk_url"),
-                notes = v.optString("notes"),
+                // 服务端明确不返回强制更新；这里也不信任旧服务端的 force 字段。
+                force = false,
+                channel = j.optString("channel", "stable"),
+                version = candidate,
+                history = history,
             )
         }
     }
 }
 
-/** 关于页（仿 KernelSU）：图标 + 名称 + 版本 + 仓库/官网链接 + 检查更新 + 退出登录。 */
+private fun formatReleaseTime(raw: String): String {
+    if (raw.isBlank()) return "发布时间未知"
+    val parsed = runCatching {
+        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.US).parse(raw)
+    }.getOrNull()
+    return if (parsed == null) raw else {
+        SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(parsed)
+    }
+}
+
+/** 关于页：版本、GitHub 更新日志、仓库与账号操作。 */
 @Composable
 fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit) {
     BackHandler { onBack() }
@@ -134,10 +172,16 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit)
                         if (!checking) {
                             checking = true; upToDate = false
                             scope.launch {
-                                runCatching { UpdateInfo.fromJson(ApiClient.checkUpdate(BuildConfig.VERSION_CODE)) }
+                                runCatching {
+                                    UpdateInfo.fromJson(
+                                        ApiClient.checkUpdate(BuildConfig.VERSION_CODE, BuildConfig.UPDATE_CHANNEL),
+                                    )
+                                }
                                     .onSuccess { info ->
-                                        Logs.i("Update", "check update: hasUpdate=${info.hasUpdate} force=${info.force}")
-                                        if (info.hasUpdate) update = info else upToDate = true
+                                        Logs.i("Update", "check update: hasUpdate=${info.hasUpdate} channel=${info.channel}")
+                                        // 检查结果统一进弹窗：即使当前已是最新，也能查看完整历史 Changelog。
+                                        update = info
+                                        upToDate = !info.hasUpdate
                                     }
                                     .onFailure { Logs.w("Update", "check update failed", it) }
                                 checking = false
@@ -152,10 +196,23 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit)
                     onClick = { runCatching { uriHandler.openUri(REPO_URL) } },
                 )
                 ArrowPreference(
-                    title = "官网",
-                    summary = SITE_URL,
-                    startAction = { AboutIcon(MiuixIcons.Translate) },
-                    onClick = { runCatching { uriHandler.openUri(SITE_URL) } },
+                    title = "查看更新日志",
+                    summary = "GitHub Releases · ${if (BuildConfig.UPDATE_CHANNEL == "testing") "含测试版" else "正式版"}",
+                    startAction = { AboutIcon(MiuixIcons.Update) },
+                    onClick = {
+                        if (!checking) {
+                            checking = true
+                            scope.launch {
+                                runCatching {
+                                    UpdateInfo.fromJson(
+                                        ApiClient.checkUpdate(BuildConfig.VERSION_CODE, BuildConfig.UPDATE_CHANNEL),
+                                    )
+                                }.onSuccess { update = it }
+                                    .onFailure { Logs.w("Update", "load changelog failed", it) }
+                                checking = false
+                            }
+                        }
+                    },
                 )
             }
         }
@@ -274,32 +331,73 @@ private fun AboutIcon(icon: ImageVector) {
     )
 }
 
-/** 更新提示弹窗；force=true 时不可取消。 */
+/** 更新提示/历代更新日志弹窗。预发行版始终可稍后处理，不执行强制更新。 */
 @Composable
 fun UpdateDialog(info: UpdateInfo, onDismiss: () -> Unit) {
     val uriHandler = LocalUriHandler.current
+    val candidate = info.version
+    val hasInstallAction = info.hasUpdate && candidate != null
     OverlayDialog(
         show = true,
-        title = "发现新版本 ${info.versionName}",
-        onDismissRequest = if (info.force) null else onDismiss,
+        title = if (hasInstallAction) "发现新版本 ${candidate!!.versionName}" else "更新日志",
+        onDismissRequest = onDismiss,
         renderInRootScaffold = true,
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (info.notes.isNotBlank()) {
-                Text(info.notes, color = colorScheme.onSurfaceVariantSummary)
-            } else {
-                Text("修复问题并优化体验，建议更新。", color = colorScheme.onSurfaceVariantSummary)
+        Column(
+            Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (!hasInstallAction) {
+                Text("当前已是最新版本", color = colorScheme.onSurfaceVariantSummary)
+            }
+            if (hasInstallAction) {
+                Text(
+                    "${if (candidate!!.prerelease) "测试版" else "正式版"} · 发布时间 ${formatReleaseTime(candidate.publishedAt)}",
+                    color = colorScheme.onSurfaceVariantSummary,
+                )
+                if (candidate.notes.isNotBlank()) {
+                    Text(candidate.notes, color = colorScheme.onSurfaceVariantSummary)
+                } else {
+                    Text("修复问题并优化体验，建议更新。", color = colorScheme.onSurfaceVariantSummary)
+                }
+            }
+            if (info.history.isNotEmpty()) {
+                Text("历史版本", fontWeight = FontWeight.Medium, color = colorScheme.onBackground)
+                info.history.forEach { release ->
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                "v${release.versionName} · ${if (release.prerelease) "测试版" else "正式版"}",
+                                fontWeight = FontWeight.Medium,
+                                color = colorScheme.onBackground,
+                            )
+                            Text(
+                                "${formatReleaseTime(release.publishedAt)} · versionCode ${release.versionCode}",
+                                fontSize = 12.sp,
+                                color = colorScheme.onSurfaceVariantSummary,
+                            )
+                            if (release.notes.isNotBlank()) {
+                                Text(release.notes, fontSize = 13.sp, color = colorScheme.onSurfaceVariantSummary)
+                            }
+                        }
+                    }
+                }
+            } else if (!hasInstallAction) {
+                Text("暂无更新日志。", color = colorScheme.onSurfaceVariantSummary)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (!info.force) {
-                    LxButton("稍后", onClick = onDismiss, variant = LxButtonVariant.Neutral, modifier = Modifier.weight(1f))
+                LxButton("关闭", onClick = onDismiss, variant = LxButtonVariant.Neutral, modifier = Modifier.weight(1f))
+                if (hasInstallAction) {
+                    LxButton(
+                        text = "去更新",
+                        onClick = {
+                            val url = candidate!!.apkUrl.ifBlank { candidate.htmlUrl }
+                            if (url.isNotBlank()) runCatching { uriHandler.openUri(url) }
+                        },
+                        variant = LxButtonVariant.Positive,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
-                LxButton(
-                    text = "去更新",
-                    onClick = { runCatching { uriHandler.openUri(info.apkUrl) } },
-                    variant = LxButtonVariant.Positive,
-                    modifier = Modifier.weight(1f),
-                )
             }
         }
     }

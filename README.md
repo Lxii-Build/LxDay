@@ -11,7 +11,7 @@
 | 互动 | 求陪伴 / 求冷静 / 强制响铃（7 秒自动停止 + 双向撤回） |
 | 待办 | 双向待办、仅一次/每天/每周提醒、强提醒、本地闹钟兜底 |
 | **相册** | 分组管理（建/改名/删，「未归类」可改名不可删）、网格长按多选批量删除与移动、大图查看（Pager + 双指缩放）、三档图（thumb 384 / preview 1080 / origin）、「这一天」、评论、点赞、**回收站**（恢复 / 彻底删除 / 清空 / 剩余天数）；接口见 [docs/ALBUM.md](docs/ALBUM.md) |
-| 运营后台 | 数据看板、用户/绑定管理、内容审核（待办 / **相册照片**）、**相册管理**、**磁盘统计**、**21 项运行参数**（相册配额 / 保留天数 / 限流 / token / 邀请码 / 互动冷却，改完即生效）、版本发布、通知、审计与网络日志、管理员管理 |
+| 运营后台 | 数据看板、用户/绑定管理、内容审核（待办 / **相册照片**）、**相册管理**、**磁盘统计**、**21 项运行参数**（相册配额 / 保留天数 / 限流 / token / 邀请码 / 互动冷却，改完即生效）、GitHub Release 版本看板、通知、审计与网络日志、管理员管理 |
 
 ## 技术栈
 
@@ -23,18 +23,18 @@
 
 ## 架构与部署形态
 
-**一体化镜像（单容器）**：Go 服务端通过 `go:embed` 内嵌运营后台前端产物，自托管 后台静态 / API / WebSocket / `/uploads` 上传文件，**不再依赖 Nginx**；数据库用**内嵌 SQLite**、缓存/在线态/离线队列改**进程内存**，因此**容器编排只有一个 `app` 容器**（无 MySQL、无 Redis）。HTTPS/WSS 的 TLS 由外部反向代理（宝塔面板 / Nginx / Caddy）终止；**容器内外端口统一 `7740`**。**数据库零手动导入**：服务端启动内嵌 `schema.sql` 自动建表；SQLite 文件与上传目录挂载到数据卷持久化。密钥（`JWT_SECRET` / `APP_KEY`）经 `.env` 注入，不写入提交的配置文件。
+**一体化镜像（单容器）**：Go 服务端通过 `go:embed` 内嵌运营后台前端产物，自托管 后台静态 / API / WebSocket / `/uploads` 上传文件，**不再依赖 Nginx**；数据库用**内嵌 SQLite**、缓存/在线态/离线队列改**进程内存**，因此**容器编排只有一个 `app` 容器**（无 MySQL、无 Redis）。HTTPS/WSS 的 TLS 由外部反向代理（宝塔面板 / Nginx / Caddy）终止；**容器内外端口统一 `7740`**。**数据库零手动导入**：服务端启动内嵌 `schema.sql` 自动建表；SQLite 文件与上传目录挂载到数据卷持久化。JWT 密钥经 `.env` 注入，不写入提交的配置文件。
 
 ```
 lx/
 ├── Dockerfile                # 一体化多阶段镜像：node 构建 admin dist → go 内嵌编译 → 精简运行时
 ├── docker-compose.yml        # 一键部署：单容器(默认从 GHCR 拉取镜像)，内嵌 SQLite（无 mysql/redis）
-├── deploy/config.docker.yaml # 容器内服务端配置（端口 7740 / db.path SQLite；密钥走 .env 的 JWT_SECRET/APP_KEY）
-├── .env.example              # 密钥模板：复制为 .env 填 JWT_SECRET / APP_KEY（勿提交）
+├── deploy/config.docker.yaml # 容器内服务端配置（端口 7740 / db.path SQLite；JWT_SECRET 走 .env）
+├── .env.example              # 密钥模板：复制为 .env 填 JWT_SECRET（勿提交）
 ├── docs/                     # DEPLOYMENT.md 部署 · SIGNING.md 安卓签名 · ALBUM.md 相册接口 · APP_INTRO.md 等
 ├── CHANGELOG.md              # 版本更新日志
 ├── server/                   # Go 服务端（Gin + WebSocket + 内嵌 SQLite + 进程内存态）
-│   ├── main.go               # 入口 + 路由 + 配置；AppKeyGuard 通讯密钥中间件
+│   ├── main.go               # 入口 + 路由 + 配置；HTTPS/JWT 认证
 │   ├── static.go             # 去 Nginx：内嵌 SPA 后台 + /uploads 静态 + /healthz
 │   ├── admin.go              # 后台 /api/admin/*（JWT+RBAC，{code,msg,data} 信封）
 │   ├── album_handlers.go     # 相册接口；album_media.go 上传 + /media 鉴权代理；album_store.go 数据访问
@@ -59,7 +59,7 @@ lx/
 
 | 文档 | 内容 |
 |---|---|
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 三种部署（Compose 为主 / 单容器 / 前后端分离）+ 反代 TLS + 通讯密钥 + 初始账号 |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 三种部署（Compose 为主 / 单容器 / 前后端分离）+ 反代 TLS + 初始账号 |
 | [docs/BACKUP.md](docs/BACKUP.md) | 三卷一致性备份、校验与隔离恢复演练 |
 | [docs/SIGNING.md](docs/SIGNING.md) | **安卓签名**：固定签名密钥的生成、CI Secret 配置、指纹校验与轮换 |
 | [docs/ALBUM.md](docs/ALBUM.md) | 相册接口文档：数据模型、全部接口、`/media` 鉴权代理、上传配额 |
@@ -75,7 +75,7 @@ lx/
 - **数据隔离**：`pair_id` 作为所有业务数据（待办/相册/状态历史）的隔离键，仅双人可见。
 - **实时通道**：WebSocket 在线直转；离线高优事件入**进程内存**补偿队列，重连补拉（单容器单实例）。
 - **数据与存储**：内嵌 **SQLite**（单文件，启动自动建表、零手动导入）；在线态/伴侣状态缓存/离线队列/限频均为**进程内存**；图片走服务器本地磁盘、Go 自托管 `/uploads/`。
-- **通讯密钥（可选）**：构建期把 `APP_KEY` 注入 APK，请求带 `X-App-Key` 头；服务端 `app_key`（或环境变量 `APP_KEY`）非空时校验 `/api/v1/*`，用于挡非官方客户端。留空即禁用。
+- **客户端安全边界**：不把任何共享密钥编进 APK。Release 包强制 HTTPS/WSS，服务端用 JWT、实时账号状态校验和限流；`APP_KEY` 仅作为旧配置字段保留，不再参与当前客户端认证。
 - **不接商业推送**：纯 WS + 本地 AlarmManager 兜底。
 - **图片存储**：服务器本地磁盘，Go 自托管 `/uploads/`（去 Nginx）；预留对象存储抽象。
 - **相册隐私**：照片对外 URL 一律是鉴权代理 `/media/<id>`，**真实磁盘路径不出服务端**；只有该 pair 的成员能读，照片 URL 也不进网络日志。运营后台的照片审核页只给元数据；相册管理页可看缩略图但**只给 384 一档、永不给原图**，每次查看写审计、响应头带 `no-store` 与 `Referrer-Policy: no-referrer`。详见 [docs/ALBUM.md](docs/ALBUM.md)。
@@ -95,7 +95,7 @@ lx/
 ## 构建 / 发布（GitHub Actions）
 
 - **build-server.yml**：`push` 到 main（`server/**`、`admin/**`、`Dockerfile`）或手动触发 → 先 `go vet`/`go test` → Buildx 构建一体化镜像并推送 `ghcr.io/lxii-build/lxday`（`latest` + 短 SHA）；仓库私有，**额外导出镜像 `.tar.gz` 作为工作流产物**，国内可下载后 `docker load` 离线导入。
-- **build-android.yml**：手动触发，输入 **服务端地址 / 通讯密钥 / 构建类型(Debug/Release) / 版本号** → 跑单测 → 产出对应 APK 工件。
+- **build-android.yml**：手动触发，输入 **服务端地址 / 构建类型(Debug/Release) / 版本号** → 跑单测 → 产出对应 APK 工件；旧 `APP_KEY` 输入仅为编排兼容，不会写入 APK。
 - **release.yml**：手动触发的**发行版**（通常由 AI 收到命令后触发）→ 构建 Release APK + 推带版本 tag 的镜像 + 创建 GitHub Release（附 APK、正文关联镜像 tag 与 `CHANGELOG.md`）。首发同时提供《应用介绍》，此后每版补充更新日志。版本号由 tag 推导：`v1.2.3` → `versionName=1.2.3`、`versionCode=10203`。
 
 ### 安卓签名

@@ -367,6 +367,10 @@
     "unbindTitle": "解除绑定",
     "unbindConfirm": "确定要解除该绑定关系（#{id}）吗？解绑后双方将不再共享数据。",
     "unbindSuccess": "已解绑",
+    "cancelInvite": "作废邀请",
+    "cancelInviteTitle": "作废挂起邀请",
+    "cancelInviteConfirm": "确定作废关系 #{id} 的挂起邀请吗？旧邀请码将立即失效。",
+    "cancelInviteSuccess": "挂起邀请已作废",
     "editTitle": "编辑绑定关系",
     "editSuccess": "绑定关系已保存",
     "form": {

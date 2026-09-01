@@ -6,7 +6,7 @@
 
 ## 0. 约定
 
-- 用户端接口前缀 `/api/v1`，需 `Authorization: Bearer <JWT>`；`app_key` 非空时还需 `X-App-Key` 头。
+- 用户端接口前缀 `/api/v1`，需 `Authorization: Bearer <JWT>`；Release 客户端通过 HTTPS 访问，不携带可提取的共享密钥。
 - 响应信封：成功 `{"code":0,"message":"ok","data":...}`，失败 `{"code":<biz>,"message":"<中文原因>"}`。
   常见业务码：`1002` 参数错误、`1010` 服务端错误、`1017` 无权访问（越权/不存在）、`1020` 配额用尽。
 - **所有接口都要求已绑定伴侣**（`mustPair`）：相册数据以 `pair_id` 隔离，未绑定直接失败。
@@ -158,12 +158,11 @@ HEIC/AVIF 自 0821 起**服务端能真解码**：用 `gen2brain/heic|avif`（�
 | 20 | GET | `/media/:id` | 原图字节流 |
 | 21 | GET | `/media/:id/thumb` | 缩略图字节流 |
 
-挂在根路径（不在 `/api/v1` 下），故**不经 `AppKeyGuard`**，只挂 `JWTAuth()`；
+挂在根路径（不在 `/api/v1` 下），只挂 `JWTAuth()`；
 路径前缀也与 netlog 的 skip 列表对齐（照片 URL 不进 `request_log`）。
 
 客户端侧用自建 Coil `ImageLoader`（`android/.../data/AppImageLoader.kt`）而非默认实例，
-在拦截器里给每个图片请求补 `Authorization: Bearer <JWT>`，并一并带上 `X-App-Key`
-（与 `ApiClient` 保持一致；服务端这条路由不校验它，带着无害）。
+在拦截器里给每个图片请求补 `Authorization: Bearer <JWT>`；不携带可从 APK 提取的共享密钥。
 
 响应头 `Cache-Control: private, max-age=2592000, immutable`（禁止中间代理与 CDN 留副本）、
 `X-Content-Type-Options: nosniff`、`Content-Disposition: inline`。

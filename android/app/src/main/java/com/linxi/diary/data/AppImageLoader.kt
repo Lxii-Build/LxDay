@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit
  *
  * 相册图片走的是**鉴权代理** `/media/<id>`（真实磁盘路径不出服务端），
  * 所以每个图片请求都必须带 `Authorization` 头 —— 这正是要自建 ImageLoader 而非用
- * Coil 默认实例的原因。同时带上 `X-App-Key`，与 ApiClient 的通讯密钥校验保持一致。
+ * Coil 默认实例的原因。请求只携带当前登录态 token，不携带任何编译进 APK 的共享密钥。
  *
  * 缓存策略：相册网格一次要铺几十张缩略图，磁盘缓存必须给足，
  * 否则每次进页面都重新下载（此前自撸的 NetworkAvatar 就是零缓存 + 主线程解码）。
@@ -93,9 +93,6 @@ object AppImageLoader {
             val builder = chain.request().newBuilder()
             com.linxi.diary.util.UserPrefs.token?.takeIf { it.isNotBlank() }?.let {
                 builder.header("Authorization", "Bearer $it")
-            }
-            com.linxi.diary.BuildConfig.APP_KEY.takeIf { it.isNotBlank() }?.let {
-                builder.header("X-App-Key", it)
             }
             return chain.proceed(builder.build())
         }

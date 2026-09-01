@@ -81,6 +81,11 @@ jobs:
           CODE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          if [ "${{ inputs.prerelease }}" = "true" ]; then
+            echo "channel=testing" >> "$GITHUB_OUTPUT"
+          else
+            echo "channel=stable" >> "$GITHUB_OUTPUT"
+          fi
           echo "versionName=$NAME versionCode=$CODE"
 
       # ---------- 构建 Release APK ----------
@@ -143,6 +148,7 @@ jobs:
             -PBASE_URL="$IN_BASE_URL" \
             -PWS_URL="$IN_WS_URL" \
             -PAPP_KEY="$IN_APP_KEY" \
+            -PUPDATE_CHANNEL="${{ steps.ver.outputs.channel }}" \
             -PVERSION_NAME="${{ steps.ver.outputs.name }}" \
             -PVERSION_CODE="${{ steps.ver.outputs.code }}"
 
@@ -159,6 +165,7 @@ jobs:
             -PBASE_URL="$IN_BASE_URL" \
             -PWS_URL="$IN_WS_URL" \
             -PAPP_KEY="$IN_APP_KEY" \
+            -PUPDATE_CHANNEL="${{ steps.ver.outputs.channel }}" \
             -PVERSION_NAME="$IN_VERSION_NAME" \
             -PVERSION_CODE="$IN_VERSION_CODE" \
             -PKEYSTORE_FILE="$RUNNER_TEMP/lxday-release.p12" \
@@ -214,6 +221,9 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ghcr.io/lxii-build/lxday:${{ inputs.version }}
+          build-args: |
+            BUILD_VERSION=${{ steps.ver.outputs.name }}
+            BUILD_COMMIT=${{ github.sha }}
 
       # 私有仓库国内拉取不便：导出镜像 tar，随 Release 附件下发，可 `docker load` 直接导入
       - name: 导出镜像 tar（离线 docker load 用）

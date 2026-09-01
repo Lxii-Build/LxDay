@@ -51,12 +51,6 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme.isDynamicColor
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 
 /**
- * 远程互动按钮客户端冷却时长：点击后进行中态持续、且期间禁用重复点击（毫秒）。
- * 与服务端 `store.go` 的 interactionCooldownWindow 保持一致（7s/1 次）。
- */
-private const val INTERACTION_COOLDOWN_MS = 7000L
-
-/**
  * 主页（照抄 KernelSU HomeMiuix）：
  * 绿色状态卡（动态 secondaryContainer / 非动态浅绿#DFFAE4）+ WarningCard 警示条
  * + 互动入口 Card + InfoText 信息卡（我的手机）。
@@ -78,12 +72,12 @@ fun NowScreen(
         RelationshipDays.dayNumber(it, java.time.LocalDate.now())
     }
 
-    // 远程互动三按钮各自独立的"进行中"态：点击后 7 秒内变蓝 + 禁用，到点自动恢复（客户端冷却）。
+    // 远程互动三按钮各自独立的"进行中"态：变蓝后可再次点击撤回。
     var comfortActive by remember { mutableStateOf(false) }
     var calmActive by remember { mutableStateOf(false) }
     var ringActive by remember { mutableStateOf(false) }
-    LaunchedEffect(comfortActive) { if (comfortActive) { delay(INTERACTION_COOLDOWN_MS); comfortActive = false } }
-    LaunchedEffect(calmActive) { if (calmActive) { delay(INTERACTION_COOLDOWN_MS); calmActive = false } }
+    var comfortRequestId by remember { mutableStateOf<String?>(null) }
+    var calmRequestId by remember { mutableStateOf<String?>(null) }
 
     // 响铃的进行中态由 InteractionEvents 驱动（含对方已知悉回执），不再只是本地 flag。
     val pendingRing by InteractionEvents.pending.collectAsStateWithLifecycle()
@@ -155,26 +149,48 @@ fun NowScreen(
                     ) {
                         ActionCard(
                             "求陪伴", MiuixIcons.FavoritesFill, Modifier.weight(1f),
-                            active = comfortActive, activeTitle = "已发送…"
+                            active = comfortActive, activeTitle = "已发送…（点击撤回）",
+                            allowClickWhenActive = true,
                         ) {
                             InteractionEvents.clearRejection()
-                            // 只有真发出去才进入"已发送"态：WS 离线时 sendEvent 返回 false，
-                            // 此前无论成败都亮起，造成离线假成功。
-                            if (StatusSyncManager.sendEvent("comfort_request")) {
-                                comfortActive = true
+                            if (comfortActive) {
+                                if (StatusSyncManager.sendInteractionCancel("comfort_cancel", comfortRequestId)) {
+                                    comfortActive = false
+                                    comfortRequestId = null
+                                } else {
+                                    InteractionEvents.onRejected("comfort_cancel", "当前离线，撤回未发出")
+                                }
                             } else {
-                                InteractionEvents.onRejected("comfort_request", "当前离线，消息未发出")
+                                val requestId = java.util.UUID.randomUUID().toString()
+                                if (StatusSyncManager.sendEvent("comfort_request", requestId)) {
+                                    comfortRequestId = requestId
+                                    comfortActive = true
+                                } else {
+                                    InteractionEvents.onRejected("comfort_request", "当前离线，消息未发出")
+                                }
                             }
                         }
                         ActionCard(
                             "求冷静", MiuixIcons.Ok, Modifier.weight(1f),
-                            active = calmActive, activeTitle = "已发送…"
+                            active = calmActive, activeTitle = "已发送…（点击撤回）",
+                            allowClickWhenActive = true,
                         ) {
                             InteractionEvents.clearRejection()
-                            if (StatusSyncManager.sendEvent("calm_request")) {
-                                calmActive = true
+                            if (calmActive) {
+                                if (StatusSyncManager.sendInteractionCancel("calm_cancel", calmRequestId)) {
+                                    calmActive = false
+                                    calmRequestId = null
+                                } else {
+                                    InteractionEvents.onRejected("calm_cancel", "当前离线，撤回未发出")
+                                }
                             } else {
-                                InteractionEvents.onRejected("calm_request", "当前离线，消息未发出")
+                                val requestId = java.util.UUID.randomUUID().toString()
+                                if (StatusSyncManager.sendEvent("calm_request", requestId)) {
+                                    calmRequestId = requestId
+                                    calmActive = true
+                                } else {
+                                    InteractionEvents.onRejected("calm_request", "当前离线，消息未发出")
+                                }
                             }
                         }
                     }
@@ -188,9 +204,12 @@ fun NowScreen(
                     ) {
                         if (ringActive) {
                             // 进行中再次点击 = 撤回：让对方立刻停止响铃。
-                            StatusSyncManager.sendRingCancel(pendingRing?.ringId)
-                            ringActive = false
-                            InteractionEvents.clear()
+                            if (StatusSyncManager.sendRingCancel(pendingRing?.ringId)) {
+                                ringActive = false
+                                InteractionEvents.clear()
+                            } else {
+                                InteractionEvents.onRejected("ring_cancel", "当前离线，撤回未发出")
+                            }
                         } else {
                             InteractionEvents.clearRejection()
                             val ringId = java.util.UUID.randomUUID().toString()
@@ -471,7 +490,7 @@ private fun SectionTitle(text: String, subtitle: String) {
     }
 }
 
-/** 互动卡片按钮（KernelSU Card 风格，无涟漪）。active=进行中：变蓝 + 进行文本 + 禁用点击（7 秒客户端冷却）。 */
+/** 互动卡片按钮（KernelSU Card 风格，无涟漪）。active=进行中：变蓝 + 进行文本。 */
 @Composable
 private fun ActionCard(
     title: String,
@@ -481,8 +500,7 @@ private fun ActionCard(
     activeTitle: String = "进行中…",
     /**
      * 进行中态是否仍可点击。
-     * 求陪伴/求冷静为 false（冷却期禁止重复发）；
-     * 响铃为 true —— 进行中点击即「撤回」，若沿用禁用逻辑就永远撤不回。
+     * 互动请求与响铃都允许在进行中点击，以便及时撤回；只有确实不支持撤回的动作才保持 false。
      */
     allowClickWhenActive: Boolean = false,
     onClick: () -> Unit

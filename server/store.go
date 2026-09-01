@@ -622,6 +622,10 @@ func (s *Store) PopEventQ(uid int64) []string {
 	return s.mem.popEvents(uid)
 }
 
+func (s *Store) RemoveQueuedInteraction(uid int64, requestType, id string) bool {
+	return s.mem.removeInteraction(uid, requestType, id)
+}
+
 func (s *Store) SetOnline(uid int64, online bool) {
 	s.mem.setOnline(uid, online, 60*time.Second)
 }

@@ -367,6 +367,10 @@
     "unbindTitle": "Unpair",
     "unbindConfirm": "Unpair this couple (#{id})? They will stop sharing data with each other.",
     "unbindSuccess": "Unpaired",
+    "cancelInvite": "Revoke invite",
+    "cancelInviteTitle": "Revoke pending invite",
+    "cancelInviteConfirm": "Revoke the pending invite for pair #{id}? The old code will stop working immediately.",
+    "cancelInviteSuccess": "Pending invite revoked",
     "editTitle": "Edit pairing",
     "editSuccess": "Pairing saved",
     "form": {

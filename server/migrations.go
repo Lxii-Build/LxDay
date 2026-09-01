@@ -13,9 +13,9 @@ import (
 //go:embed sql/schema.sql
 var baseSchemaSQL string
 
-// schemaBaselineVersion 是现有“建表 + 补列 + 建索引”迁移的编号。历史数据库首次
-// 升级到此版本时会安全地跑这套幂等逻辑并记账；之后不再每次启动重复扫描 schema。
-const schemaBaselineVersion = 1
+// schemaBaselineVersion 是当前已知迁移的最高版本。迁移 1 负责“建表 + 补列 + 建索引”，
+// 迁移 2 负责移除旧版 APP 版本表；历史数据库升级后会记账，之后不再重复执行。
+const schemaBaselineVersion = 2
 
 // migrationExecutor 是 sql.DB 与 sql.Tx 的共同子集，让建表、补列、建索引能在同一
 // 事务内完成。迁移失败时不会留下“只建了一半索引却已标记成功”的状态。
@@ -24,8 +24,8 @@ type migrationExecutor interface {
 	Query(query string, args ...any) (*sql.Rows, error)
 }
 
-// runMigrations 执行有版本记录的内嵌迁移。现有 schema 是 v1 基线；以后新增迁移
-// 必须追加新版本，不能把数据回填或破坏性 DDL 偷塞回这条基线。
+// runMigrations 执行有版本记录的内嵌迁移。迁移 1 是建表/补列/建索引基线，
+// 迁移 2 起每个版本都必须追加新迁移，不能把数据回填或破坏性 DDL 偷塞回旧基线。
 //
 // **执行顺序必须是「建表 → 补列 → 建索引」，不能一趟走完。**
 //
@@ -59,20 +59,44 @@ func runMigrations(db *sql.DB) error {
 	if current.Valid && current.Int64 == schemaBaselineVersion {
 		return nil
 	}
+	if !current.Valid || current.Int64 < 1 {
+		if err := applyMigration(db, 1, applySchemaBaseline); err != nil {
+			return err
+		}
+		current = sql.NullInt64{Int64: 1, Valid: true}
+	}
+	if current.Int64 < 2 {
+		if err := applyMigration(db, 2, retireAppVersionTable); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
+func applyMigration(db *sql.DB, version int, apply func(migrationExecutor) error) error {
 	tx, err := db.Begin()
 	if err != nil {
-		return fmt.Errorf("begin migration transaction failed: %w", err)
+		return fmt.Errorf("begin migration %d failed: %w", version, err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := applySchemaBaseline(tx); err != nil {
+	if err := apply(tx); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`INSERT INTO schema_migrations(version) VALUES(?)`, schemaBaselineVersion); err != nil {
-		return fmt.Errorf("record baseline migration failed: %w", err)
+	if _, err := tx.Exec(`INSERT INTO schema_migrations(version) VALUES(?)`, version); err != nil {
+		return fmt.Errorf("record migration %d failed: %w", version, err)
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit migration transaction failed: %w", err)
+		return fmt.Errorf("commit migration %d failed: %w", version, err)
+	}
+	return nil
+}
+
+// retireAppVersionTable removes the pre-1.0.9 database-backed release catalog.
+// Release history is now the GitHub Releases source of truth; deleting this
+// table also prevents a stale admin record from being served as an update.
+func retireAppVersionTable(db migrationExecutor) error {
+	if _, err := db.Exec(`DROP TABLE IF EXISTS app_version`); err != nil {
+		return fmt.Errorf("remove legacy app version table failed: %w", err)
 	}
 	return nil
 }

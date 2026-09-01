@@ -23,7 +23,7 @@ data class ApiException(val bizCode: Int, override val message: String) : Except
 
 object ApiClient {
 
-    private val BASE = BuildConfig.BASE_URL
+    private val BASE = BuildConfig.BASE_URL.trimEnd('/')
     private val json = "application/json; charset=utf-8".toMediaType()
 
     private val client by lazy {
@@ -44,10 +44,12 @@ object ApiClient {
     }
 
     private fun request(method: String, path: String, body: RequestBody?): Request.Builder {
+        // Release 包不允许降级到明文 HTTP；调试包仍可连接本地 HTTP 服务。
+        if (!BuildConfig.DEBUG && !BASE.startsWith("https://", ignoreCase = true)) {
+            throw ApiException(-2, "当前版本要求使用安全连接，请检查服务端地址")
+        }
         val b = Request.Builder().url(BASE + path)
         UserPrefs.token?.let { b.header("Authorization", "Bearer $it") }
-        // 通讯密钥：仅当构建期注入了 APP_KEY 时附带，服务端中间件据此放行官方客户端。
-        if (BuildConfig.APP_KEY.isNotEmpty()) b.header("X-App-Key", BuildConfig.APP_KEY)
         b.method(method, body)
         return b
     }
@@ -199,9 +201,9 @@ object ApiClient {
             put("password", password)
         })
 
-    /** 检查更新，返回 {has_update,force,version:{version_name,version_code,apk_url,notes}} */
-    suspend fun checkUpdate(versionCode: Int): JSONObject =
-        get("/app/latest?platform=android&version_code=$versionCode")
+    /** 检查 GitHub Releases，channel=stable 只看正式版，testing 同时看预发行版。 */
+    suspend fun checkUpdate(versionCode: Int, channel: String = "stable"): JSONObject =
+        get("/app/latest?platform=android&version_code=$versionCode&channel=$channel")
 
     suspend fun pairStatus(): JSONObject = get("/pair/status")
 

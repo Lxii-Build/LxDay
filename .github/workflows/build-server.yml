@@ -98,6 +98,9 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            BUILD_VERSION=main
+            BUILD_COMMIT=${{ github.sha }}
           # OCI 标签：生产上能一眼核对当前跑的镜像对应哪个 commit
           labels: |
             org.opencontainers.image.title=LxDay

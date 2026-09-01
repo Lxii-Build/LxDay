@@ -294,7 +294,7 @@ func (h *Hub) handleIncoming(from int64, data []byte) {
 		}
 		h.route(partner, WsMessage{Type: m.Type, Data: payload})
 
-	case MsgRingCancel, MsgRingStopped:
+	case MsgComfortCancel, MsgCalmCancel, MsgRingCancel, MsgRingStopped:
 		// 撤回与回执：原样透传给对方，不限频、不入离线队列（见 transientEvents）。
 		// 撤回被限频会导致"想停却停不了"，比骚扰更糟。
 		payload, ok := clientInteractionPayload(data)
@@ -302,6 +302,17 @@ func (h *Hub) handleIncoming(from int64, data []byte) {
 			return
 		}
 		payload["ts"] = time.Now().UnixMilli()
+		if m.Type == MsgComfortCancel || m.Type == MsgCalmCancel || m.Type == MsgRingCancel {
+			requestType := map[string]string{
+				MsgComfortCancel: MsgComfortRequest,
+				MsgCalmCancel:    MsgCalmRequest,
+				MsgRingCancel:    MsgRingRequest,
+			}[m.Type]
+			if id := interactionID(payload); id != "" {
+				h.store.RemoveQueuedInteraction(partner, requestType, id)
+				h.push.Cancel(partner, requestType, id)
+			}
+		}
 		h.route(partner, WsMessage{Type: m.Type, Data: payload})
 
 	}

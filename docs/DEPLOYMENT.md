@@ -13,7 +13,7 @@
 前置：安装 Docker 与 Docker Compose 插件。
 
 1. 修改配置（务必）：
-   - **密钥走 `.env`**：复制仓库根 `.env.example` 为 `.env`（与 `docker-compose.yml` 同目录，勿提交），填 `JWT_SECRET`（长随机串，如 `openssl rand -hex 32`）与 `APP_KEY`（通讯密钥，需与安卓构建注入的一致）。服务端启动会读取这两个环境变量；`JWT_SECRET` 缺省或为占位值将拒绝启动。
+   - **密钥走 `.env`**：复制仓库根 `.env.example` 为 `.env`（与 `docker-compose.yml` 同目录，勿提交），填 `JWT_SECRET`（长随机串，如 `openssl rand -hex 32`）。服务端启动会读取它；`JWT_SECRET` 缺省或为占位值将拒绝启动。当前 APK 不再携带或发送可提取的共享通讯密钥。
    - 无需配置外部数据库/缓存：数据库为**内嵌 SQLite**（文件在 `db_data` 卷），无 MySQL/Redis 密码可改。
 2. 启动（默认从 GHCR 拉取镜像，无需本地构建）：
    ```bash
@@ -73,14 +73,13 @@
 docker run -d --name LxDay \
   -p 7740:7740 \
   -e JWT_SECRET="替换为长随机串" \
-  -e APP_KEY="通讯密钥(与APK一致,可留空)" \
   -v $(pwd)/config.yaml:/app/config.yaml:ro \
   -v lxday-data:/app/data \
   -v lxday-uploads:/app/uploads \
   -v lxday-uploads-private:/app/uploads-private \
   ghcr.io/lxii-build/lxday:latest
 ```
-`config.yaml` 参照 `server/config.example.yaml`；SQLite 文件默认 `/app/data/lxday.db`（挂 `lxday-data` 卷持久化），`JWT_SECRET`/`APP_KEY` 用 `-e` 注入。同样在前面放一层反代做 TLS。
+`config.yaml` 参照 `server/config.example.yaml`；SQLite 文件默认 `/app/data/lxday.db`（挂 `lxday-data` 卷持久化），`JWT_SECRET` 用 `-e` 注入。同样在前面放一层反代做 TLS。旧部署中的 `APP_KEY` 字段可以保留，但当前客户端认证不再依赖它。
 
 ---
 
@@ -92,7 +91,7 @@ docker run -d --name LxDay \
 ```bash
 cd server
 cp config.example.yaml config.yaml    # 设 db.path；jwt_secret/app_key 建议用环境变量 JWT_SECRET/APP_KEY 注入
-JWT_SECRET="长随机串" APP_KEY="可选" go build -o linxi-server . && ./linxi-server config.yaml   # 或注册 systemd
+JWT_SECRET="长随机串" go build -o linxi-server . && ./linxi-server config.yaml   # 或注册 systemd
 ```
 无需手工导入 SQL：服务端启动会自动建表（内嵌 SQLite）。注意：仓库根 `Dockerfile` 会内嵌前端；若走分离模式，可用 `server/Dockerfile`（仅后端）构建后端镜像。
 
@@ -106,13 +105,13 @@ npm install && npm run build           # 产物在 admin/dist
 
 ---
 
-## 四、通讯密钥（可选）
-- 服务端：`config.yaml` 的 `app.app_key`（或环境变量 `APP_KEY`）非空时，校验客户端请求头 `X-App-Key`，仅作用于 `/api/v1/*`；留空则禁用。
-- 客户端：由 `build-android.yml` / `release.yml` 工作流的 `app_key` 输入注入 APK。两侧必须一致，否则 App 所有业务请求会被拒。
+## 四、客户端与服务端安全
+- APK 可以被逆向，任何写入 APK 的共享密钥都不能当作可信凭据；当前 Release 包不编译 `APP_KEY`，REST 强制 HTTPS，WebSocket 强制 WSS。
+- 服务端业务安全由 JWT、封禁后的实时令牌校验、IP 限流和相册资源鉴权提供。`APP_KEY`/`app.app_key` 仅为旧部署兼容字段，不再校验 `X-App-Key`。
 
 ## 五、CI/CD（三条工作流）
 - `build-server.yml`：push 到 main（`server/**`、`admin/**`、`Dockerfile`）或手动 → `go vet`/`go test` → 构建一体化镜像推 `ghcr.io/lxii-build/lxday`。
-- `build-android.yml`：手动触发，输入 服务端地址/通讯密钥/构建类型/版本号 → 产出 APK 工件。
+- `build-android.yml`：手动触发，输入 服务端地址/构建类型/版本号 → 产出 APK 工件；旧 `APP_KEY` 输入不会进入 APK。
 - `release.yml`：手动触发的发行版 → Release APK + 带版本 tag 的镜像 + GitHub Release（附 APK、关联 `CHANGELOG.md`）。
 - 生产更新：不自动部署，服务器 `docker compose pull && docker compose up -d` 手动升级。
 
@@ -122,5 +121,5 @@ SQLite 数据库与公开/私密媒体都在 Docker 卷中，升级不会替代�
 
 ## 七、初始账号与安全清单
 - 超级管理员：用户名 `admin`，随机初始口令见 `/app/data/initial-admin-password.txt`，**首次登录强制改账号+密码+绑定邮箱**（改密前后端会拦截其它管理操作）。不要在文档、日志或工单中写死口令。
-- 上线前务必：在 `.env` 设好强随机 `JWT_SECRET`（缺省/占位会拒绝启动）；配置反代 HTTPS；如需通讯密钥则两侧设好 `APP_KEY`（服务端环境变量 + 安卓构建注入一致）；后台填好 SMTP；确认 `/app/uploads` 与 `/app/uploads-private` 卷可写。
+- 上线前务必：在 `.env` 设好强随机 `JWT_SECRET`（缺省/占位会拒绝启动）；配置反代 HTTPS/WSS；后台填好 SMTP；确认 `/app/uploads` 与 `/app/uploads-private` 卷可写。
 - 后台「网络日志」记录 API 请求（方法/路径/状态码/耗时/IP/UA），默认保留 7 天，仅管理员可见。

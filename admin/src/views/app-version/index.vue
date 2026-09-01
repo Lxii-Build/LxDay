@@ -1,191 +1,107 @@
-<!-- APP 版本发布 -->
 <template>
-  <div class="app-version-page art-full-height">
-    <ElCard class="art-table-card" shadow="never">
-      <ArtTableHeader v-model:columns="columnChecks" :loading="loading" @refresh="refreshData">
-        <template #left>
-          <ElSpace wrap>
-            <ElSelect
-              v-model="platform"
-              :placeholder="$t('appVersion.filter.allPlatforms')"
-              clearable
-              style="width: 160px"
-              @change="handleSearch"
-            >
-              <ElOption :label="$t('appVersion.platform.android')" value="android" />
-              <ElOption :label="$t('appVersion.platform.ios')" value="ios" />
-            </ElSelect>
-            <ElButton type="primary" @click="openCreate">{{ $t('appVersion.publish') }}</ElButton>
-          </ElSpace>
-        </template>
-      </ArtTableHeader>
-
-      <ArtTable
-        :loading="loading"
-        :data="data"
-        :columns="columns"
-        :pagination="pagination"
-        :empty-text="$t('appVersion.empty')"
-        @pagination:size-change="handleSizeChange"
-        @pagination:current-change="handleCurrentChange"
-      >
-      </ArtTable>
+  <div class="app-release-page art-full-height">
+    <ElCard shadow="never" class="mb-4">
+      <div class="flex-bt">
+        <div>
+          <h2 class="m-0 text-lg font-semibold">APP 更新中心</h2>
+          <p class="mt-2 mb-0 art-text-gray-500">
+            版本源：GitHub Releases。后台不再维护重复的版本数据库。
+          </p>
+        </div>
+        <ElButton type="primary" :loading="loading" @click="load">刷新 GitHub</ElButton>
+      </div>
+      <ElAlert
+        v-if="error"
+        class="mt-4"
+        type="error"
+        :title="error"
+        show-icon
+        :closable="false"
+      />
+      <div v-if="serverInfo" class="mt-4 flex flex-wrap gap-3">
+        <ElTag type="success">服务端 {{ serverInfo.version }}</ElTag>
+        <ElTag type="info">commit {{ serverInfo.commit }}</ElTag>
+        <ElTag type="info">Go {{ serverInfo.go }}</ElTag>
+        <ElLink :href="repository" target="_blank" type="primary">打开仓库</ElLink>
+      </div>
     </ElCard>
 
-    <VersionDialog
-      v-model="dialogVisible"
-      :existing="existing"
-      :editing="editingVersion"
-      @success="refreshData"
-    />
+    <ElCard shadow="never" class="art-table-card">
+      <ElTable v-loading="loading" :data="releases" stripe>
+        <ElTableColumn prop="version_name" label="版本" width="130" />
+        <ElTableColumn label="渠道" width="110">
+          <template #default="{ row }">
+            <ElTag :type="row.prerelease ? 'warning' : 'success'">
+              {{ row.prerelease ? '测试版' : '正式版' }}
+            </ElTag>
+          </template>
+        </ElTableColumn>
+        <ElTableColumn prop="version_code" label="versionCode" width="120" />
+        <ElTableColumn label="发布时间" width="190">
+          <template #default="{ row }">{{ formatDateTime(row.published_at) }}</template>
+        </ElTableColumn>
+        <ElTableColumn label="APK" min-width="150">
+          <template #default="{ row }">
+            <ElLink v-if="row.apk_url" :href="row.apk_url" target="_blank" type="primary">
+              下载 {{ row.version_name }}
+            </ElLink>
+            <span v-else class="art-text-gray-400">未附 APK</span>
+          </template>
+        </ElTableColumn>
+        <ElTableColumn label="更新说明" min-width="260" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.notes || '未填写' }}</template>
+        </ElTableColumn>
+        <ElTableColumn label="Release" width="100" fixed="right">
+          <template #default="{ row }">
+            <ElLink :href="row.html_url" target="_blank" type="primary">查看</ElLink>
+          </template>
+        </ElTableColumn>
+      </ElTable>
+      <ElEmpty v-if="!loading && releases.length === 0" description="GitHub 暂无可用 Release" />
+    </ElCard>
   </div>
 </template>
 
 <script setup lang="ts">
-  import { useI18n } from 'vue-i18n'
-  import { useTable } from '@/hooks/core/useTable'
-  import { deleteAppVersion, fetchAppVersionList, updateAppVersionStatus } from '@/api/admin'
+  import {
+    ElAlert,
+    ElButton,
+    ElCard,
+    ElEmpty,
+    ElLink,
+    ElTable,
+    ElTableColumn,
+    ElTag
+  } from 'element-plus'
+  import { fetchAppReleases } from '@/api/admin'
   import { formatDateTime } from '@/utils/format/datetime'
-  import VersionDialog from './modules/version-dialog.vue'
-  import { ElButton, ElLink, ElMessage, ElMessageBox, ElTag } from 'element-plus'
 
   defineOptions({ name: 'AppVersion' })
 
-  type AppVersionItem = Api.Admin.AppVersionItem
+  const loading = ref(false)
+  const error = ref('')
+  const releases = ref<Api.Admin.AppReleaseItem[]>([])
+  const repository = ref('https://github.com/Lxii-Build/LxDay')
+  const serverInfo = ref<Api.Admin.ServerInfo | null>(null)
 
-  const { t } = useI18n()
-
-  const platform = ref<string>('')
-  const dialogVisible = ref(false)
-  const editingVersion = ref<AppVersionItem | null>(null)
-
-  const {
-    columns,
-    columnChecks,
-    data,
-    loading,
-    pagination,
-    getData,
-    replaceSearchParams,
-    handleSizeChange,
-    handleCurrentChange,
-    refreshData
-  } = useTable({
-    core: {
-      apiFn: fetchAppVersionList,
-      apiParams: { current: 1, size: 20, platform: '' },
-      columnsFactory: () => [
-        { prop: 'id', label: t('appVersion.table.id'), width: 80 },
-        { prop: 'platform', label: t('appVersion.table.platform'), width: 100 },
-        { prop: 'version_name', label: t('appVersion.table.versionName'), width: 120 },
-        { prop: 'version_code', label: t('appVersion.table.versionCode'), width: 110 },
-        {
-          prop: 'apk_url',
-          label: t('appVersion.table.apk'),
-          minWidth: 200,
-          formatter: (row) =>
-            row.apk_url
-              ? h(ElLink, { type: 'primary', href: row.apk_url, target: '_blank' }, () =>
-                  t('appVersion.download')
-                )
-              : h('span', '-')
-        },
-        {
-          prop: 'force_update',
-          label: t('appVersion.table.forceUpdate'),
-          width: 100,
-          formatter: (row) =>
-            h(ElTag, { type: row.force_update ? 'danger' : 'info' }, () =>
-              row.force_update ? t('appVersion.force.yes') : t('appVersion.force.no')
-            )
-        },
-        {
-          prop: 'status',
-          label: t('appVersion.table.status'),
-          width: 100,
-          formatter: (row) =>
-            h(ElTag, { type: row.status === 1 ? 'success' : 'info' }, () =>
-              row.status === 1 ? t('appVersion.status.online') : t('appVersion.status.offline')
-            )
-        },
-        {
-          prop: 'created_at',
-          label: t('appVersion.table.createdAt'),
-          minWidth: 180,
-          formatter: (row) => formatDateTime(row.created_at)
-        },
-        {
-          prop: 'operation',
-          label: t('common.operation'),
-          width: 220,
-          fixed: 'right',
-          formatter: (row) =>
-            h('div', [
-              h(ElButton, { type: 'primary', link: true, onClick: () => openEdit(row) }, () =>
-                t('common.edit')
-              ),
-              h(
-                ElButton,
-                {
-                  type: row.status === 1 ? 'warning' : 'success',
-                  link: true,
-                  onClick: () => toggleStatus(row)
-                },
-                () => (row.status === 1 ? t('appVersion.offline') : t('appVersion.online'))
-              ),
-              h(ElButton, { type: 'danger', link: true, onClick: () => handleDelete(row) }, () =>
-                t('common.delete')
-              )
-            ])
-        }
-      ]
-    }
-  })
-
-  /** 当前列表已有的版本，交给弹窗做 version_code 重复提示 */
-  const existing = computed(() =>
-    (data.value || []).map((item) => ({
-      platform: item.platform,
-      version_code: item.version_code,
-      version_name: item.version_name
-    }))
-  )
-
-  const openCreate = () => {
-    editingVersion.value = null
-    dialogVisible.value = true
-  }
-
-  const openEdit = (row: AppVersionItem) => {
-    editingVersion.value = row
-    dialogVisible.value = true
-  }
-
-  const handleSearch = () => {
-    replaceSearchParams({ platform: platform.value })
-    getData()
-  }
-
-  const toggleStatus = async (row: AppVersionItem) => {
-    const next = row.status === 1 ? 0 : 1
-    await updateAppVersionStatus(row.id, next)
-    ElMessage.success(next === 1 ? t('appVersion.onlineSuccess') : t('appVersion.offlineSuccess'))
-    refreshData()
-  }
-
-  const handleDelete = (row: AppVersionItem) => {
-    ElMessageBox.confirm(
-      t('appVersion.deleteConfirm', { name: row.version_name }),
-      t('appVersion.deleteTitle'),
-      {
-        confirmButtonText: t('common.confirm'),
-        cancelButtonText: t('common.cancel'),
-        type: 'warning'
+  const load = async () => {
+    loading.value = true
+    error.value = ''
+    try {
+      const data = await fetchAppReleases()
+      releases.value = data.releases || []
+      repository.value = data.repository || repository.value
+      serverInfo.value = {
+        version: data.server_version,
+        commit: data.server_commit,
+        go: '1.25'
       }
-    ).then(async () => {
-      await deleteAppVersion(row.id)
-      ElMessage.success(t('common.deleteSuccess'))
-      refreshData()
-    })
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : '读取 GitHub Release 失败，请重试'
+    } finally {
+      loading.value = false
+    }
   }
+
+  onMounted(load)
 </script>

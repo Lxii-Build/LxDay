@@ -27,7 +27,7 @@ type Config struct {
 		TokenTTLHours       int    `yaml:"token_ttl_hours"`
 		RingCooldownSeconds int    `yaml:"ring_cooldown_seconds"`
 		RingCooldownLimit   int    `yaml:"ring_cooldown_limit"`
-		AppKey              string `yaml:"app_key"` // 通讯密钥；非空时校验 /api/v1/* 请求头 X-App-Key，可用环境变量 APP_KEY 覆盖
+		AppKey              string `yaml:"app_key"` // 旧版兼容字段；客户端不再携带可提取的共享密钥，可用环境变量 APP_KEY 覆盖
 	} `yaml:"app"`
 	DB struct {
 		Path string `yaml:"path"` // SQLite 数据库文件路径（单容器，无外部数据库）
@@ -148,16 +148,12 @@ func main() {
 	r.Use(SecurityHeaders(), RequestLogger(), gin.Recovery(), LimitJSONBody())
 
 	// ---- 公开路由 ----
-	// 通讯密钥中间件仅拦截 /api/v1/*（app_key 为空则禁用）；不影响 /ws、/uploads、SPA、/healthz、/api/admin
-	api := r.Group("/api/v1", AppKeyGuard())
+	// 不把任何共享密钥作为客户端安全边界：APK 可被解包，写进 APK 的密钥必然可提取。
+	// 业务安全由 HTTPS、IP 限流、JWT 与实时账号状态校验承担。
+	api := r.Group("/api/v1")
 	// ★ 这三条公开接口必须按 IP 限流 ★
 	//
-	// APP_KEY 编在 APK 里，逆向即可取得明文 —— 任何随客户端分发的密钥
-	// 都不可能保密，所以它只能挡住顺手扫全网的爬虫，**不构成安全边界**。
-	// 正确的威胁模型是「攻击者已持有合法 APP_KEY」，而在这个前提下
-	// 此前所有限流的键（账号名/邮箱/uid）全都由攻击者自己控制、
-	// 换一个就从零开始。IP 是唯一不受其随意支配的维度。
-	// 详见 ip_ratelimit.go 顶部的说明。
+	// 公开接口只依赖 IP 限流；任何客户端都不能把内置密钥当成可信凭据。
 	api.POST("/auth/register", IPRateLimit(ipRateRegister), handleRegister)
 	api.POST("/auth/login", IPRateLimit(ipRateLogin), handleLogin)
 	api.POST("/auth/send-code", IPRateLimit(ipRateSendCode), handleSendEmailCode)
@@ -245,7 +241,7 @@ func main() {
 	// ---- 相册图片鉴权代理 ----
 	// 挂在根路径而非 /api/v1：对外图片 URL 就是 /media/<id>，与 netlog 的 skip 前缀对齐
 	// （照片 URL 不进 request_log，避免任何后台管理员能从日志直接点开私密相册）。
-	// 只挂 JWTAuth、不挂 AppKeyGuard：图片由客户端图片库加载，只能确保带上 Authorization 头。
+	// 只挂 JWTAuth：图片由客户端图片库加载，只携带 Authorization 头即可完成鉴权。
 	media := r.Group("/media", JWTAuth())
 	media.GET("/:id", handleGetMedia)
 	media.GET("/:id/thumb", handleGetMediaThumb)

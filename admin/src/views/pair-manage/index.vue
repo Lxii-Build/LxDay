@@ -59,7 +59,7 @@
 <script setup lang="ts">
   import { useI18n } from 'vue-i18n'
   import { useTable } from '@/hooks/core/useTable'
-  import { fetchPairList, updatePair, unbindPair } from '@/api/admin'
+  import { cancelPendingInvite, fetchPairList, updatePair, unbindPair } from '@/api/admin'
   import { formatDate, formatDateTime } from '@/utils/format/datetime'
   import {
     ElButton,
@@ -154,18 +154,25 @@
           width: 180,
           fixed: 'right',
           formatter: (row) =>
-            row.status === 1
-              ? h('div', [
-                  h(ElButton, { type: 'primary', link: true, onClick: () => openEdit(row) }, () =>
-                    t('common.edit')
-                  ),
-                  h(
+            h('div', [
+              h(ElButton, { type: 'primary', link: true, onClick: () => openEdit(row) }, () =>
+                t('common.edit')
+              ),
+              row.has_invite
+                ? h(
+                    ElButton,
+                    { type: 'warning', link: true, onClick: () => handleCancelInvite(row) },
+                    () => t('pairManage.cancelInvite')
+                  )
+                : null,
+              row.status === 1
+                ? h(
                     ElButton,
                     { type: 'danger', link: true, onClick: () => handleUnbind(row) },
                     () => t('pairManage.unbind')
                   )
-                ])
-              : h('span', { class: 'art-text-gray-400' }, '-')
+                : null
+            ])
         }
       ]
     }
@@ -214,6 +221,22 @@
     ).then(async () => {
       await unbindPair(row.id)
       ElMessage.success(t('pairManage.unbindSuccess'))
+      refreshData()
+    })
+  }
+
+  const handleCancelInvite = (row: PairItem) => {
+    ElMessageBox.confirm(
+      t('pairManage.cancelInviteConfirm', { id: row.id }),
+      t('pairManage.cancelInviteTitle'),
+      {
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning'
+      }
+    ).then(async () => {
+      await cancelPendingInvite(row.id)
+      ElMessage.success(t('pairManage.cancelInviteSuccess'))
       refreshData()
     })
   }

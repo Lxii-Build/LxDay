@@ -673,11 +673,20 @@ type AdminUserRow struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-func (s *Store) ListUsers(keyword string, limit, offset int) ([]AdminUserRow, int, error) {
+func (s *Store) ListUsers(keyword string, status, limit, offset int) ([]AdminUserRow, int, error) {
 	where := ""
 	args := []interface{}{}
+	if status == 1 || status == 2 {
+		where = " WHERE u.status=?"
+		args = append(args, status)
+	}
 	if keyword != "" {
-		where = " WHERE u.username LIKE ? OR u.email LIKE ? OR u.nickname LIKE ?"
+		if where == "" {
+			where = " WHERE"
+		} else {
+			where += " AND"
+		}
+		where += " (u.username LIKE ? OR u.email LIKE ? OR u.nickname LIKE ?)"
 		kw := "%" + keyword + "%"
 		args = append(args, kw, kw, kw)
 	}
@@ -741,7 +750,15 @@ func (s *Store) SetUserStatus(id int64, status int) error {
 
 func handleAdminListUsers(c *gin.Context) {
 	limit, offset, current, size := pageParams(c)
-	list, total, err := st.ListUsers(strings.TrimSpace(c.Query("keyword")), limit, offset)
+	status := 0
+	if raw := strings.TrimSpace(c.Query("status")); raw != "" && raw != "0" {
+		status, _ = strconv.Atoi(raw)
+		if status != 1 && status != 2 {
+			afail(c, 400, 400, "status 只能是 1(启用) 或 2(禁用)")
+			return
+		}
+	}
+	list, total, err := st.ListUsers(strings.TrimSpace(c.Query("keyword")), status, limit, offset)
 	if err != nil {
 		afail(c, 500, 500, "查询失败")
 		return
@@ -891,9 +908,22 @@ func handleAdminSetUserStatus(c *gin.Context) {
 
 // ---------- 绑定关系管理 ----------
 
-func (s *Store) ListPairs(limit, offset int) ([]gin.H, int, error) {
+func (s *Store) ListPairs(keyword string, limit, offset int) ([]gin.H, int, error) {
+	keyword = strings.TrimSpace(keyword)
+	where := ""
+	var filterArgs []any
+	if keyword != "" {
+		like := "%" + keyword + "%"
+		where = " WHERE CAST(p.id AS TEXT) LIKE ? OR CAST(p.user_a_id AS TEXT) LIKE ? OR CAST(p.user_b_id AS TEXT) LIKE ?" +
+			" OR COALESCE(ua.nickname,'') LIKE ? OR COALESCE(ub.nickname,'') LIKE ?" +
+			" OR COALESCE(ua.username,'') LIKE ? OR COALESCE(ub.username,'') LIKE ?"
+		filterArgs = []any{like, like, like, like, like, like, like}
+	}
 	var total int
-	if err := s.DB.QueryRow("SELECT COUNT(*) FROM pair").Scan(&total); err != nil {
+	if err := s.DB.QueryRow(
+		"SELECT COUNT(*) FROM pair p LEFT JOIN `user` ua ON ua.id=p.user_a_id LEFT JOIN `user` ub ON ub.id=p.user_b_id"+where,
+		filterArgs...,
+	).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	// ★★ 绝对不要把 invite_code 下发给后台 ★★
@@ -909,11 +939,13 @@ func (s *Store) ListPairs(limit, offset int) ([]gin.H, int, error) {
 	// 后台真正需要的只是「这条邀请还挂着没人用」，那是一个布尔值，不是那串码。
 	// 也不能下发前几位之类的"部分脱敏"：邀请码只有 8 位，泄露任何一段都在
 	// 成倍缩小爆破空间（invite.go 把它从 6 位数字加长到 8 位混合字符正是为了这个）。
+	listArgs := append([]any(nil), filterArgs...)
+	listArgs = append(listArgs, limit, offset)
 	rows, err := s.DB.Query(
 		"SELECT p.id,p.user_a_id,p.user_b_id,COALESCE(ua.nickname,''),COALESCE(ub.nickname,''),p.status,"+
 			"CASE WHEN p.status=1 AND p.user_a_id>0 AND p.user_b_id=0 AND p.invite_code IS NOT NULL AND p.invite_code<>'' THEN 1 ELSE 0 END,p.created_at,p.anniversary_date "+
-			"FROM pair p LEFT JOIN `user` ua ON ua.id=p.user_a_id LEFT JOIN `user` ub ON ub.id=p.user_b_id "+
-			"ORDER BY p.id DESC LIMIT ? OFFSET ?", limit, offset)
+			"FROM pair p LEFT JOIN `user` ua ON ua.id=p.user_a_id LEFT JOIN `user` ub ON ub.id=p.user_b_id"+where+
+			" ORDER BY p.id DESC LIMIT ? OFFSET ?", listArgs...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -953,7 +985,7 @@ func (s *Store) UnbindPair(id int64) error {
 
 func handleAdminListPairs(c *gin.Context) {
 	limit, offset, current, size := pageParams(c)
-	list, total, err := st.ListPairs(limit, offset)
+	list, total, err := st.ListPairs(c.Query("keyword"), limit, offset)
 	if err != nil {
 		afail(c, 500, 500, "查询失败")
 		return
@@ -1009,6 +1041,45 @@ func handleAdminUnbindPair(c *gin.Context) {
 		return
 	}
 	st.AddAudit(c.GetInt64("aid"), "", "unbind_pair", "pair="+strconv.FormatInt(id, 10), c.ClientIP())
+	aok(c, gin.H{"ok": true})
+}
+
+// CancelPendingInviteAdmin 作废后台发现的挂起邀请码，但不把凭据返回给后台。
+// 作废时写入墓碑值，避免旧邀请码在任何遗漏的查询路径中再次可用。
+func (s *Store) CancelPendingInviteAdmin(id int64) error {
+	res, err := s.DB.Exec(
+		`UPDATE pair SET status=0, invite_code=('revoked:' || id)
+		 WHERE id=? AND status=1 AND user_a_id>0 AND user_b_id=0`, id,
+	)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func handleAdminCancelPendingInvite(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		afail(c, 400, 400, "关系 ID 非法")
+		return
+	}
+	if err := st.CancelPendingInviteAdmin(id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			afail(c, 404, 404, "挂起邀请不存在或已经失效")
+			return
+		}
+		afail(c, 500, 500, "取消邀请失败")
+		return
+	}
+	st.AddAudit(c.GetInt64("aid"), c.GetString("admin_name"), "cancel_pair_invite",
+		"pair="+strconv.FormatInt(id, 10), c.ClientIP())
 	aok(c, gin.H{"ok": true})
 }
 
@@ -1399,127 +1470,6 @@ func handleAdminCreateAdmin(c *gin.Context) {
 	st.AddAudit(c.GetInt64("aid"), c.GetString("admin_name"), "create_admin",
 		fmt.Sprintf("username=%s role=%s", req.Username, role), c.ClientIP())
 	aok(c, gin.H{"id": id})
-}
-
-// APPEND-ADMIN-7
-
-// ---------- APP 版本发布 ----------
-
-func handleAdminListVersions(c *gin.Context) {
-	limit, offset, current, size := pageParams(c)
-	list, total, err := st.ListAppVersions(strings.TrimSpace(c.Query("platform")), limit, offset)
-	if err != nil {
-		afail(c, 500, 500, "查询失败")
-		return
-	}
-	pageResp(c, list, total, current, size)
-}
-
-func handleAdminCreateVersion(c *gin.Context) {
-	var v AppVersion
-	if err := c.ShouldBindJSON(&v); err != nil || v.VersionName == "" {
-		afail(c, 400, 400, "参数错误（缺少版本号）")
-		return
-	}
-	if v.Platform == "" {
-		v.Platform = "android"
-	}
-	v.Status = 1
-	id, err := st.CreateAppVersion(&v)
-	if err != nil {
-		afail(c, 500, 500, "创建失败")
-		return
-	}
-	st.AddAudit(c.GetInt64("aid"), "", "create_version", v.VersionName, c.ClientIP())
-	aok(c, gin.H{"id": id})
-}
-
-func handleAdminUpdateVersion(c *gin.Context) {
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil || id <= 0 {
-		afail(c, 400, 400, "版本 ID 非法")
-		return
-	}
-	var req struct {
-		VersionName string `json:"version_name"`
-		APKURL      string `json:"apk_url"`
-		Notes       string `json:"notes"`
-		ForceUpdate bool   `json:"force_update"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		afail(c, 400, 400, "参数错误")
-		return
-	}
-	versionName := strings.TrimSpace(req.VersionName)
-	if versionName == "" || utf8.RuneCountInString(versionName) > 64 {
-		afail(c, 400, 400, "版本名长度 1-64 字")
-		return
-	}
-	apkURL := strings.TrimSpace(req.APKURL)
-	if len([]byte(apkURL)) > 2048 {
-		afail(c, 400, 400, "APK 地址不能超过 2048 字节")
-		return
-	}
-	notes := strings.TrimSpace(req.Notes)
-	if utf8.RuneCountInString(notes) > 10000 {
-		afail(c, 400, 400, "更新说明不能超过 10000 字")
-		return
-	}
-	if err := st.UpdateAppVersion(id, versionName, apkURL, notes, req.ForceUpdate); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			afail(c, 404, 404, "版本不存在")
-			return
-		}
-		afail(c, 500, 500, "更新失败")
-		return
-	}
-	st.AddAudit(c.GetInt64("aid"), c.GetString("admin_name"), "update_version",
-		"version="+strconv.FormatInt(id, 10), c.ClientIP())
-	aok(c, gin.H{"ok": true})
-}
-
-func handleAdminSetVersionStatus(c *gin.Context) {
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil || id <= 0 {
-		afail(c, 400, 400, "版本 ID 非法")
-		return
-	}
-	var req struct {
-		Status int `json:"status"`
-	}
-	// 同 handleAdminSetUserStatus：必须检查 err 并限定取值。
-	// 后台前端只在 0(下线) / 1(上线) 之间切换（app-version/index.vue:159），
-	// 裸调会让解析失败时静默按 0 处理 —— 把正在推送的版本直接下线。
-	if err := c.ShouldBindJSON(&req); err != nil || (req.Status != 0 && req.Status != 1) {
-		afail(c, 400, 400, "status 只能是 1(上线) 或 0(下线)")
-		return
-	}
-	if err := st.SetAppVersionStatus(id, req.Status); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			afail(c, 404, 404, "版本不存在")
-			return
-		}
-		afail(c, 500, 500, "操作失败")
-		return
-	}
-	aok(c, gin.H{"ok": true})
-}
-
-func handleAdminDeleteVersion(c *gin.Context) {
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil || id <= 0 {
-		afail(c, 400, 400, "参数错误")
-		return
-	}
-	if err := st.DeleteAppVersion(id); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			afail(c, 404, 404, "版本不存在")
-			return
-		}
-		afail(c, 500, 500, "删除失败")
-		return
-	}
-	aok(c, gin.H{"ok": true})
 }
 
 // ---------- 系统设置（站点/存储/推送/SMTP） ----------
@@ -2265,7 +2215,8 @@ func registerAdminRoutes(r *gin.Engine) {
 	auth.GET("/users", handleAdminListUsers)
 	auth.GET("/pairs", handleAdminListPairs)
 	auth.GET("/todos", handleAdminListTodos)
-	auth.GET("/app-versions", handleAdminListVersions)
+	auth.GET("/app-releases", handleAdminListAppReleases)
+	auth.GET("/server-info", handleAdminServerInfo)
 	auth.GET("/audit-logs", handleAdminListAudit)
 	auth.GET("/network-logs", handleAdminListNetworkLogs)
 	auth.GET("/notify-templates", handleAdminListTemplates)
@@ -2285,17 +2236,13 @@ func registerAdminRoutes(r *gin.Engine) {
 	sup.PUT("/users/:id/status", handleAdminSetUserStatus)
 	sup.PUT("/pairs/:id", handleAdminUpdatePair)
 	sup.POST("/pairs/:id/unbind", handleAdminUnbindPair)
+	sup.POST("/pairs/:id/cancel-invite", handleAdminCancelPendingInvite)
 	sup.PUT("/todos/:id", handleAdminUpdateTodo)
 	sup.DELETE("/todos/:id", handleAdminDeleteTodo)
 	// 相册照片是全站最私密的内容，列表与删除都收敛到超管（普通 admin 连元数据都不给看）。
 	sup.GET("/photos", handleAdminListPhotos)
 	sup.PUT("/photos/:id", handleAdminUpdatePhoto)
 	sup.DELETE("/photos/:id", handleAdminDeletePhoto)
-
-	sup.POST("/app-versions", handleAdminCreateVersion)
-	sup.PUT("/app-versions/:id", handleAdminUpdateVersion)
-	sup.PUT("/app-versions/:id/status", handleAdminSetVersionStatus)
-	sup.DELETE("/app-versions/:id", handleAdminDeleteVersion)
 
 	sup.GET("/admins", handleAdminListAdmins)
 	sup.POST("/admins", handleAdminCreateAdmin)

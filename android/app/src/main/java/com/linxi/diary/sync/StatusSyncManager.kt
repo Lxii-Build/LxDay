@@ -80,6 +80,10 @@ object StatusSyncManager {
     fun connect() {
         if (!ProfileSyncPolicy.canConnectNow()) return
         val token = UserPrefs.token ?: return
+        if (!BuildConfig.DEBUG && !WS_URL.startsWith("wss://", ignoreCase = true)) {
+            Logs.e("Sync", "Refusing insecure WebSocket endpoint in release build: $WS_URL")
+            return
+        }
         if (ws != null) return
         val generation = connectionGeneration
         val req = Request.Builder()
@@ -222,6 +226,15 @@ object StatusSyncManager {
     /** 发送方撤回响铃：让接收方立刻停止响铃。 */
     fun sendRingCancel(ringId: String?): Boolean = sendEvent(MSG_RING_CANCEL, ringId)
 
+    /** 撤回一次陪伴/冷静请求，使用原请求 ID 避免误撤回后续请求。 */
+    fun sendInteractionCancel(type: String, requestId: String?): Boolean =
+        if (type == MSG_COMFORT_CANCEL || type == MSG_CALM_CANCEL) {
+            sendEvent(type, requestId)
+        } else {
+            Logs.w("Sync", "Unsupported interaction cancellation: $type")
+            false
+        }
+
     /**
      * 接收方已关闭响铃的回执，供发送方结束"响铃中"倒计时并显示「对方已知悉」。
      * 由 RingStopReceiver / RingActivity 调用。
@@ -260,8 +273,10 @@ object StatusSyncManager {
                 // 息屏/亮屏 → 静默通知（不弹不响，仅落通知栏）。
                 maybeNotifyQuiet(previous, DeviceStatusHolder.partner)
             }
-            "comfort_request" -> notifyEvent("对方 需要你的陪伴", "点击回应 TA")
-            "calm_request" -> notifyEvent("对方 现在需要冷静", "暂时放缓沟通，给 TA 一点空间")
+            "comfort_request" -> notifyEvent("对方 需要你的陪伴", "点击回应 TA", NOTIFY_ID_COMFORT)
+            "comfort_cancel" -> cancelInteractionNotification(MSG_COMFORT_REQUEST)
+            "calm_request" -> notifyEvent("对方 现在需要冷静", "暂时放缓沟通，给 TA 一点空间", NOTIFY_ID_CALM)
+            "calm_cancel" -> cancelInteractionNotification(MSG_CALM_REQUEST)
             "ring_request" -> appContext?.let { ctx ->
                 // RingHelper 自己就会发带【停止响铃】按钮的全屏通知（同一个 id）。
                 // 旧代码此处还额外 notify(10002) 一条普通通知，会把全屏通知连同停止按钮一起覆盖掉。
@@ -304,7 +319,7 @@ object StatusSyncManager {
         }
     }
 
-    private fun notifyEvent(title: String, body: String) {
+    private fun notifyEvent(title: String, body: String, notificationId: Int = nextNotificationId()) {
         try {
             val c = appContext ?: return
             // 渠道由 NotificationChannels 统一创建；此处不再各自 createNotificationChannel
@@ -320,11 +335,24 @@ object StatusSyncManager {
                 .setAutoCancel(true)
                 .setContentIntent(openApp)
                 .build()
-            nm.notify(System.currentTimeMillis().toInt(), n)
+            nm.notify(notificationId, n)
         } catch (t: Throwable) {
             Logs.w("Sync", "notifyEvent 失败", t)
         }
     }
+
+    private fun cancelInteractionNotification(type: String) {
+        val c = appContext ?: return
+        val id = when (type) {
+            MSG_COMFORT_REQUEST -> NOTIFY_ID_COMFORT
+            MSG_CALM_REQUEST -> NOTIFY_ID_CALM
+            else -> return
+        }
+        runCatching { NotificationChannels.ensure(c)?.cancel(id) }
+            .onFailure { Logs.w("Sync", "cancel interaction notification failed", it) }
+    }
+
+    private fun nextNotificationId(): Int = (System.nanoTime() and 0x7fffffff).toInt()
 
     /**
      * 服务端拒绝了本机刚发出的动作（如响铃 10 分钟内已 3 次）。
@@ -385,10 +413,19 @@ object StatusSyncManager {
 
     const val MSG_RING_CANCEL = "ring_cancel"
     const val MSG_RING_STOPPED = "ring_stopped"
+    const val MSG_COMFORT_REQUEST = "comfort_request"
+    const val MSG_CALM_REQUEST = "calm_request"
+    const val MSG_COMFORT_CANCEL = "comfort_cancel"
+    const val MSG_CALM_CANCEL = "calm_cancel"
+    // 10003 已由 NotificationChannels.NOTIFY_ID_QUIET 占用，互动通知必须使用独立 ID。
+    private const val NOTIFY_ID_COMFORT = 10004
+    private const val NOTIFY_ID_CALM = 10005
     private val outboundEventTypes = setOf(
         "wifi_joined",
-        "comfort_request",
-        "calm_request",
+        MSG_COMFORT_REQUEST,
+        MSG_CALM_REQUEST,
+        MSG_COMFORT_CANCEL,
+        MSG_CALM_CANCEL,
         "ring_request",
         MSG_RING_CANCEL,
         MSG_RING_STOPPED,

@@ -68,6 +68,16 @@ func (p *PushGateway) Send(uid int64, eventType string, data interface{}) {
 	}
 }
 
+// Cancel gives a real push provider a cancellation hook. The current
+// provider is intentionally a placeholder, but queue removal still ensures a
+// cancelled request is never replayed after reconnect.
+func (p *PushGateway) Cancel(uid int64, eventType, interactionID string) {
+	if p == nil || interactionID == "" {
+		return
+	}
+	slog.Info("push cancellation requested", "uid", uid, "event_type", eventType, "interaction_id", interactionID)
+}
+
 // 事件 → 通知文案（含发信人）
 func eventContent(eventType string, data interface{}) (title, body string) {
 	from := "对方"

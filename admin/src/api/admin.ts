@@ -39,6 +39,10 @@ export function unbindPair(id: number) {
   return request.post<{ ok: boolean }>({ url: `/api/admin/pairs/${id}/unbind` })
 }
 
+export function cancelPendingInvite(id: number) {
+  return request.post<{ ok: boolean }>({ url: `/api/admin/pairs/${id}/cancel-invite` })
+}
+
 // ---------- 内容审核 ----------
 export function fetchTodoList(params: Api.Admin.TodoSearchParams) {
   return request.get<Api.Admin.TodoList>({ url: '/api/admin/todos', params })
@@ -70,28 +74,13 @@ export function deletePhoto(id: number) {
   return request.del<{ ok: boolean }>({ url: `/api/admin/photos/${id}` })
 }
 
-// ---------- APP 版本发布 ----------
-export function fetchAppVersionList(params: Api.Admin.AppVersionSearchParams) {
-  return request.get<Api.Admin.AppVersionList>({ url: '/api/admin/app-versions', params })
+// ---------- GitHub Releases / 服务端信息 ----------
+export function fetchAppReleases() {
+  return request.get<Api.Admin.AppReleasesResponse>({ url: '/api/admin/app-releases' })
 }
 
-export function createAppVersion(data: Api.Admin.AppVersionCreateParams) {
-  return request.post<{ id: number }>({ url: '/api/admin/app-versions', data })
-}
-
-export function updateAppVersion(id: number, data: Api.Admin.AppVersionUpdateParams) {
-  return request.put<{ ok: boolean }>({ url: `/api/admin/app-versions/${id}`, data })
-}
-
-export function updateAppVersionStatus(id: number, status: number) {
-  return request.put<{ ok: boolean }>({
-    url: `/api/admin/app-versions/${id}/status`,
-    data: { status }
-  })
-}
-
-export function deleteAppVersion(id: number) {
-  return request.del<{ ok: boolean }>({ url: `/api/admin/app-versions/${id}` })
+export function fetchServerInfo() {
+  return request.get<Api.Admin.ServerInfo>({ url: '/api/admin/server-info' })
 }
 
 // ---------- 通知 ----------

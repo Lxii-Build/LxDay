@@ -15,6 +15,8 @@ object WsEventRouter {
         "partner_status",
         "comfort_request",
         "calm_request",
+        "comfort_cancel",
+        "calm_cancel",
         "ring_request",
         "ring_cancel",
         "ring_stopped",

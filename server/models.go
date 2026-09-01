@@ -190,19 +190,6 @@ type PushToken struct {
 	Token    string `json:"token"`
 }
 
-// AppVersion APP 版本发布记录（后台管理 + 客户端检查更新）
-type AppVersion struct {
-	ID          int64     `json:"id"`
-	Platform    string    `json:"platform"` // android/ios
-	VersionName string    `json:"version_name"`
-	VersionCode int       `json:"version_code"`
-	APKURL      string    `json:"apk_url"`
-	Notes       string    `json:"notes"`
-	ForceUpdate bool      `json:"force_update"`
-	Status      int       `json:"status"` // 1已发布 0下架
-	CreatedAt   time.Time `json:"created_at"`
-}
-
 // ================= WebSocket 消息协议 =================
 
 type WsMessage struct {
@@ -215,6 +202,8 @@ const (
 	MsgPartnerStatus  = "partner_status"  // 服务端→对方 转发状态
 	MsgComfortRequest = "comfort_request" // 求陪伴
 	MsgCalmRequest    = "calm_request"    // 求冷静
+	MsgComfortCancel  = "comfort_cancel"  // 撤回求陪伴
+	MsgCalmCancel     = "calm_cancel"     // 撤回求冷静
 	MsgRingRequest    = "ring_request"    // 强制响铃
 	MsgRingCancel     = "ring_cancel"     // 发送方撤回响铃（接收方据此立即停止）
 	MsgRingStopped    = "ring_stopped"    // 接收方已关闭响铃的回执（发送方据此结束倒计时）
@@ -235,6 +224,8 @@ const (
 // 撤回/回执一旦延迟送达就毫无意义甚至有害——用户重连后突然收到一小时前的
 // "对方撤回了响铃"，只会造成困惑；而彼时本地响铃早已由 7s 定时器自行结束。
 var transientEvents = map[string]bool{
+	MsgComfortCancel:  true,
+	MsgCalmCancel:     true,
 	MsgRingCancel:     true,
 	MsgRingStopped:    true,
 	MsgActionRejected: true,

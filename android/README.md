@@ -59,7 +59,7 @@ app/src/main/
 - **SDK 与语言版本集中在根 `build.gradle.kts` 的 `extra[...]`**：
   minSdk 33 / targetSdk 37 / compileSdk 37 / build-tools 37.0.0 / Java 21。
 - 依赖走 **version catalog**（`libs.versions.toml`）+ Compose BOM，不在模块里写死版本。
-- 构建期可注入 `BASE_URL` / `WS_URL` / `APP_KEY` / `VERSION_NAME` / `VERSION_CODE`
+- 构建期可注入 `BASE_URL` / `WS_URL` / `UPDATE_CHANNEL` / `VERSION_NAME` / `VERSION_CODE`；`UPDATE_CHANNEL=testing` 同时显示正式版与 prerelease，正式渠道只显示正式版
   （`-P` 参数或 `gradle.properties`），缺省有默认值，本地无参也能构建。
 - UI 库是 **miuix**；`material3` 只出现在 `ui/theme` 的配色链里。
 - 图片加载 **Coil 3**（`coil-compose` + `coil-network-okhttp`）。

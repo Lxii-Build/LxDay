@@ -40,9 +40,9 @@
         v          v           v           v           v          v
      /api/v1/*   /media       /ws      /api/admin   /upload(s)   /  兜底
         |          |           |           |           |          |
-     AppKeyGuard  JWTAuth   Authorization  AdminAuth    静态目录    内嵌 SPA
-        |         （不过     查询参数    (+require   nosniff +   go:embed
-     JWTAuth      AppKey）               Super)     非图强制    webdist
+       JWTAuth    JWTAuth   Authorization  AdminAuth    静态目录    内嵌 SPA
+        |            |      查询参数    (+require   nosniff +   go:embed
+        |            |                  Super)     非图强制    webdist
         |          |           |           |        下载         |
         v          v           v           v           v          v
      业务       鉴权图片    WebSocket    后台        静态文件   index.html
@@ -203,7 +203,7 @@ graph TD
         ROUTE["main.go<br/>路由注册"]
         SEC["security.go<br/>SecurityHeaders / 可信代理"]
         NETLOG["netlog.go<br/>RequestLogger（含 skip 前缀）"]
-        AUTH["handlers.go<br/>AppKeyGuard / JWTAuth"]
+        AUTH["handlers.go<br/>JWTAuth / 实时令牌校验"]
         ADMINAUTH["admin.go<br/>AdminAuth / requireSuper"]
     end
 
@@ -461,7 +461,7 @@ sequenceDiagram
   `/upload` 与 `/uploads` 静态目录完全无鉴权，真实路径一旦经截图/日志/Referer 外泄，
   任何人无需登录即可看到私密照片。
 - **归属不符与 id 不存在返回同一个响应**：区别对待等于给出「该 id 存在」的探测信号。
-- **挂在根路径、不经 `AppKeyGuard`**：只挂 `JWTAuth()`。客户端用自建 Coil `ImageLoader`
+- **挂在根路径，只挂 `JWTAuth()`**：客户端用自建 Coil `ImageLoader`
   （`AppImageLoader.kt`）在拦截器里给每个图片请求补 `Authorization` 头。
 - **照片 URL 不进 `request_log`**：netlog 的 skip 前缀含 `/media` 与 `/upload`，
   否则任何能看后台「网络日志」页的管理员都能从日志直接点开私密相册。

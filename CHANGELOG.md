@@ -9,6 +9,34 @@
 
 （暂无）
 
+## [1.0.9] - 2026-09-02
+
+> 本版本以 GitHub prerelease 发布，供测试验证；不会触发强制更新。
+
+### 更新与发布
+
+- APP 更新源改为 GitHub Releases，正式版与测试版分渠道读取，并自动识别 APK 下载链接。
+- 更新弹窗展示新版本号、发布时间、版本渠道、更新说明与历代 Changelog；没有新版本时也可查看历史日志。
+- 关于页移除官网入口，改为更新日志；后台 APP 版本页改为 GitHub Release 看板，并展示服务端版本与提交短 SHA。
+- 删除旧的服务端 APP 版本管理表与手工发布接口，历史数据通过迁移清理，避免后台与 GitHub 版本信息分裂。
+
+### 后台与服务端
+
+- 用户管理支持按启用/禁用筛选，封禁会立即撤销现有用户令牌；关系管理支持搜索、编辑纪念日、解除绑定与作废挂起邀请。
+- 撤回求陪伴/求冷静请求时同步清理离线队列，并取消接收端对应通知，避免撤回后重连又收到旧提醒。
+- 服务端构建注入版本号和提交短 SHA，补齐 GitHub Releases 缓存、ETag、频道筛选和 APK 降级链接。
+- 不再把可从 APK 提取的 APP_KEY 当作安全边界；Release 包强制 HTTPS/WSS，业务鉴权依赖 JWT、实时状态校验与限流。
+
+### Android 体验与可靠性
+
+- 状态共享默认开启但仍遵守首次隐私授权；状态卡片开关与后台采集解耦，避免已开启状态共享却不采集。
+- 远程互动按钮支持再次点击及时撤回，更新导航转场与返回动画，并完善通知 ID 隔离、离线失败提示和重连行为。
+- 更新日志弹窗支持滚动查看历史版本；相册浏览、图片加载鉴权与缓存继续统一走安全媒体代理。
+
+### 验证
+
+- 后台 `vue-tsc` 与 Vite 生产构建通过；服务端与 Android 编译/测试由发布工作流执行并作为发布门禁。
+
 ## [1.0.8] - 2026-09-01
 
 ### 运营后台数据维护
@@ -636,7 +664,11 @@ GIF 帧炸弹与提前中止、旋正缩放合并前后产物尺寸一致、壁�
   含「本机代理会造成假 502」的排查警告）、[docs/SELFTEST_0821.md](docs/SELFTEST_0821.md)
   （真机自测清单，含「我已验证 / 我无法验证」的分界）。
 
-[Unreleased]: https://github.com/Lxii-Build/LxDay/compare/v1.0.5...HEAD
+[Unreleased]: https://github.com/Lxii-Build/LxDay/compare/v1.0.9...HEAD
+[1.0.9]: https://github.com/Lxii-Build/LxDay/releases/tag/v1.0.9
+[1.0.8]: https://github.com/Lxii-Build/LxDay/releases/tag/v1.0.8
+[1.0.7]: https://github.com/Lxii-Build/LxDay/releases/tag/v1.0.7
+[1.0.6]: https://github.com/Lxii-Build/LxDay/releases/tag/v1.0.6
 [1.0.5]: https://github.com/Lxii-Build/LxDay/releases/tag/v1.0.5
 [1.0.4]: https://github.com/Lxii-Build/LxDay/releases/tag/v1.0.4
 [1.0.3]: https://github.com/Lxii-Build/LxDay/releases/tag/v1.0.3

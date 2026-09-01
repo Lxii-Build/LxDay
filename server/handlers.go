@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"crypto/rand"
-	"crypto/subtle"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -203,7 +202,7 @@ func fail(c *gin.Context, httpCode, bizCode int, msg string) {
 //
 // **这是生产 502 的根因修复。** Go 的 http server 在 handler 返回时只会自动排空
 // 最多 256KB 的未读 body，超过就直接关闭连接。于是任何「大 body + 提前拒绝」的组合
-// （AppKeyGuard 403 / JWTAuth 401 / 配额 429 / 超过单张上限 400）都会让 Nginx
+// （JWTAuth 401 / 配额 429 / 超过单张上限 400）都会让 Nginx
 // 在还没写完 body 时撞上 RST，对外表现为 **502 Bad Gateway**，
 // 而不是我们精心写的中文错误——客户端只能显示"服务器开小差了"，
 // 用户完全不知道真实原因是格式还是配额。
@@ -387,25 +386,6 @@ func bearerToken(header string) string {
 
 func currentUID(c *gin.Context) int64 {
 	return c.GetInt64("uid")
-}
-
-// AppKeyGuard 通讯密钥中间件：校验请求头 X-App-Key 是否与配置 app_key 一致。
-// 仅挂在 /api/v1/* 分组；app_key 为空时禁用（放行）。错误沿用 /api/v1 错误信封。
-func AppKeyGuard() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		expected := cfg.App.AppKey
-		if expected == "" {
-			c.Next()
-			return
-		}
-		got := c.GetHeader("X-App-Key")
-		if subtle.ConstantTimeCompare([]byte(got), []byte(expected)) != 1 {
-			fail(c, http.StatusForbidden, 1016, "客户端校验失败")
-			c.Abort()
-			return
-		}
-		c.Next()
-	}
 }
 
 // ================= 认证 =================

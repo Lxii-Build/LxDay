@@ -6,7 +6,10 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -160,7 +163,14 @@ fun LinxiApp() {
     LaunchedEffect(Unit) {
         if (UserPrefs.token != null) {
             runCatching { ApiClient.pairStatus() }
-            runCatching { UpdateInfo.fromJson(ApiClient.checkUpdate(com.linxi.diary.BuildConfig.VERSION_CODE)) }
+            runCatching {
+                UpdateInfo.fromJson(
+                    ApiClient.checkUpdate(
+                        com.linxi.diary.BuildConfig.VERSION_CODE,
+                        com.linxi.diary.BuildConfig.UPDATE_CHANNEL,
+                    ),
+                )
+            }
                 .onSuccess { if (it.hasUpdate) pendingUpdate = it }
         }
     }
@@ -173,8 +183,10 @@ fun LinxiApp() {
             AnimatedContent(
                 targetState = screen,
                 transitionSpec = {
-                    (fadeIn(tween(240)) + slideInHorizontally(tween(320)) { it / 10 }) togetherWith
-                        fadeOut(tween(180))
+                    (fadeIn(tween(220)) + slideInHorizontally(tween(280)) { it / 6 } +
+                        scaleIn(tween(220), initialScale = 0.985f)) togetherWith
+                        (fadeOut(tween(160)) + slideOutHorizontally(tween(220)) { -it / 12 } +
+                            scaleOut(tween(160), targetScale = 0.985f))
                 },
                 label = "screen",
             ) { target ->

@@ -22,6 +22,8 @@ WORKDIR /src
 ENV GOPROXY=https://goproxy.cn,direct
 ARG TARGETOS
 ARG TARGETARCH
+ARG BUILD_VERSION=dev
+ARG BUILD_COMMIT=unknown
 COPY server/go.mod server/go.sum ./
 RUN go mod download
 COPY server/ ./
@@ -29,7 +31,9 @@ COPY server/ ./
 RUN rm -rf webdist
 COPY --from=web /admin/dist/ ./webdist/
 # modernc.org/sqlite 为纯 Go 实现，可在 CGO_ENABLED=0 下静态编译
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -mod=readonly -trimpath -ldflags "-s -w" -o /out/linxi-server .
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -mod=readonly -trimpath \
+    -ldflags "-s -w -X main.serverVersion=$BUILD_VERSION -X main.serverCommit=$BUILD_COMMIT" \
+    -o /out/linxi-server .
 
 # ---- 阶段③：运行时（非 root；命名卷首次挂载会继承下方目录权限） ----
 FROM alpine:3.20

@@ -13,6 +13,10 @@
               @keyup.enter="handleSearch"
               @clear="handleSearch"
             />
+            <ElSelect v-model="searchForm.status" clearable style="width: 140px" @change="handleSearch">
+              <ElOption :label="$t('userManage.status.normal')" :value="1" />
+              <ElOption :label="$t('userManage.status.disabled')" :value="2" />
+            </ElSelect>
             <ElButton type="primary" @click="handleSearch">{{ $t('common.search') }}</ElButton>
             <ElButton @click="handleReset">{{ $t('common.reset') }}</ElButton>
           </ElSpace>
@@ -103,7 +107,7 @@
 
   const { t } = useI18n()
 
-  const searchForm = ref({ keyword: '' })
+  const searchForm = ref<{ keyword: string; status?: number }>({ keyword: '' })
   const editVisible = ref(false)
   const editSubmitting = ref(false)
   const editingUser = ref<UserItem | null>(null)
@@ -147,7 +151,7 @@
   } = useTable({
     core: {
       apiFn: fetchUserList,
-      apiParams: { current: 1, size: 20, keyword: '' },
+      apiParams: { current: 1, size: 20, keyword: '', status: undefined },
       columnsFactory: () => [
         { prop: 'id', label: t('userManage.table.id'), width: 80 },
         {
@@ -239,12 +243,12 @@
   })
 
   const handleSearch = () => {
-    replaceSearchParams({ keyword: searchForm.value.keyword })
+    replaceSearchParams({ keyword: searchForm.value.keyword, status: searchForm.value.status })
     getData()
   }
 
   const handleReset = () => {
-    searchForm.value.keyword = ''
+    searchForm.value = { keyword: '' }
     resetSearchParams()
   }
 
@@ -283,7 +287,7 @@
   }
 
   const toggleStatus = (row: UserItem) => {
-    const next = row.status === 1 ? 0 : 1
+    const next = row.status === 1 ? 2 : 1
     const name = row.nickname || row.username || `#${row.id}`
 
     ElMessageBox.confirm(

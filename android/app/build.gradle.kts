@@ -17,10 +17,14 @@ val androidTargetCompatibility = rootProject.extra["androidTargetCompatibility"]
 val propBaseUrl = (project.findProperty("BASE_URL") as String?)?.takeIf { it.isNotBlank() }
     ?: "https://love.lxii.cc/api/v1"
 val propWsUrl = (project.findProperty("WS_URL") as String?) ?: ""
-val propAppKey = (project.findProperty("APP_KEY") as String?) ?: ""
 val propVersionName = (project.findProperty("VERSION_NAME") as String?)?.takeIf { it.isNotBlank() }
     ?: "1.0.0"
 val propVersionCode = (project.findProperty("VERSION_CODE") as String?)?.toIntOrNull() ?: 1
+val propUpdateChannel = (project.findProperty("UPDATE_CHANNEL") as String?)
+    ?.trim()
+    ?.lowercase()
+    ?.takeIf { it == "testing" }
+    ?: "stable"
 
 // ---- 正式签名（PKCS#12）----
 // 每次构建的 APK 签名必须完全一致，否则装不上/覆盖不了已有版本。
@@ -102,10 +106,12 @@ android {
         versionName = propVersionName
 
         // 安全模式：true = 启动极简 UI（跳过主题/backdrop/miuix），用于闪退二分定位
-        // 构建期注入的服务端地址 / WS 地址 / 通讯密钥（空则运行时回退推导 / 不发密钥头）
+        // 构建期注入的服务端地址 / WS 地址。
+        // 旧编排仍可传入 APP_KEY，但本模块不读取也不编译它：APK 可被解包，
+        // 任何共享通讯密钥都不能作为客户端可信凭据。
         buildConfigField("String", "BASE_URL", "\"$propBaseUrl\"")
         buildConfigField("String", "WS_URL", "\"$propWsUrl\"")
-        buildConfigField("String", "APP_KEY", "\"$propAppKey\"")
+        buildConfigField("String", "UPDATE_CHANNEL", "\"$propUpdateChannel\"")
     }
 
     lint {

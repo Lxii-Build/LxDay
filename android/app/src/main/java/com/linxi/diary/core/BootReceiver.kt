@@ -55,7 +55,7 @@ class BootReceiver : BroadcastReceiver() {
         if (!ProfileSyncPolicy.canConnectNow()) return
 
         val appCtx = context.applicationContext
-        if (SharingRuntimePolicy.canRunNow() && UserPrefs.statusCardEnabled) {
+        if (SharingRuntimePolicy.canRunNow()) {
             StatusForegroundService.start(appCtx)
         }
         StatusSyncManager.connect()

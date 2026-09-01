@@ -44,7 +44,7 @@ func validateDeviceStatus(in *DeviceStatus) error {
 func isClientWSMessage(messageType string) bool {
 	switch messageType {
 	case MsgStatusUpdate, MsgWifiJoined, MsgRingRequest, MsgComfortRequest,
-		MsgCalmRequest, MsgRingCancel, MsgRingStopped:
+		MsgCalmRequest, MsgComfortCancel, MsgCalmCancel, MsgRingCancel, MsgRingStopped:
 		return true
 	default:
 		return false
@@ -70,6 +70,11 @@ func clientInteractionPayload(data []byte) (map[string]interface{}, bool) {
 		return nil, false
 	}
 	return map[string]interface{}{"ring_id": raw.Data.RingID}, true
+}
+
+func interactionID(payload map[string]interface{}) string {
+	id, _ := payload["ring_id"].(string)
+	return id
 }
 
 func isSafeRingID(id string) bool {

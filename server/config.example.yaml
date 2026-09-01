@@ -5,7 +5,7 @@ app:
   token_ttl_hours: 720          # JWT 有效期（30天）
   ring_cooldown_seconds: 600    # 响铃冷却：同一对情侣 10 分钟内最多 N 次
   ring_cooldown_limit: 3
-  app_key: ""                   # 通讯密钥：非空时校验客户端请求头 X-App-Key（仅 /api/v1/*）；留空禁用。可用环境变量 APP_KEY 覆盖
+  app_key: ""                   # 旧版兼容配置（当前客户端不再携带可提取的共享密钥）；可用环境变量 APP_KEY 覆盖。生产请使用 HTTPS + JWT
 
 db:
   path: "data/lxday.db"          # 内嵌 SQLite 文件路径（相对工作目录或绝对路径）；也可用环境变量 DB_PATH 覆盖

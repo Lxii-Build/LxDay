@@ -75,7 +75,8 @@ class StatusForegroundService : Service() {
         }
 
         fun start(context: Context) {
-            if (!UserPrefs.statusCardEnabled || !SharingRuntimePolicy.canRunNow()) return
+            // 状态卡片只是展示开关，不能阻止后台采集与上报。
+            if (!SharingRuntimePolicy.canRunNow()) return
             startSafe(context, null)
         }
 
@@ -135,7 +136,7 @@ class StatusForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        if (!UserPrefs.statusCardEnabled || !SharingRuntimePolicy.canRunNow()) {
+        if (!SharingRuntimePolicy.canRunNow()) {
             stopSelf()
             return
         }
@@ -182,7 +183,7 @@ class StatusForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (!UserPrefs.statusCardEnabled || !SharingRuntimePolicy.canRunNow()) {
+        if (!SharingRuntimePolicy.canRunNow()) {
             stopSelf()
             return START_NOT_STICKY
         }

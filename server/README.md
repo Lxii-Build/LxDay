@@ -20,7 +20,7 @@ JWT_SECRET=$(openssl rand -hex 32) go run . config.yaml
 ```
 
 `jwt_secret` 未设置或含 `change` 字样会**拒绝启动**（空密钥等于令牌可任意伪造）。
-环境变量 `JWT_SECRET` / `APP_KEY` / `PORT` / `DB_PATH` 覆盖配置文件同名项。
+环境变量 `JWT_SECRET` / `APP_KEY` / `PORT` / `DB_PATH` 覆盖配置文件同名项；`APP_KEY` 仅为旧部署兼容字段，当前认证依赖 HTTPS 与 JWT。
 
 ## 目录
 
@@ -32,7 +32,7 @@ JWT_SECRET=$(openssl rand -hex 32) go run . config.yaml
 | memstore.go | 进程内存态实现（替代 Redis；重启即失，见下「说明」） |
 | migrations.go | 启动执行内嵌 `sql/schema.sql` + 幂等补列（`PRAGMA table_info` 探测） |
 | hub.go | WebSocket 实时通道（单机内存路由，多节点扩展点见注释） |
-| handlers.go | 认证/绑定/待办/历史/状态上报 handler + JWTAuth + AppKeyGuard |
+| handlers.go | 认证/绑定/待办/历史/状态上报 handler + JWTAuth |
 | account.go | 注册/登录/邮箱验证码/扩展资料 |
 | invite.go | 邀请码生成与绑定限流 |
 | album_handlers.go | 相册与照片接口（含保留字分派） |
@@ -49,16 +49,16 @@ JWT_SECRET=$(openssl rand -hex 32) go run . config.yaml
 ## 接口速览
 
 以 `main.go` 的路由注册段为准。中间件链：全局 `SecurityHeaders → RequestLogger → Recovery`；
-`/api/v1/*` 再过 `AppKeyGuard`（`app_key` 非空时校验请求头 `X-App-Key`），
-其下 `auth` 分组再过 `JWTAuth`。
+`/api/v1/*` 的公开接口使用 HTTPS 与按 IP 限流，登录后的接口再过 `JWTAuth`。
+客户端不再携带可被解包提取的共享密钥；`APP_KEY` 只保留为旧部署兼容字段。
 
-**公开（仅 AppKeyGuard，无需登录）**
+**公开（无需登录）**
 
 ```
 POST /api/v1/auth/register           注册
 POST /api/v1/auth/login              登录
 POST /api/v1/auth/send-code          发送邮箱验证码（60s 冷却，码 10min 有效）
-GET  /api/v1/app/latest?platform=&version_code=   检查更新
+GET  /api/v1/app/latest?platform=&version_code=&channel=stable|testing   从 GitHub Releases 检查更新并返回历史
 ```
 
 **绑定与资料**
@@ -124,7 +124,7 @@ GET  /api/v1/albums/summary          相册概要 → handleAlbumByID 内识别
 GET  /api/v1/photos/on-this-day?month=&day=   历年同月同日 → handlePhotoByID 内识别
 GET  /api/v1/photos/recycled?page=&size=      回收站列表 → handlePhotoByID 内识别
 
-# 图片读取：挂在根路径，只过 JWTAuth（不过 AppKeyGuard），见 ②
+# 图片读取：挂在根路径，只过 JWTAuth，见 ②
 GET  /media/:id                      原图字节流
 GET  /media/:id/thumb                缩略图字节流（长边 384，网格用）
 GET  /media/:id/preview              中间尺寸字节流（长边 1080，大图页先加载这档）
@@ -139,12 +139,12 @@ gin 的路由树不允许同一层级同时存在静态段与通配段，同时�
 `handlePhotoByID` 认 `on-this-day` 与 `recycled`。**对外路径与独立注册毫无差别**，客户端无感。
 代价：以后新增保留字必须同步改 handler 的 switch，且相册不能有 id 为 `summary` 的字面路径。
 
-**② `/media/:id` 挂在根路径而非 `/api/v1` 下，且不过 `AppKeyGuard`。**
+**② `/media/:id` 挂在根路径而非 `/api/v1` 下，只过 `JWTAuth`。**
 根路径是因为 `netlog.go` 的日志 skip 前缀是 `/media`——挂到 `/api/v1/media` 就会漏出
 skip 名单，每张照片的完整 URL 都被写进 `request_log`，而后台「网络日志」页对管理员可读，
 等于任何管理员都能从日志里直接点开情侣的私密照片。那正是这套代理要防的事。
-不过 `AppKeyGuard` 是因为图片由客户端图片库（Coil）发起，只能保证带上 `Authorization` 头，
-补不了自定义的 `X-App-Key`。鉴权由 `JWTAuth` + `mustPair` + 照片 `pair_id` 比对承担，
+这是因为图片由客户端图片库（Coil）发起，只携带 `Authorization` 头即可完成鉴权。
+鉴权由 `JWTAuth` + `mustPair` + 照片 `pair_id` 比对承担，
 **归属不符与 id 不存在返回同一个 403**（区别对待等于给出「该 id 存在」的探测信号）。
 
 **③ 相册照片对外 URL 一律是 `/media/<photoId>` 与 `/media/<photoId>/thumb`。**
@@ -155,7 +155,7 @@ skip 名单，每张照片的完整 URL 都被写进 `request_log`，而后台�
 其中 `safeUploadPath` 还会挡住库值被写坏时的路径穿越。响应头 `Cache-Control: private`
 只允许终端自己缓存，禁止中间代理与 CDN 留副本。
 
-**运营后台 `/api/admin/*`**（`admin.go`，不过 `AppKeyGuard`）
+**运营后台 `/api/admin/*`**（`admin.go`，使用 `AdminAuth`）
 
 `AdminAuth` 的 role / must_change / status **全部实时读库，不信 token 里的副本**——
 否则管理员被降级或禁用后，旧 token 仍按老权限畅通整个有效期。
@@ -171,7 +171,7 @@ GET  /api/admin/stats                概览统计
 GET  /api/admin/users                用户列表
 GET  /api/admin/pairs                情侣关系列表
 GET  /api/admin/todos                待办列表
-GET  /api/admin/app-versions         版本列表
+GET  /api/admin/app-releases         GitHub Releases 版本列表
 GET  /api/admin/audit-logs           系统日志（管理员操作审计）
 GET  /api/admin/network-logs         网络日志（API 请求日志）
 GET  /api/admin/notify-templates     通知模板列表
@@ -184,9 +184,7 @@ POST /api/admin/pairs/:id/unbind          强制解绑
 DELETE /api/admin/todos/:id               删待办
 GET  /api/admin/photos                    相册照片审核（**只给元数据，不返回图片 URL**）
 DELETE /api/admin/photos/:id              软删照片（进用户回收站，用户可自行恢复）
-POST /api/admin/app-versions              发版
-PUT  /api/admin/app-versions/:id/status   上下架
-DELETE /api/admin/app-versions/:id        删版本
+GET  /api/admin/server-info               服务端版本与提交短 SHA
 GET  /api/admin/admins                    管理员列表
 POST /api/admin/admins                    新增管理员
 PUT  /api/admin/admins/:id                改角色（白名单 admin/super）
@@ -217,7 +215,7 @@ POST /api/admin/notify                    向用户群发通知
 | 1001 | 未绑定 / 已绑定 | 1013 | 邮件服务未配置 |
 | 1002 | 参数错误 | 1014 | 验证码发送失败 |
 | 1003 | 未授权（登录已失效） | 1015 | 验证码错误或已过期 |
-| 1006 | 昵称 / 用户名 / 邮箱被占用 | 1016 | 客户端校验失败（`X-App-Key`）/ 验证码试错超限 |
+| 1006 | 昵称 / 用户名 / 邮箱被占用 | 1016 | 验证码试错超限 |
 | 1007 | 账号或密码错误 | 1017 | 无权访问该资源（越权） |
 | 1008 | 邀请码生成失败 | 1018 | 账号已被禁用 |
 | 1009 | 邀请码无效或已过期 | 1019 | 绑定尝试过于频繁 |
