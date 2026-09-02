@@ -66,13 +66,13 @@ func TestReleaseAPKURLOnlyUsesAPKAsset(t *testing.T) {
 }
 
 func TestParseChangelog(t *testing.T) {
-	got := parseChangelog(""+
-		"# Changelog\n\n"+
-		"## [Unreleased]\n\n- not published\n\n"+
-		"## [1.0.9] - 2026-09-02\n\n"+
-		"### 修复\n- **更新日志**改为读取根文件\n\n"+
-		"## 1.0.8 - 2026-09-01\n\n- old\n\n"+
-		"[Unreleased]: https://example.invalid/compare\n"+
+	got := parseChangelog("" +
+		"# Changelog\n\n" +
+		"## [Unreleased]\n\n- not published\n\n" +
+		"## [1.0.9] - 2026-09-02\n\n" +
+		"### 修复\n- **更新日志**改为读取根文件\n\n" +
+		"## 1.0.8 - 2026-09-01\n\n- old\n\n" +
+		"[Unreleased]: https://example.invalid/compare\n" +
 		"[1.0.8]: https://example.invalid/1.0.8\n")
 	if _, ok := got["Unreleased"]; ok {
 		t.Fatal("Unreleased must not be treated as a published release")
