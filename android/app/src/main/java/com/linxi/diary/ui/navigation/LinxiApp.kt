@@ -112,9 +112,9 @@ private fun AnimatedContentTransitionScope<Screen>.globalScreenTransition(
 ): ContentTransform {
     val slideDirection =
         if (direction == NavigationDirection.Forward) SlideDirection.Left else SlideDirection.Right
-    return (slideIntoContainer(slideDirection, tween(320)) + fadeIn(tween(180))) togetherWith
-        (slideOutOfContainer(slideDirection, tween(320)) + fadeOut(tween(220)))
-            .using(SizeTransform(clip = true))
+    return ((slideIntoContainer(slideDirection, tween(320)) + fadeIn(tween(180))) togetherWith
+        (slideOutOfContainer(slideDirection, tween(320)) + fadeOut(tween(220))))
+        .using(SizeTransform(clip = true))
 }
 
 @Composable
