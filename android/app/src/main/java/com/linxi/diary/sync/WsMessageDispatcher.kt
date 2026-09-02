@@ -13,6 +13,12 @@ class WsMessageDispatcher(
                 refreshProfile()
                 true
             }
+            is WsAction.Unbound -> {
+                // 与 profile_updated 一样走服务端权威状态；不能在消息里
+                // 直接相信 pair_id，更不能受状态共享开关门控。
+                refreshProfile()
+                true
+            }
             is WsAction.Sensitive -> {
                 if (!sensitiveEventsAllowed) {
                     false

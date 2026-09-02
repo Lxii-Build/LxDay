@@ -13,7 +13,12 @@
               @keyup.enter="handleSearch"
               @clear="handleSearch"
             />
-            <ElSelect v-model="searchForm.status" clearable style="width: 140px" @change="handleSearch">
+            <ElSelect
+              v-model="searchForm.status"
+              clearable
+              style="width: 140px"
+              @change="handleSearch"
+            >
               <ElOption :label="$t('userManage.status.normal')" :value="1" />
               <ElOption :label="$t('userManage.status.disabled')" :value="2" />
             </ElSelect>
@@ -85,7 +90,8 @@
 <script setup lang="ts">
   import { useI18n } from 'vue-i18n'
   import { useTable } from '@/hooks/core/useTable'
-  import { fetchUserList, updateUserProfile, updateUserStatus } from '@/api/admin'
+  import { deleteUser, fetchUserList, updateUserProfile, updateUserStatus } from '@/api/admin'
+  import { useUserStore } from '@/store/modules/user'
   import { formatDate, formatDateTime } from '@/utils/format/datetime'
   import {
     ElButton,
@@ -106,6 +112,8 @@
   type UserItem = Api.Admin.UserItem
 
   const { t } = useI18n()
+  const userStore = useUserStore()
+  const isSuper = computed(() => userStore.getUserInfo.roles?.includes('super') ?? false)
 
   const searchForm = ref<{ keyword: string; status?: number }>({ keyword: '' })
   const editVisible = ref(false)
@@ -147,6 +155,7 @@
     resetSearchParams,
     handleSizeChange,
     handleCurrentChange,
+    refreshRemove,
     refreshData
   } = useTable({
     core: {
@@ -162,7 +171,7 @@
             h('div', { class: 'flex-c' }, [
               h(ElImage, {
                 class: 'size-9 rounded-md',
-                src: row.avatar_url || '',
+                src: row.avatar_thumbnail_url || '',
                 fit: 'cover'
               }),
               h('div', { class: 'ml-2' }, [
@@ -220,22 +229,33 @@
         {
           prop: 'operation',
           label: t('common.operation'),
-          width: 180,
+          width: 250,
           fixed: 'right',
           formatter: (row) =>
             h('div', [
-              h(ElButton, { type: 'primary', link: true, onClick: () => openEdit(row) }, () =>
-                t('common.edit')
-              ),
-              h(
-                ElButton,
-                {
-                  type: row.status === 1 ? 'danger' : 'success',
-                  link: true,
-                  onClick: () => toggleStatus(row)
-                },
-                () => (row.status === 1 ? t('common.disable') : t('common.enable'))
-              )
+              isSuper.value
+                ? h(ElButton, { type: 'primary', link: true, onClick: () => openEdit(row) }, () =>
+                    t('common.edit')
+                  )
+                : null,
+              isSuper.value
+                ? h(
+                    ElButton,
+                    {
+                      type: row.status === 1 ? 'danger' : 'success',
+                      link: true,
+                      onClick: () => toggleStatus(row)
+                    },
+                    () => (row.status === 1 ? t('common.disable') : t('common.enable'))
+                  )
+                : null,
+              isSuper.value
+                ? h(
+                    ElButton,
+                    { type: 'danger', link: true, onClick: () => handleDelete(row) },
+                    () => t('common.delete')
+                  )
+                : h('span', { class: 'art-text-gray-400' }, t('systemSettings.runtime.superOnly'))
             ])
         }
       ]
@@ -280,30 +300,58 @@
       })
       ElMessage.success(t('userManage.editSuccess'))
       editVisible.value = false
-      refreshData()
+      await refreshData()
     } finally {
       editSubmitting.value = false
     }
   }
 
-  const toggleStatus = (row: UserItem) => {
+  const toggleStatus = async (row: UserItem) => {
     const next = row.status === 1 ? 2 : 1
     const name = row.nickname || row.username || `#${row.id}`
 
-    ElMessageBox.confirm(
-      next === 1
-        ? t('userManage.enableConfirm', { name })
-        : t('userManage.disableConfirm', { name }),
-      next === 1 ? t('userManage.enableTitle') : t('userManage.disableTitle'),
-      {
-        confirmButtonText: t('common.confirm'),
-        cancelButtonText: t('common.cancel'),
-        type: 'warning'
-      }
-    ).then(async () => {
+    try {
+      await ElMessageBox.confirm(
+        next === 1
+          ? t('userManage.enableConfirm', { name })
+          : t('userManage.disableConfirm', { name }),
+        next === 1 ? t('userManage.enableTitle') : t('userManage.disableTitle'),
+        {
+          confirmButtonText: t('common.confirm'),
+          cancelButtonText: t('common.cancel'),
+          type: 'warning'
+        }
+      )
       await updateUserStatus(row.id, next)
       ElMessage.success(next === 1 ? t('userManage.enableSuccess') : t('userManage.disableSuccess'))
-      refreshData()
-    })
+      await refreshData()
+    } catch (error) {
+      // Element Plus rejects with a string when the operator cancels. Request
+      // errors have already been displayed by the shared HTTP interceptor.
+      if (error === 'cancel' || error === 'close') return
+    }
+  }
+
+  const handleDelete = async (row: UserItem) => {
+    const name = row.nickname || row.username || `#${row.id}`
+    try {
+      await ElMessageBox.confirm(
+        t('userManage.deleteConfirm', { name }),
+        t('userManage.deleteTitle'),
+        {
+          confirmButtonText: t('common.delete'),
+          cancelButtonText: t('common.cancel'),
+          type: 'warning'
+        }
+      )
+      await deleteUser(row.id)
+      ElMessage.success(t('userManage.deleteSuccess'))
+      await refreshRemove()
+    } catch (error) {
+      // Element Plus uses a string for an intentional cancel; API errors must
+      // remain visible so a blocked active pair is actionable to the operator.
+      if (error === 'cancel' || error === 'close') return
+      ElMessage.error(error instanceof Error ? error.message : t('userManage.deleteError'))
+    }
   }
 </script>

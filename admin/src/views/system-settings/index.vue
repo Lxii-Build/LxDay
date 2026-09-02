@@ -1,8 +1,61 @@
-<!-- 系统设置（站点 / 存储 / SMTP） -->
+<!-- 系统设置（运行参数 / 站点 / SMTP） -->
 <template>
   <div class="system-settings-page art-full-height" v-loading="loading">
     <ElForm ref="formRef" :model="form" :rules="rules" label-width="130px" style="max-width: 760px">
-      <ElCard class="mb-4" shadow="never">
+      <ElCard v-if="runtimeMeta.length" class="mb-4" shadow="never">
+        <template #header>
+          <div class="flex-bt">
+            <span>{{ $t('systemSettings.runtime.title') }}</span>
+            <ElButton text @click="restoreRuntimeDefaults">
+              {{ $t('systemSettings.runtime.restoreDefaults') }}
+            </ElButton>
+          </div>
+        </template>
+        <p class="settings-hint mt-0 mb-4">{{ $t('systemSettings.runtime.hint') }}</p>
+        <template v-for="group in runtimeGroups" :key="group.name">
+          <ElDivider v-if="group.index > 0" content-position="left">
+            {{ runtimeGroupTitle(group.name) }}
+          </ElDivider>
+          <h3 v-else class="runtime-group-title">{{ runtimeGroupTitle(group.name) }}</h3>
+          <ElRow :gutter="24">
+            <ElCol v-for="meta in group.items" :key="meta.key" :xs="24" :sm="12">
+              <ElFormItem
+                :label="meta.label"
+                :class="{ 'runtime-super-only': meta.super && !isSuper }"
+              >
+                <ElSwitch
+                  v-if="meta.kind === 'bool'"
+                  :model-value="runtimeForm[meta.key] === '1'"
+                  :disabled="meta.super && !isSuper"
+                  @update:model-value="(value) => setRuntimeValue(meta.key, value ? '1' : '0')"
+                />
+                <ElInput
+                  v-else
+                  :model-value="runtimeForm[meta.key] || ''"
+                  type="number"
+                  :min="meta.min"
+                  :max="meta.max"
+                  :disabled="meta.super && !isSuper"
+                  @update:model-value="(value) => setRuntimeValue(meta.key, String(value ?? ''))"
+                />
+                <div class="settings-hint">
+                  {{ $t('systemSettings.runtime.range', { min: meta.min, max: meta.max }) }} ·
+                  {{
+                    $t('systemSettings.runtime.default', {
+                      value: runtimeDefaults[meta.key] || '-'
+                    })
+                  }}
+                  <span v-if="meta.super && !isSuper">
+                    · {{ $t('systemSettings.runtime.superOnly') }}
+                  </span>
+                </div>
+              </ElFormItem>
+            </ElCol>
+          </ElRow>
+        </template>
+      </ElCard>
+
+      <ElCard v-if="isSuper" class="mb-4" shadow="never">
         <template #header>{{ $t('systemSettings.site.title') }}</template>
         <ElFormItem :label="$t('systemSettings.site.name')" prop="site.name">
           <ElInput
@@ -27,15 +80,7 @@
         </ElFormItem>
       </ElCard>
 
-      <ElCard class="mb-4" shadow="never">
-        <template #header>{{ $t('systemSettings.storage.title') }}</template>
-        <ElFormItem :label="$t('systemSettings.storage.driver')">
-          <span class="settings-readonly">{{ $t('systemSettings.storage.local') }}</span>
-          <div class="settings-hint">{{ $t('systemSettings.storage.hint') }}</div>
-        </ElFormItem>
-      </ElCard>
-
-      <ElCard class="mb-4" shadow="never">
+      <ElCard v-if="isSuper" class="mb-4" shadow="never">
         <template #header>{{ $t('systemSettings.smtp.title') }}</template>
         <ElFormItem :label="$t('systemSettings.smtp.host')" prop="smtp.host">
           <ElInput v-model.trim="form['smtp.host']" placeholder="smtp.example.com" />
@@ -75,7 +120,7 @@
         </ElFormItem>
       </ElCard>
 
-      <div class="settings-actions">
+      <div v-if="runtimeMeta.length || isSuper" class="settings-actions">
         <ElButton type="primary" :loading="saving" @click="handleSave">
           {{ $t('systemSettings.save') }}
         </ElButton>
@@ -110,24 +155,35 @@
 
 <script setup lang="ts">
   import { useI18n } from 'vue-i18n'
-  import { fetchSettings, updateSettings, sendSmtpTest } from '@/api/admin'
+  import { fetchRuntimeSettings, fetchSettings, updateSettings, sendSmtpTest } from '@/api/admin'
   import { useSiteStore } from '@/store/modules/site'
-  import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
+  import { useUserStore } from '@/store/modules/user'
+  import {
+    ElCol,
+    ElDivider,
+    ElInput,
+    ElMessage,
+    ElRow,
+    ElSwitch,
+    type FormInstance,
+    type FormRules
+  } from 'element-plus'
 
   defineOptions({ name: 'SystemSettings' })
 
   const { t } = useI18n()
+  const userStore = useUserStore()
+  const isSuper = computed(() => userStore.getUserInfo.roles?.includes('super') ?? false)
 
   /**
    * 与服务端 settingKeys 白名单保持一致。
-   * storage.local_dir / push.provider / OSS 相关键均已废弃（服务端不再读取），不出现在此表单。
+   * 存储驱动 / push.provider / OSS 相关键均已废弃（服务端不再读取），不出现在此表单。
    */
   const SETTING_KEYS = [
     'site.name',
     'site.url',
     'site.logo',
     'site.description',
-    'storage.driver',
     'smtp.host',
     'smtp.port',
     'smtp.username',
@@ -144,6 +200,9 @@
   const testing = ref(false)
   const passwordSet = ref(false)
   const testVisible = ref(false)
+  const runtimeMeta = ref<Api.Admin.RuntimeSettingMeta[]>([])
+  const runtimeForm = reactive<Record<string, string>>({})
+  const runtimeDefaults = reactive<Record<string, string>>({})
 
   const formRef = ref<FormInstance>()
   const testFormRef = ref<FormInstance>()
@@ -153,6 +212,30 @@
 
   const form = reactive<Record<string, string>>(createEmpty())
   const testForm = reactive({ to: '' })
+
+  const runtimeGroups = computed(() => {
+    const grouped = new Map<string, Api.Admin.RuntimeSettingMeta[]>()
+    runtimeMeta.value.forEach((meta) => {
+      const items = grouped.get(meta.group) || []
+      items.push(meta)
+      grouped.set(meta.group, items)
+    })
+    return Array.from(grouped, ([name, items], index) => ({ name, items, index }))
+  })
+
+  const runtimeGroupTitle = (group: string) => {
+    const titles: Record<string, string> = {
+      album: t('systemSettings.runtime.groups.album'),
+      retention: t('systemSettings.runtime.groups.retention'),
+      security: t('systemSettings.runtime.groups.security'),
+      interaction: t('systemSettings.runtime.groups.interaction')
+    }
+    return titles[group] || group
+  }
+
+  const setRuntimeValue = (key: string, value: string) => {
+    runtimeForm[key] = value
+  }
 
   // SSL 以字符串 "true"/"false" 存储，界面用布尔开关
   const sslEnabled = computed({
@@ -218,13 +301,21 @@
   const loadSettings = async () => {
     loading.value = true
     try {
-      const data = await fetchSettings()
-      Object.assign(form, createEmpty(), pickKnownKeys(data))
-      // 后端对已设置的密码返回占位符，此处置空并记录状态
-      passwordSet.value = form['smtp.password'] === PLACEHOLDER
-      form['smtp.password'] = ''
-      // 仅支持本地存储：强制归一化驱动，避免遗留的 oss/cos/kodo 值
-      form['storage.driver'] = 'local'
+      const runtimeData = await fetchRuntimeSettings()
+      Object.assign(runtimeForm, runtimeData.values || {})
+      Object.assign(runtimeDefaults, runtimeData.defaults || {})
+      runtimeMeta.value = runtimeData.meta || []
+
+      if (isSuper.value) {
+        const data = await fetchSettings()
+        Object.assign(form, createEmpty(), pickKnownKeys(data.values))
+        // 后端对已设置的密码返回占位符，此处置空并记录状态
+        passwordSet.value = form['smtp.password'] === PLACEHOLDER
+        form['smtp.password'] = ''
+      } else {
+        Object.assign(form, createEmpty())
+        passwordSet.value = false
+      }
       formRef.value?.clearValidate()
     } catch {
       ElMessage.error(t('systemSettings.loadFailed'))
@@ -242,27 +333,69 @@
     return out
   }
 
+  const restoreRuntimeDefaults = () => {
+    Object.assign(runtimeForm, runtimeDefaults)
+    ElMessage.info(t('systemSettings.runtime.defaultsPending'))
+  }
+
+  const validateRuntimeSettings = (): boolean => {
+    for (const meta of runtimeMeta.value) {
+      if (meta.super && !isSuper.value) continue
+      if (meta.kind === 'bool') continue
+      const raw = (runtimeForm[meta.key] || '').trim()
+      const value = Number(raw)
+      if (!/^\d+$/.test(raw) || !Number.isSafeInteger(value)) {
+        ElMessage.error(t('systemSettings.runtime.invalid', { label: meta.label }))
+        return false
+      }
+      if (value < meta.min || (meta.max > 0 && value > meta.max)) {
+        ElMessage.error(
+          t('systemSettings.runtime.outOfRange', {
+            label: meta.label,
+            min: meta.min,
+            max: meta.max
+          })
+        )
+        return false
+      }
+    }
+    return true
+  }
+
   const handleSave = async () => {
     if (!formRef.value) return
     const valid = await formRef.value.validate().catch(() => false)
     if (!valid) return
+    if (!validateRuntimeSettings()) return
 
     saving.value = true
     try {
-      const payload: Api.Admin.Settings = { ...form, 'storage.driver': 'local' }
-      // smtp.password：留空且原本已设置 -> 回传占位符，后端跳过修改
-      if (!form['smtp.password']) {
-        payload['smtp.password'] = passwordSet.value ? PLACEHOLDER : ''
+      const payload: Api.Admin.Settings = {}
+      if (isSuper.value) {
+        Object.assign(payload, form)
+        // smtp.password：留空且原本已设置 -> 回传占位符，后端跳过修改
+        if (!form['smtp.password']) {
+          payload['smtp.password'] = passwordSet.value ? PLACEHOLDER : ''
+        }
       }
+      // 普通管理员只能提交可写的运行参数，不能把超管专属键原样回传，
+      // 否则服务端会按“请求中包含敏感键”正确拒绝整个请求。
+      runtimeMeta.value.forEach((meta) => {
+        if (isSuper.value || !meta.super) {
+          payload[meta.key] = runtimeForm[meta.key] ?? ''
+        }
+      })
       await updateSettings(payload)
       ElMessage.success(t('common.saveSuccess'))
       // 同步站点信息
-      useSiteStore().setSiteInfo({
-        name: form['site.name'],
-        logo: form['site.logo'],
-        description: form['site.description']
-      })
-      loadSettings()
+      if (isSuper.value) {
+        useSiteStore().setSiteInfo({
+          name: form['site.name'],
+          logo: form['site.logo'],
+          description: form['site.description']
+        })
+      }
+      await loadSettings()
     } catch (error) {
       const msg = error instanceof Error ? error.message : ''
       ElMessage.error(msg || t('systemSettings.saveFailed'))

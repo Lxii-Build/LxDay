@@ -139,7 +139,7 @@ body `{"ref":"main","inputs":{...}}`，返回 204 即成功。
 - 老库补列走 `migrations.go` 的 `schemaAddedColumns`
   （SQLite 的 `ALTER TABLE ADD COLUMN` 不支持 `IF NOT EXISTS`，
   所以要先查 `PRAGMA table_info`）
-- 删表（功能下线）走 `DropRetiredTables`，**刻意不在 `runMigrations` 里自动执行**——
-  否则新镜像一上线数据就没了，导出留档的接口会变成废物
+- 功能下线不在启动时自动删表；当前迁移只负责兼容性建表与补列。若将来确需清理
+  退役数据，必须先备份并新增独立、可审计的迁移，不能依赖已删除的后台导出或清理接口
 - `MaxOpenConns(1)`：热路径不要重复查库，配置类读取一律走
   `settings.go` 的进程内缓存（0820 踩过自锁死锁）

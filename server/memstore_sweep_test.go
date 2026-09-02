@@ -96,6 +96,38 @@ func TestSweepDropsStaleEventQueue(t *testing.T) {
 	}
 }
 
+func TestForgetUserClearsUserScopedState(t *testing.T) {
+	m := newMemStore()
+	m.setOnline(7, true, time.Hour)
+	m.saveStatus(7, &DeviceStatus{UserID: 7})
+	m.pushEvent(7, `{"type":"todo_new"}`)
+	m.incr("statusrate:7", time.Hour)
+	m.incr("media:bytes:2026-09-02:7", time.Hour)
+	m.kvSet("lowbattery:7", "10", time.Hour)
+	m.kvSet("emailcode:keep@example.com", "123456", time.Hour)
+
+	m.forgetUser(7)
+
+	if m.isOnline(7) {
+		t.Error("deleted user must not remain online in memory")
+	}
+	if m.getStatus(7) != nil {
+		t.Error("deleted user's cached status must be removed")
+	}
+	if events := m.popEvents(7); len(events) != 0 {
+		t.Errorf("deleted user's queued events must be removed, got %d", len(events))
+	}
+	if got := m.count("statusrate:7"); got != 0 {
+		t.Errorf("deleted user's rate counter must be removed, got %d", got)
+	}
+	if _, ok := m.kvGet("lowbattery:7"); ok {
+		t.Error("deleted user's low-battery state must be removed")
+	}
+	if _, ok := m.kvGet("emailcode:keep@example.com"); !ok {
+		t.Error("forgetUser must not remove unrelated keys")
+	}
+}
+
 // TestNormalizeMemKeyBoundsLength 超长 key 必须被收敛。
 //
 // account/email 直接来自请求体且无长度校验，一个几 MB 的 account 字段

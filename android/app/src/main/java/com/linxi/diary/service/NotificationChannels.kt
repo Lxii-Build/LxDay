@@ -18,7 +18,7 @@ object NotificationChannels {
     /** 常驻状态卡：静默、不计角标。 */
     const val CHANNEL_CARD = "status_card"
 
-    /** 互动提醒：求陪伴/求冷静/待办/日记，需要引起注意。 */
+    /** 互动提醒：求陪伴/求冷静/待办/相册，需要引起注意。 */
     const val CHANNEL_EVENT = "status_event"
 
     /** 紧急响铃：铃声由 RingHelper 的播放器控制，渠道本身不再叠加系统提示音。 */
@@ -75,7 +75,7 @@ object NotificationChannels {
         )
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL_EVENT, "互动提醒", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "求陪伴/求冷静/待办/日记等互动提醒"
+                description = "求陪伴/求冷静/待办/相册等互动提醒"
             }
         )
         nm.createNotificationChannel(

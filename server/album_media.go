@@ -203,7 +203,7 @@ func handleUploadMedia(c *gin.Context) {
 	defer releaseUserSlot()
 	releaseMultipartSlot, parseOK := acquireMultipartParseSlot()
 	if !parseOK {
-		rejectMultipartBusy(c, false)
+		rejectMultipartBusy(c)
 		return
 	}
 	defer releaseMultipartSlot()

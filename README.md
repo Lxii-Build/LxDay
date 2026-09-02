@@ -42,9 +42,8 @@ lx/
 │   ├── admin_album.go        # 后台相册管理 + 磁盘统计 + 缩略图（带审计与 no-store）
 │   ├── settings.go           # 21 项运行参数：范围收敛 + 默认值下发 + 一键恢复，改完即生效
 │   ├── client_config.go      # GET /client-config 下发开关给客户端
-│   ├── diary_export.go       # 已下线的日记功能的导出与显式删表（不在自动迁移里跑）
 │   ├── avatar_*.go / exif.go # 纯 Go 图片处理链（解码/缩放/EXIF），不依赖 libvips
-│   ├── netlog.go / security.go / storage.go / invite.go / push.go
+│   ├── netlog.go / security.go / invite.go / push.go
 │   ├── handlers.go / store.go / models.go / hub.go / migrations.go
 │   ├── sql/schema.sql        # 建库建表（16 张表，唯一真源）
 │   └── Dockerfile            # 仅后端镜像（前后端分离部署用）
@@ -77,7 +76,7 @@ lx/
 - **数据与存储**：内嵌 **SQLite**（单文件，启动自动建表、零手动导入）；在线态/伴侣状态缓存/离线队列/限频均为**进程内存**；图片走服务器本地磁盘、Go 自托管 `/uploads/`。
 - **客户端安全边界**：不把任何共享密钥编进 APK。Release 包强制 HTTPS/WSS，服务端用 JWT、实时账号状态校验和限流；`APP_KEY` 仅作为旧配置字段保留，不再参与当前客户端认证。
 - **不接商业推送**：纯 WS + 本地 AlarmManager 兜底。
-- **图片存储**：服务器本地磁盘，Go 自托管 `/uploads/`（去 Nginx）；预留对象存储抽象。
+- **图片存储**：服务器本地磁盘，Go 自托管 `/uploads/`（去 Nginx）；当前不保留未接入的对象存储驱动抽象。
 - **相册隐私**：照片对外 URL 一律是鉴权代理 `/media/<id>`，**真实磁盘路径不出服务端**；只有该 pair 的成员能读，照片 URL 也不进网络日志。运营后台的照片审核页只给元数据；相册管理页可看缩略图但**只给 384 一档、永不给原图**，每次查看写审计、响应头带 `no-store` 与 `Referrer-Policy: no-referrer`。详见 [docs/ALBUM.md](docs/ALBUM.md)。
 - **图片地址补全**：服务端在后台 `site.url` 未配置时返回相对路径（`/media/<id>/thumb`），
   客户端由 `MediaUrlPolicy` 统一补成绝对 URL 并**收口在 Coil 的 mapper**。

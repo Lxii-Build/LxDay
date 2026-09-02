@@ -62,6 +62,7 @@ fun NowScreen(
     val demo = UserPrefs.demoMode
     // 订阅 StateFlow 而非直读字段：此前读的是普通 @Volatile var，
     // Compose 不会建立订阅，服务端推到了 UI 也不重组 —— 这才是"状态同步不实时"的真因。
+    val currentState by DeviceStatusHolder.currentFlow.collectAsStateWithLifecycle()
     val partnerState by DeviceStatusHolder.partnerFlow.collectAsStateWithLifecycle()
     val partner = if (demo) null else partnerState
     val partnerName = UserPrefs.partnerName.ifBlank { "对方" }
@@ -225,7 +226,7 @@ fun NowScreen(
 
                 // 我的手机信息（KernelSU InfoCard：InfoText 格式）
                 SectionTitle("我的手机", "当前共享给对方的状态")
-                MyPhoneInfoCard()
+                MyPhoneInfoCard(current = currentState, demo = demo)
             }
         }
     }
@@ -557,7 +558,7 @@ private fun ActionCardContent(
 
 /** 我的手机信息卡：标签和值同排，减少滚动并方便快速比对。 */
 @Composable
-private fun MyPhoneInfoCard() {
+private fun MyPhoneInfoCard(current: DeviceStatus?, demo: Boolean) {
     @Composable
     fun InfoRow(title: String, content: String) {
         Row(
@@ -584,7 +585,7 @@ private fun MyPhoneInfoCard() {
     }
 
     Card(modifier = Modifier.fillMaxWidth()) {
-        val my = DeviceStatusHolder.current
+        val my = current
         if (my != null) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                 InfoRow("电量", "${my.batteryLevel}%${if (my.isCharging) " · 充电中" else ""}")
@@ -594,7 +595,13 @@ private fun MyPhoneInfoCard() {
             }
         } else {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                InfoRow("状态共享", "在「我的」中开启后开始采集")
+                val status = when {
+                    demo -> "示例模式不采集真实状态"
+                    !UserPrefs.privacyConsented -> "完成知情同意后开始采集"
+                    !UserPrefs.sharingEnabled -> "状态共享已关闭，可在「我的」中开启"
+                    else -> "状态共享已开启，正在等待本机状态"
+                }
+                InfoRow("状态共享", status)
             }
         }
     }

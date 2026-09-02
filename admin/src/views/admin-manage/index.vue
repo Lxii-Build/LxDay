@@ -16,14 +16,20 @@
         <ElTableColumn :label="$t('adminManage.table.role')" width="140">
           <template #default="{ row }">
             <ElTag :type="row.role === 'super' ? 'danger' : 'primary'">
-              {{ row.role === 'super' ? $t('adminManage.role.super') : $t('adminManage.role.admin') }}
+              {{
+                row.role === 'super' ? $t('adminManage.role.super') : $t('adminManage.role.admin')
+              }}
             </ElTag>
           </template>
         </ElTableColumn>
         <ElTableColumn :label="$t('adminManage.table.status')" width="100">
           <template #default="{ row }">
             <ElTag :type="row.status === 1 ? 'success' : 'info'">
-              {{ row.status === 1 ? $t('adminManage.status.normal') : $t('adminManage.status.disabled') }}
+              {{
+                row.status === 1
+                  ? $t('adminManage.status.normal')
+                  : $t('adminManage.status.disabled')
+              }}
             </ElTag>
           </template>
         </ElTableColumn>
@@ -145,7 +151,12 @@
       width="460px"
       align-center
     >
-      <ElForm ref="passwordFormRef" :model="passwordForm" :rules="passwordRules" label-width="100px">
+      <ElForm
+        ref="passwordFormRef"
+        :model="passwordForm"
+        :rules="passwordRules"
+        label-width="100px"
+      >
         <ElFormItem :label="$t('adminManage.table.username')">
           <span>{{ current?.username }}</span>
         </ElFormItem>
@@ -292,7 +303,7 @@
       await createAdmin({ ...createForm })
       ElMessage.success(t('adminManage.createSuccess'))
       createVisible.value = false
-      loadAdmins()
+      await loadAdmins()
     } finally {
       submitting.value = false
     }
@@ -311,30 +322,33 @@
       await updateAdminRole(current.value.id, roleForm.role)
       ElMessage.success(t('common.saveSuccess'))
       roleVisible.value = false
-      loadAdmins()
+      await loadAdmins()
     } finally {
       submitting.value = false
     }
   }
 
   /** 启用=1 / 禁用=2（服务端约定） */
-  const toggleStatus = (row: AdminItem) => {
+  const toggleStatus = async (row: AdminItem) => {
     const next = row.status === 1 ? 2 : 1
-    ElMessageBox.confirm(
-      next === 1
-        ? t('adminManage.enableConfirm', { name: row.username })
-        : t('adminManage.disableConfirm', { name: row.username }),
-      next === 1 ? t('adminManage.enableTitle') : t('adminManage.disableTitle'),
-      {
-        confirmButtonText: t('common.confirm'),
-        cancelButtonText: t('common.cancel'),
-        type: 'warning'
-      }
-    ).then(async () => {
+    try {
+      await ElMessageBox.confirm(
+        next === 1
+          ? t('adminManage.enableConfirm', { name: row.username })
+          : t('adminManage.disableConfirm', { name: row.username }),
+        next === 1 ? t('adminManage.enableTitle') : t('adminManage.disableTitle'),
+        {
+          confirmButtonText: t('common.confirm'),
+          cancelButtonText: t('common.cancel'),
+          type: 'warning'
+        }
+      )
       await updateAdminStatus(row.id, next)
       ElMessage.success(next === 1 ? t('common.enableSuccess') : t('common.disableSuccess'))
-      loadAdmins()
-    })
+      await loadAdmins()
+    } catch (error) {
+      if (error === 'cancel' || error === 'close') return
+    }
   }
 
   const openResetPassword = (row: AdminItem) => {
@@ -371,20 +385,23 @@
     }
   }
 
-  const handleDelete = (row: AdminItem) => {
-    ElMessageBox.confirm(
-      t('adminManage.deleteConfirm', { name: row.username }),
-      t('adminManage.deleteTitle'),
-      {
-        confirmButtonText: t('common.confirmDelete'),
-        cancelButtonText: t('common.cancel'),
-        type: 'warning'
-      }
-    ).then(async () => {
+  const handleDelete = async (row: AdminItem) => {
+    try {
+      await ElMessageBox.confirm(
+        t('adminManage.deleteConfirm', { name: row.username }),
+        t('adminManage.deleteTitle'),
+        {
+          confirmButtonText: t('common.confirmDelete'),
+          cancelButtonText: t('common.cancel'),
+          type: 'warning'
+        }
+      )
       await deleteAdmin(row.id)
       ElMessage.success(t('common.deleteSuccess'))
-      loadAdmins()
-    })
+      await loadAdmins()
+    } catch (error) {
+      if (error === 'cancel' || error === 'close') return
+    }
   }
 
   onMounted(loadAdmins)

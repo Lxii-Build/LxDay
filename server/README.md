@@ -178,13 +178,23 @@ GET  /api/admin/notify-templates     通知模板列表
 GET  /api/admin/notify-records       通知记录列表
 
 # AdminAuth + requireSuper：敏感操作一律限超管
-POST /api/admin/upload                    后台文件上传（APK/LOGO）
+PUT  /api/admin/users/:id                   编辑用户资料（昵称/邮箱/性别/简介/生日）
 PUT  /api/admin/users/:id/status          封禁 / 解封用户
+DELETE /api/admin/users/:id               永久删除用户及其数据（有效绑定需先解除）
+PUT  /api/admin/pairs/:id                 编辑关系纪念日
 POST /api/admin/pairs/:id/unbind          强制解绑
+POST /api/admin/pairs/:id/cancel-invite   作废挂起邀请码
+PUT  /api/admin/todos/:id                 编辑待办与提醒规则
 DELETE /api/admin/todos/:id               删待办
-GET  /api/admin/photos                    相册照片审核（**只给元数据，不返回图片 URL**）
+GET  /api/admin/photos                    相册照片审核（只给元数据）
+GET  /api/admin/photos/:id/thumb          查看 384px 审核缩略图（不提供原图）
+PUT  /api/admin/photos/:id                编辑照片描述
 DELETE /api/admin/photos/:id              软删照片（进用户回收站，用户可自行恢复）
-GET  /api/admin/server-info               服务端版本与提交短 SHA
+GET  /api/admin/albums                    相册列表、照片数与占用空间
+PUT  /api/admin/albums/:id                编辑相册名称
+DELETE /api/admin/albums/:id              软删相册，照片退回未归类
+GET  /api/admin/storage-stats             磁盘占用与回收站统计
+POST /api/admin/pairs/:id/purge-recycle-bin  永久清空该关系的回收站
 GET  /api/admin/admins                    管理员列表
 POST /api/admin/admins                    新增管理员
 PUT  /api/admin/admins/:id                改角色（白名单 admin/super）
@@ -201,7 +211,7 @@ POST /api/admin/notify                    向用户群发通知
 
 **为什么这些要收敛到 `requireSuper`**：此前只有 `POST /admins` 与 `PUT /settings` 挂了它，
 其余全部裸奔，于是「普通 admin」事实上等于超管——能从 `GET /settings` 读出存储与 SMTP 密钥、
-能全站群发、能删任意待办与照片、能封禁用户、能解绑他人情侣关系、能上传大文件落盘。
+能全站群发、能删任意待办与照片、能封禁用户、能解绑他人情侣关系、能查看和修改全站私密内容。
 相册照片是全站最私密的内容，**列表与删除都限超管，普通 admin 连元数据都不给看**；
 且列表接口不返回图片 URL——管理员没有用户 token，本就读不了 `/media/<id>`，
 返回 URL 只会凭空多一条泄露面。

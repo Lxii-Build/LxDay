@@ -4,6 +4,8 @@ import org.json.JSONObject
 
 sealed interface WsAction {
     data class RefreshProfile(val changedUserId: Long) : WsAction
+    /** 管理员或伴侣解除绑定后，必须立即重新拉取并切回绑定页。 */
+    data object Unbound : WsAction
     data class Sensitive(val message: JSONObject) : WsAction
 
     /** 本机发出的动作被服务端拒绝（超频等）。不受共享开关门控，必须让用户看到。 */
@@ -22,7 +24,7 @@ object WsEventRouter {
         "ring_stopped",
         "todo_new",
         "todo_completed",
-                "low_battery",
+        "low_battery",
         "wifi_joined",
         "todo_remind",
     )
@@ -44,6 +46,9 @@ object WsEventRouter {
             val userId = message.getJSONObject("data").getLong("user_id")
             WsAction.RefreshProfile(userId)
         }
+        // 解除绑定不是状态共享事件，即使用户关闭了状态共享也必须处理；
+        // ProfileRuntime 会用权威 /pair/status 响应清理本地会话并通知导航层。
+        "unbound" -> WsAction.Unbound
         TYPE_ACTION_REJECTED -> {
             val data = message.optJSONObject("data")
             WsAction.Rejected(

@@ -109,6 +109,7 @@
   import { useI18n } from 'vue-i18n'
   import { useTable } from '@/hooks/core/useTable'
   import { deleteTodo, fetchTodoList, updateTodo } from '@/api/admin'
+  import { useUserStore } from '@/store/modules/user'
   import { formatDateTime } from '@/utils/format/datetime'
   import {
     ElButton,
@@ -132,6 +133,8 @@
   type TodoItem = Api.Admin.TodoItem
 
   const { t } = useI18n()
+  const userStore = useUserStore()
+  const isSuper = computed(() => userStore.getUserInfo.roles?.includes('super') ?? false)
 
   const searchForm = ref({ keyword: '' })
   const editVisible = ref(false)
@@ -274,23 +277,27 @@
           width: 160,
           fixed: 'right',
           formatter: (row) =>
-            h('div', [
-              row.status !== 2
-                ? h(ElButton, { type: 'primary', link: true, onClick: () => openEdit(row) }, () =>
-                    t('common.edit')
+            isSuper.value
+              ? h('div', [
+                  row.status !== 2
+                    ? h(
+                        ElButton,
+                        { type: 'primary', link: true, onClick: () => openEdit(row) },
+                        () => t('common.edit')
+                      )
+                    : null,
+                  h(
+                    ElButton,
+                    {
+                      type: 'danger',
+                      link: true,
+                      disabled: row.status === 2,
+                      onClick: () => handleDelete(row)
+                    },
+                    () => t('common.delete')
                   )
-                : null,
-              h(
-                ElButton,
-                {
-                  type: 'danger',
-                  link: true,
-                  disabled: row.status === 2,
-                  onClick: () => handleDelete(row)
-                },
-                () => t('common.delete')
-              )
-            ])
+                ])
+              : h('span', { class: 'art-text-gray-400' }, t('systemSettings.runtime.superOnly'))
         }
       ]
     }
@@ -344,25 +351,28 @@
       })
       ElMessage.success(t('contentAudit.todo.editSuccess'))
       editVisible.value = false
-      refreshData()
+      await refreshData()
     } finally {
       editSubmitting.value = false
     }
   }
 
-  const handleDelete = (row: TodoItem) => {
-    ElMessageBox.confirm(
-      t('contentAudit.todo.deleteConfirm', { title: row.title }),
-      t('contentAudit.todo.deleteTitle'),
-      {
-        confirmButtonText: t('common.confirm'),
-        cancelButtonText: t('common.cancel'),
-        type: 'warning'
-      }
-    ).then(async () => {
+  const handleDelete = async (row: TodoItem) => {
+    try {
+      await ElMessageBox.confirm(
+        t('contentAudit.todo.deleteConfirm', { title: row.title }),
+        t('contentAudit.todo.deleteTitle'),
+        {
+          confirmButtonText: t('common.confirm'),
+          cancelButtonText: t('common.cancel'),
+          type: 'warning'
+        }
+      )
       await deleteTodo(row.id)
       ElMessage.success(t('common.deleteSuccess'))
-      refreshData()
-    })
+      await refreshData()
+    } catch (error) {
+      if (error === 'cancel' || error === 'close') return
+    }
   }
 </script>

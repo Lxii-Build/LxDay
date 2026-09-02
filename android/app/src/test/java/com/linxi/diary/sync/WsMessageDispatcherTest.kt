@@ -26,6 +26,23 @@ class WsMessageDispatcherTest {
     }
 
     @Test
+    fun `解除绑定在状态共享关闭时仍触发权威刷新`() {
+        var refreshCount = 0
+        val dispatcher = WsMessageDispatcher(
+            refreshProfile = { refreshCount++ },
+            handleSensitive = {},
+        )
+
+        assertTrue(
+            dispatcher.dispatch(
+                text = """{"type":"unbound","data":{"pair_id":7}}""",
+                sensitiveEventsAllowed = false,
+            )
+        )
+        assertEquals(1, refreshCount)
+    }
+
+    @Test
     fun `状态共享关闭时敏感事件不进入现有处理链`() {
         var sensitiveCount = 0
         val dispatcher = WsMessageDispatcher(

@@ -235,7 +235,52 @@ jobs:
           ls -lh lxday-server-${{ inputs.version }}.tar.gz
 
       # ---------- 创建 GitHub Release ----------
-      # 说明：应用介绍与本次更新日志由维护者(AI)在正文中补充；更新历史统一维护于仓库根 CHANGELOG.md。
+      # Release 正文与 App 更新弹窗必须使用同一份根 CHANGELOG.md，禁止只改
+      # GitHub Release body 后让客户端读到另一套历史。
+      - name: 从根 CHANGELOG 提取本次更新说明
+        env:
+          VERSION_NAME: ${{ steps.ver.outputs.name }}
+          TAG_NAME: ${{ inputs.version }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          awk -v version="$VERSION_NAME" '
+            index($0, "## [" version "]") == 1 { found=1; print; next }
+            found && index($0, "## [") == 1 { exit }
+            found { print }
+          ' CHANGELOG.md > release-changelog.md
+          if [ ! -s release-changelog.md ]; then
+            echo "::error::CHANGELOG.md 中没有版本 $VERSION_NAME 的发布说明"
+            exit 1
+          fi
+          {
+            echo "## 林曦日记 $TAG_NAME"
+            echo
+            echo "### 安装说明"
+            echo "APK 版本号：versionName=$VERSION_NAME / versionCode=${{ steps.ver.outputs.code }}"
+            echo
+            echo "签名指纹（正式签名，恒定不变，可用于校验安装包来源）："
+            echo '```'
+            echo "SHA-256: 59:4A:B3:8F:AA:AE:A3:B6:28:E9:0A:A2:55:95:62:66:A1:0C:40:08:76:14:C2:43:E4:AA:DE:35:32:05:76:4F"
+            echo '```'
+            echo '> 若你此前安装过 **旧版本（随机 debug 签名）**，需先卸载再安装本版本；'
+            echo '> 此后所有版本签名恒定，可直接覆盖升级。'
+            echo
+            echo "### 服务端镜像"
+            echo "对应 GHCR 镜像 tag：ghcr.io/lxii-build/lxday:$TAG_NAME"
+            echo
+            echo '```bash'
+            echo "# 方式一：从 GHCR 拉取（固定版本 tag，公开读取）"
+            echo "docker pull ghcr.io/lxii-build/lxday:$TAG_NAME"
+            echo "# 方式二：国内直接导入本 Release 附件里的镜像 tar（免拉取）"
+            echo "sha256sum -c lxday-server-$TAG_NAME.tar.gz.sha256"
+            echo "gunzip -c lxday-server-$TAG_NAME.tar.gz | docker load"
+            echo '```'
+            echo
+            echo "### 更新日志（来源：仓库根 CHANGELOG.md）"
+            cat release-changelog.md
+            echo
+            echo "源文件：[$REPOSITORY/CHANGELOG.md](https://github.com/$REPOSITORY/blob/$TAG_NAME/CHANGELOG.md)"
+          } > release-body.md
       - name: 创建 GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -250,31 +295,4 @@ jobs:
             android/app/build/outputs/mapping/**/mapping.txt
             lxday-server-${{ inputs.version }}.tar.gz
             lxday-server-${{ inputs.version }}.tar.gz.sha256
-          body: |
-            ## 林曦日记 ${{ inputs.version }}
-
-            <!-- 应用介绍与本次更新日志由维护者(AI)填写；完整更新历史见 CHANGELOG.md -->
-
-            ### 安装说明
-            APK 版本号：`versionName=${{ steps.ver.outputs.name }}` / `versionCode=${{ steps.ver.outputs.code }}`
-
-            签名指纹（正式签名，恒定不变，可用于校验安装包来源）：
-            ```
-            SHA-256: 59:4A:B3:8F:AA:AE:A3:B6:28:E9:0A:A2:55:95:62:66:A1:0C:40:08:76:14:C2:43:E4:AA:DE:35:32:05:76:4F
-            ```
-            > 若你此前安装过 **旧版本（随机 debug 签名）**，需先卸载再安装本版本；
-            > 此后所有版本签名恒定，可直接覆盖升级。
-
-            ### 服务端镜像
-            对应 GHCR 镜像 tag：`ghcr.io/lxii-build/lxday:${{ inputs.version }}`
-
-            ```bash
-            # 方式一：从 GHCR 拉取（固定版本 tag，公开读取）
-            docker pull ghcr.io/lxii-build/lxday:${{ inputs.version }}
-            # 方式二：国内直接导入本 Release 附件里的镜像 tar（免拉取）
-            sha256sum -c lxday-server-${{ inputs.version }}.tar.gz.sha256
-            gunzip -c lxday-server-${{ inputs.version }}.tar.gz | docker load
-            ```
-
-            ### 更新日志
-            详见 [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/${{ inputs.version }}/CHANGELOG.md)
+          body_path: release-body.md

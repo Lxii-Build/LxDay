@@ -1,4 +1,5 @@
-import request from '@/utils/http'
+import request, { toBearerToken } from '@/utils/http'
+import { useUserStore } from '@/store/modules/user'
 
 /**
  * 林曦日记运营后台 API
@@ -24,6 +25,11 @@ export function updateUserStatus(id: number, status: number) {
     url: `/api/admin/users/${id}/status`,
     data: { status }
   })
+}
+
+/** 永久删除用户及其个人数据；服务端会阻止仍在有效绑定关系中的用户。 */
+export function deleteUser(id: number) {
+  return request.del<{ ok: boolean; deleted: number }>({ url: `/api/admin/users/${id}` })
 }
 
 // ---------- 绑定关系 ----------
@@ -59,10 +65,30 @@ export function deleteTodo(id: number) {
 /**
  * 相册照片列表（仅超级管理员可用）
  *
- * 只回元数据，不含图片 URL——相册是全站最私密的内容，后台只做违规处置不做浏览。
+ * 只回元数据，不含图片 URL；审核缩略图必须通过 fetchPhotoThumbnail 单独读取。
  */
 export function fetchPhotoList(params: Api.Admin.PhotoSearchParams) {
   return request.get<Api.Admin.PhotoList>({ url: '/api/admin/photos', params })
+}
+
+/**
+ * 读取后台审核专用的 384px 缩略图。原图与预览图永远不通过后台接口暴露。
+ * 该接口返回二进制而不是统一 JSON 信封，所以单独使用 fetch，并沿用后台 token。
+ */
+export async function fetchPhotoThumbnail(id: number): Promise<string> {
+  const apiBase = String(import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
+  const token = useUserStore().accessToken
+  const response = await fetch(`${apiBase}/api/admin/photos/${id}/thumb`, {
+    headers: { Authorization: toBearerToken(token) }
+  })
+  if (!response.ok) {
+    throw new Error(
+      response.status === 404
+        ? '该照片没有可用的审核缩略图'
+        : `读取缩略图失败（${response.status}）`
+    )
+  }
+  return URL.createObjectURL(await response.blob())
 }
 
 export function updatePhoto(id: number, data: Api.Admin.PhotoUpdateParams) {
@@ -77,10 +103,6 @@ export function deletePhoto(id: number) {
 // ---------- GitHub Releases / 服务端信息 ----------
 export function fetchAppReleases() {
   return request.get<Api.Admin.AppReleasesResponse>({ url: '/api/admin/app-releases' })
-}
-
-export function fetchServerInfo() {
-  return request.get<Api.Admin.ServerInfo>({ url: '/api/admin/server-info' })
 }
 
 // ---------- 通知 ----------
@@ -111,7 +133,7 @@ export function fetchNotifyRecords(params: Api.Common.CommonSearchParams) {
 
 // ---------- 系统设置 ----------
 export function fetchSettings() {
-  return request.get<Api.Admin.Settings>({ url: '/api/admin/settings' })
+  return request.get<Api.Admin.SettingsResponse>({ url: '/api/admin/settings' })
 }
 
 /**

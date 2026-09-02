@@ -89,6 +89,11 @@ class App : Application() {
                     this@App, appVisible = true,
                     screenOn = DeviceStatusHolder.screenOn, force = true,
                 )
+                // An administrator can unbind a pair while this process is in
+                // the background. Reconcile the authoritative pair state as
+                // soon as the app is visible instead of waiting for a queued
+                // WebSocket event or a manual screen refresh.
+                ProfileRuntime.connectAndRefreshIfEligible()
                 StatusForegroundService.syncNow(this@App)
             }
 

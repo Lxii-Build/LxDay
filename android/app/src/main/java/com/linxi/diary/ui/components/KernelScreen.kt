@@ -40,7 +40,7 @@ import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 /**
  * 照抄 KernelSU 的页面骨架：
  * Scaffold + BlurredBar 毛玻璃顶栏 + LazyColumn(spacedBy 12dp) + 页面内容录制为玻璃采样源。
- * 各页面（此刻/待办/日记/我的）复用此骨架，只提供 title/actions 与 LazyColumn content。
+ * 各页面（主页/待办/发现/我的）复用此骨架，只提供 title/actions 与 LazyColumn content。
  */
 @Composable
 fun KernelScreen(

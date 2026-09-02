@@ -2,7 +2,7 @@ package com.linxi.diary.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +22,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.calculatePan
+import androidx.compose.ui.input.pointer.calculateZoom
+import androidx.compose.ui.input.pointer.consume
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -70,7 +73,7 @@ fun PhotoViewerScreen(
     val scope = rememberCoroutineScope()
 
     if (photos.isEmpty()) {
-        onBack()
+        LaunchedEffect(Unit) { onBack() }
         return
     }
 
@@ -448,15 +451,34 @@ private fun ZoomableImage(
         Modifier
             .fillMaxSize()
             .pointerInput(cacheKey) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    scale = (scale * zoom).coerceIn(1f, 4f)
-                    if (scale > 1f) {
-                        wantOrigin = true
-                        offsetX += pan.x
-                        offsetY += pan.y
-                    } else {
-                        offsetX = 0f
-                        offsetY = 0f
+                // Do not consume a one-finger drag here: HorizontalPager owns
+                // that gesture and is what makes a multi-photo viewer usable.
+                // The old detectTransformGestures detector consumed every drag,
+                // so the pager was technically present but could never switch
+                // pages. Only consume events after a second pointer is down.
+                awaitEachGesture {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val activePointers = event.changes.count { it.pressed }
+                            if (activePointers == 0) break
+                            if (activePointers < 2) continue
+
+                            val zoom = event.calculateZoom()
+                            val pan = event.calculatePan()
+                            if (!zoom.isFinite() || !pan.x.isFinite() || !pan.y.isFinite()) continue
+
+                            event.changes.forEach { it.consume() }
+                            scale = (scale * zoom).coerceIn(1f, 4f)
+                            if (scale > 1f) {
+                                wantOrigin = true
+                                offsetX += pan.x
+                                offsetY += pan.y
+                            } else {
+                                offsetX = 0f
+                                offsetY = 0f
+                            }
+                        }
                     }
                 }
             },

@@ -5,19 +5,12 @@
         <div>
           <h2 class="m-0 text-lg font-semibold">APP 更新中心</h2>
           <p class="mt-2 mb-0 art-text-gray-500">
-            版本源：GitHub Releases。后台不再维护重复的版本数据库。
+            版本包来自 GitHub Releases，更新说明来自仓库根目录 CHANGELOG.md。
           </p>
         </div>
         <ElButton type="primary" :loading="loading" @click="load">刷新 GitHub</ElButton>
       </div>
-      <ElAlert
-        v-if="error"
-        class="mt-4"
-        type="error"
-        :title="error"
-        show-icon
-        :closable="false"
-      />
+      <ElAlert v-if="error" class="mt-4" type="error" :title="error" show-icon :closable="false" />
       <div v-if="serverInfo" class="mt-4 flex flex-wrap gap-3">
         <ElTag type="success">服务端 {{ serverInfo.version }}</ElTag>
         <ElTag type="info">commit {{ serverInfo.commit }}</ElTag>
@@ -82,7 +75,7 @@
   const error = ref('')
   const releases = ref<Api.Admin.AppReleaseItem[]>([])
   const repository = ref('https://github.com/Lxii-Build/LxDay')
-  const serverInfo = ref<Api.Admin.ServerInfo | null>(null)
+  const serverInfo = ref<{ version: string; commit: string; go: string } | null>(null)
 
   const load = async () => {
     loading.value = true
@@ -94,7 +87,7 @@
       serverInfo.value = {
         version: data.server_version,
         commit: data.server_commit,
-        go: '1.25'
+        go: data.server_go || '-'
       }
     } catch (e) {
       error.value = e instanceof Error ? e.message : '读取 GitHub Release 失败，请重试'

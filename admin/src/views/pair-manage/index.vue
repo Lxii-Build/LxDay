@@ -60,6 +60,7 @@
   import { useI18n } from 'vue-i18n'
   import { useTable } from '@/hooks/core/useTable'
   import { cancelPendingInvite, fetchPairList, updatePair, unbindPair } from '@/api/admin'
+  import { useUserStore } from '@/store/modules/user'
   import { formatDate, formatDateTime } from '@/utils/format/datetime'
   import {
     ElButton,
@@ -77,6 +78,8 @@
   type PairItem = Api.Admin.PairItem
 
   const { t } = useI18n()
+  const userStore = useUserStore()
+  const isSuper = computed(() => userStore.getUserInfo.roles?.includes('super') ?? false)
 
   const searchForm = ref({ keyword: '' })
   const editVisible = ref(false)
@@ -137,10 +140,19 @@
           prop: 'status',
           label: t('pairManage.table.status'),
           width: 110,
-          formatter: (row) =>
-            h(ElTag, { type: row.status === 1 ? 'success' : 'info' }, () =>
-              row.status === 1 ? t('pairManage.status.bound') : t('pairManage.status.unbound')
+          formatter: (row) => {
+            const bound = row.status === 1 && row.user_a_id > 0 && row.user_b_id > 0
+            return h(
+              ElTag,
+              { type: row.has_invite ? 'warning' : bound ? 'success' : 'info' },
+              () =>
+                row.has_invite
+                  ? t('pairManage.invite.pending')
+                  : bound
+                    ? t('pairManage.status.bound')
+                    : t('pairManage.status.unbound')
             )
+          }
         },
         {
           prop: 'created_at',
@@ -151,28 +163,34 @@
         {
           prop: 'operation',
           label: t('common.operation'),
-          width: 180,
+          width: 250,
           fixed: 'right',
           formatter: (row) =>
-            h('div', [
-              h(ElButton, { type: 'primary', link: true, onClick: () => openEdit(row) }, () =>
-                t('common.edit')
-              ),
-              row.has_invite
-                ? h(
-                    ElButton,
-                    { type: 'warning', link: true, onClick: () => handleCancelInvite(row) },
-                    () => t('pairManage.cancelInvite')
-                  )
-                : null,
-              row.status === 1
-                ? h(
-                    ElButton,
-                    { type: 'danger', link: true, onClick: () => handleUnbind(row) },
-                    () => t('pairManage.unbind')
-                  )
-                : null
-            ])
+            isSuper.value
+              ? h('div', [
+                  row.status === 1 && !row.has_invite
+                    ? h(
+                        ElButton,
+                        { type: 'primary', link: true, onClick: () => openEdit(row) },
+                        () => t('common.edit')
+                      )
+                    : null,
+                  row.has_invite
+                    ? h(
+                        ElButton,
+                        { type: 'warning', link: true, onClick: () => handleCancelInvite(row) },
+                        () => t('pairManage.cancelInvite')
+                      )
+                    : null,
+                  row.status === 1 && row.user_a_id > 0 && row.user_b_id > 0
+                    ? h(
+                        ElButton,
+                        { type: 'danger', link: true, onClick: () => handleUnbind(row) },
+                        () => t('pairManage.unbind')
+                      )
+                    : null
+                ])
+              : h('span', { class: 'art-text-gray-400' }, t('systemSettings.runtime.superOnly'))
         }
       ]
     }
@@ -203,41 +221,47 @@
       })
       ElMessage.success(t('pairManage.editSuccess'))
       editVisible.value = false
-      refreshData()
+      await refreshData()
     } finally {
       editSubmitting.value = false
     }
   }
 
-  const handleUnbind = (row: PairItem) => {
-    ElMessageBox.confirm(
-      t('pairManage.unbindConfirm', { id: row.id }),
-      t('pairManage.unbindTitle'),
-      {
-        confirmButtonText: t('common.confirm'),
-        cancelButtonText: t('common.cancel'),
-        type: 'warning'
-      }
-    ).then(async () => {
+  const handleUnbind = async (row: PairItem) => {
+    try {
+      await ElMessageBox.confirm(
+        t('pairManage.unbindConfirm', { id: row.id }),
+        t('pairManage.unbindTitle'),
+        {
+          confirmButtonText: t('common.confirm'),
+          cancelButtonText: t('common.cancel'),
+          type: 'warning'
+        }
+      )
       await unbindPair(row.id)
       ElMessage.success(t('pairManage.unbindSuccess'))
-      refreshData()
-    })
+      await refreshData()
+    } catch (error) {
+      if (error === 'cancel' || error === 'close') return
+    }
   }
 
-  const handleCancelInvite = (row: PairItem) => {
-    ElMessageBox.confirm(
-      t('pairManage.cancelInviteConfirm', { id: row.id }),
-      t('pairManage.cancelInviteTitle'),
-      {
-        confirmButtonText: t('common.confirm'),
-        cancelButtonText: t('common.cancel'),
-        type: 'warning'
-      }
-    ).then(async () => {
+  const handleCancelInvite = async (row: PairItem) => {
+    try {
+      await ElMessageBox.confirm(
+        t('pairManage.cancelInviteConfirm', { id: row.id }),
+        t('pairManage.cancelInviteTitle'),
+        {
+          confirmButtonText: t('common.confirm'),
+          cancelButtonText: t('common.cancel'),
+          type: 'warning'
+        }
+      )
       await cancelPendingInvite(row.id)
       ElMessage.success(t('pairManage.cancelInviteSuccess'))
-      refreshData()
-    })
+      await refreshData()
+    } catch (error) {
+      if (error === 'cancel' || error === 'close') return
+    }
   }
 </script>

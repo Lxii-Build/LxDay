@@ -29,7 +29,7 @@ const fastEnterConfig: FastEnterConfig = {
     },
     {
       name: '内容审核',
-      description: '待办与日记内容审核',
+      description: '待办与相册内容审核',
       icon: 'ri:file-list-3-line',
       iconColor: '#ffb100',
       enabled: true,
@@ -38,7 +38,7 @@ const fastEnterConfig: FastEnterConfig = {
     },
     {
       name: '系统设置',
-      description: '站点、存储、推送与 SMTP',
+      description: '站点、运行参数、推送与 SMTP',
       icon: 'ri:settings-3-line',
       iconColor: '#7A7FFF',
       enabled: true,

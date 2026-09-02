@@ -181,27 +181,31 @@
       await updateAlbum(editingAlbum.value.id, { name: editForm.name.trim() })
       ElMessage.success(t('albumManage.editSuccess'))
       editVisible.value = false
-      refreshData()
+      await refreshData()
     } finally {
       editSubmitting.value = false
     }
   }
 
   async function handleDelete(row: AlbumItem) {
-    // 说清后果：删相册是软删，照片不会跟着消失。
-    // 不写清楚的话管理员会以为「删相册 = 删掉里面的照片」而不敢点。
-    await ElMessageBox.confirm(
-      t('albumManage.deleteConfirm', { name: row.name, count: row.photo_count }),
-      t('albumManage.deleteTitle'),
-      {
-        type: 'warning',
-        confirmButtonText: t('common.delete'),
-        cancelButtonText: t('common.cancel')
-      }
-    )
-    await deleteAlbum(row.id)
-    ElMessage.success(t('common.deleteSuccess'))
-    refreshRemove()
+    try {
+      // 说清后果：删相册是软删，照片不会跟着消失。
+      // 不写清楚的话管理员会以为「删相册 = 删掉里面的照片」而不敢点。
+      await ElMessageBox.confirm(
+        t('albumManage.deleteConfirm', { name: row.name, count: row.photo_count }),
+        t('albumManage.deleteTitle'),
+        {
+          type: 'warning',
+          confirmButtonText: t('common.delete'),
+          cancelButtonText: t('common.cancel')
+        }
+      )
+      await deleteAlbum(row.id)
+      ElMessage.success(t('common.deleteSuccess'))
+      await refreshRemove()
+    } catch (error) {
+      if (error === 'cancel' || error === 'close') return
+    }
   }
 </script>
 

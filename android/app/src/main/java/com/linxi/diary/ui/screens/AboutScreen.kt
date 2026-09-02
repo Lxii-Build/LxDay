@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -28,7 +29,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.linxi.diary.BuildConfig
@@ -123,7 +127,7 @@ private fun formatReleaseTime(raw: String): String {
     }
 }
 
-/** 关于页：版本、GitHub 更新日志、仓库与账号操作。 */
+/** 关于页：版本、仓库根更新日志、仓库与账号操作。 */
 @Composable
 fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit) {
     BackHandler { onBack() }
@@ -197,7 +201,7 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit)
                 )
                 ArrowPreference(
                     title = "查看更新日志",
-                    summary = "GitHub Releases · ${if (BuildConfig.UPDATE_CHANNEL == "testing") "含测试版" else "正式版"}",
+                    summary = "仓库 CHANGELOG · ${if (BuildConfig.UPDATE_CHANNEL == "testing") "含测试版" else "正式版"}",
                     startAction = { AboutIcon(MiuixIcons.Update) },
                     onClick = {
                         if (!checking) {
@@ -207,7 +211,10 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit)
                                     UpdateInfo.fromJson(
                                         ApiClient.checkUpdate(BuildConfig.VERSION_CODE, BuildConfig.UPDATE_CHANNEL),
                                     )
-                                }.onSuccess { update = it }
+                                }.onSuccess {
+                                    update = it
+                                    upToDate = !it.hasUpdate
+                                }
                                     .onFailure { Logs.w("Update", "load changelog failed", it) }
                                 checking = false
                             }
@@ -336,69 +343,114 @@ private fun AboutIcon(icon: ImageVector) {
 fun UpdateDialog(info: UpdateInfo, onDismiss: () -> Unit) {
     val uriHandler = LocalUriHandler.current
     val candidate = info.version
-    val hasInstallAction = info.hasUpdate && candidate != null
+    val canUpdate = info.hasUpdate && candidate?.apkUrl?.isNotBlank() == true
+    val scrollState = rememberScrollState()
     OverlayDialog(
         show = true,
-        title = if (hasInstallAction) "发现新版本 ${candidate!!.versionName}" else "更新日志",
+        title = if (info.hasUpdate && candidate != null) "发现新版本 ${candidate.versionName}" else "更新日志",
         onDismissRequest = onDismiss,
         renderInRootScaffold = true,
     ) {
         Column(
-            Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 180.dp, max = 560.dp),
         ) {
-            if (!hasInstallAction) {
-                Text("当前已是最新版本", color = colorScheme.onSurfaceVariantSummary)
-            }
-            if (hasInstallAction) {
-                Text(
-                    "${if (candidate!!.prerelease) "测试版" else "正式版"} · 发布时间 ${formatReleaseTime(candidate.publishedAt)}",
-                    color = colorScheme.onSurfaceVariantSummary,
-                )
-                if (candidate.notes.isNotBlank()) {
-                    Text(candidate.notes, color = colorScheme.onSurfaceVariantSummary)
-                } else {
-                    Text("修复问题并优化体验，建议更新。", color = colorScheme.onSurfaceVariantSummary)
+            Column(
+                Modifier
+                    .weight(1f)
+                    .verticalScroll(scrollState),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (!info.hasUpdate || candidate == null) {
+                    Text("当前已是最新版本", color = colorScheme.onSurfaceVariantSummary)
                 }
-            }
-            if (info.history.isNotEmpty()) {
-                Text("历史版本", fontWeight = FontWeight.Medium, color = colorScheme.onBackground)
-                info.history.forEach { release ->
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(
-                                "v${release.versionName} · ${if (release.prerelease) "测试版" else "正式版"}",
-                                fontWeight = FontWeight.Medium,
-                                color = colorScheme.onBackground,
-                            )
-                            Text(
-                                "${formatReleaseTime(release.publishedAt)} · versionCode ${release.versionCode}",
-                                fontSize = 12.sp,
-                                color = colorScheme.onSurfaceVariantSummary,
-                            )
-                            if (release.notes.isNotBlank()) {
-                                Text(release.notes, fontSize = 13.sp, color = colorScheme.onSurfaceVariantSummary)
+                if (info.hasUpdate && candidate != null) {
+                    Text(
+                        "${if (candidate.prerelease) "测试版" else "正式版"} · 发布时间 ${formatReleaseTime(candidate.publishedAt)}",
+                        color = colorScheme.onSurfaceVariantSummary,
+                    )
+                    if (candidate.notes.isNotBlank()) {
+                        ChangelogText(candidate.notes)
+                    } else {
+                        Text("修复问题并优化体验，建议更新。", color = colorScheme.onSurfaceVariantSummary)
+                    }
+                    if (!canUpdate) {
+                        Text("该版本暂未附 APK，更新按钮不可用。", color = colorScheme.onSurfaceVariantSummary)
+                    }
+                }
+                if (info.history.isNotEmpty()) {
+                    Text("历史版本", fontWeight = FontWeight.Medium, color = colorScheme.onBackground)
+                    info.history.forEach { release ->
+                        Card(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    "v${release.versionName} · ${if (release.prerelease) "测试版" else "正式版"}",
+                                    fontWeight = FontWeight.Medium,
+                                    color = colorScheme.onBackground,
+                                )
+                                Text(
+                                    "${formatReleaseTime(release.publishedAt)} · versionCode ${release.versionCode}",
+                                    fontSize = 12.sp,
+                                    color = colorScheme.onSurfaceVariantSummary,
+                                )
+                                if (release.notes.isNotBlank()) {
+                                    ChangelogText(release.notes, compact = true)
+                                }
                             }
                         }
                     }
+                } else if (!info.hasUpdate) {
+                    Text("暂无更新日志。", color = colorScheme.onSurfaceVariantSummary)
                 }
-            } else if (!hasInstallAction) {
-                Text("暂无更新日志。", color = colorScheme.onSurfaceVariantSummary)
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                LxButton("关闭", onClick = onDismiss, variant = LxButtonVariant.Neutral, modifier = Modifier.weight(1f))
-                if (hasInstallAction) {
+
+            // 固定操作栏：只有上面的更新日志滚动，按钮始终留在弹窗底部可操作。
+            Box(
+                Modifier.fillMaxWidth().height(56.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     LxButton(
-                        text = "去更新",
+                        "取消",
+                        onClick = onDismiss,
+                        variant = LxButtonVariant.Neutral,
+                        modifier = Modifier.weight(1f),
+                    )
+                    LxButton(
+                        text = "更新",
                         onClick = {
-                            val url = candidate!!.apkUrl.ifBlank { candidate.htmlUrl }
-                            if (url.isNotBlank()) runCatching { uriHandler.openUri(url) }
+                            val url = candidate?.apkUrl.orEmpty()
+                            if (canUpdate && url.isNotBlank()) {
+                                runCatching { uriHandler.openUri(url) }
+                                onDismiss()
+                            }
                         },
                         variant = LxButtonVariant.Positive,
+                        enabled = canUpdate,
                         modifier = Modifier.weight(1f),
                     )
                 }
             }
         }
     }
+}
+
+@Composable
+private fun ChangelogText(markdown: String, compact: Boolean = false) {
+    Text(
+        buildAnnotatedString {
+            formatChangelog(markdown).forEach { segment ->
+                withStyle(
+                    SpanStyle(
+                        fontWeight = if (segment.bold) FontWeight.Bold else FontWeight.Normal,
+                    ),
+                ) {
+                    append(segment.text)
+                }
+            }
+        },
+        color = colorScheme.onSurfaceVariantSummary,
+        fontSize = if (compact) 13.sp else 14.sp,
+    )
 }

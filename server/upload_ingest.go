@@ -50,10 +50,6 @@ func releaseParsedMultipartForm(c *gin.Context) {
 	c.Request.MultipartForm = nil
 }
 
-func rejectMultipartBusy(c *gin.Context, admin bool) {
-	if admin {
-		afail(c, http.StatusServiceUnavailable, 1028, "服务器正忙，请稍后重试")
-		return
-	}
+func rejectMultipartBusy(c *gin.Context) {
 	fail(c, http.StatusServiceUnavailable, codeUploadInFlight, "服务器正忙，请稍后重试")
 }

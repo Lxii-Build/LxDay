@@ -37,7 +37,7 @@ import java.util.concurrent.TimeUnit
  * - 连接鉴权（Authorization header）
  * - 30s ping 心跳（OkHttp 自动），服务端 90s 超时清理
  * - 断线指数退避重连：1s→2s→4s→…上限 60s
- * - 服务端事件分发：状态/求陪伴/求冷静/响铃/待办/日记
+ * - 服务端事件分发：状态/求陪伴/求冷静/响铃/待办/相册
  */
 object StatusSyncManager {
 

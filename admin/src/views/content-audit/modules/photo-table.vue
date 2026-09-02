@@ -1,9 +1,8 @@
 <!--
   内容审核 - 相册照片列表
 
-  只显示元数据、**不显示缩略图**：服务端 GET /api/admin/photos 刻意不返回任何图片 URL
-  （见 Store.ListPhotosAll 注释）。管理员没有用户 token，本就读不了 /media/<id> 鉴权代理，
-  这一页的用途是违规内容处置，不是浏览情侣私密照片。
+  列表只返回元数据；需要审核时通过独立接口查看 384px 审核缩略图，永远不回传原图。
+  缩略图查看会写审计，且响应带 no-store，避免私密内容进入浏览器缓存。
 -->
 <template>
   <div>
@@ -44,6 +43,25 @@
     </ArtTable>
 
     <ElDialog
+      v-model="thumbVisible"
+      :title="$t('contentAudit.photo.thumbTitle')"
+      width="min(92vw, 520px)"
+      align-center
+      @closed="closeThumb"
+    >
+      <div v-loading="thumbLoading" class="photo-thumb-preview">
+        <ElImage v-if="thumbUrl" :src="thumbUrl" fit="contain" class="photo-thumb-image" />
+        <ElEmpty v-else-if="!thumbLoading" :description="$t('contentAudit.photo.thumbEmpty')" />
+      </div>
+      <p class="mt-3 mb-0 text-xs art-text-gray-500">
+        {{ $t('contentAudit.photo.thumbHint', { id: thumbPhoto?.id || '-' }) }}
+      </p>
+      <template #footer>
+        <ElButton @click="thumbVisible = false">{{ $t('common.close') }}</ElButton>
+      </template>
+    </ElDialog>
+
+    <ElDialog
       v-model="editVisible"
       :title="$t('contentAudit.photo.editTitle')"
       width="520px"
@@ -71,9 +89,10 @@
 </template>
 
 <script setup lang="ts">
+  import { onUnmounted } from 'vue'
   import { useI18n } from 'vue-i18n'
   import { useTable } from '@/hooks/core/useTable'
-  import { deletePhoto, fetchPhotoList, updatePhoto } from '@/api/admin'
+  import { deletePhoto, fetchPhotoList, fetchPhotoThumbnail, updatePhoto } from '@/api/admin'
   import { formatDateTime } from '@/utils/format/datetime'
   import { formatFileSize } from '@/utils/format/filesize'
   import {
@@ -100,6 +119,49 @@
   const editingPhoto = ref<PhotoItem | null>(null)
   const editFormRef = ref<FormInstance>()
   const editForm = reactive({ caption: '' })
+  const thumbVisible = ref(false)
+  const thumbLoading = ref(false)
+  const thumbUrl = ref('')
+  const thumbPhoto = ref<PhotoItem | null>(null)
+  let thumbRequestId = 0
+
+  const clearThumbUrl = () => {
+    if (thumbUrl.value) URL.revokeObjectURL(thumbUrl.value)
+    thumbUrl.value = ''
+  }
+
+  const closeThumb = () => {
+    thumbRequestId += 1
+    clearThumbUrl()
+    thumbPhoto.value = null
+    thumbLoading.value = false
+  }
+
+  const openThumb = async (row: PhotoItem) => {
+    const requestId = ++thumbRequestId
+    clearThumbUrl()
+    thumbPhoto.value = row
+    thumbVisible.value = true
+    thumbLoading.value = true
+    try {
+      const url = await fetchPhotoThumbnail(row.id)
+      if (requestId !== thumbRequestId) {
+        URL.revokeObjectURL(url)
+        return
+      }
+      thumbUrl.value = url
+    } catch (error) {
+      if (requestId === thumbRequestId) {
+        ElMessage.error(error instanceof Error ? error.message : t('contentAudit.photo.thumbError'))
+        thumbVisible.value = false
+      }
+    } finally {
+      if (requestId === thumbRequestId) thumbLoading.value = false
+    }
+  }
+
+  onUnmounted(closeThumb)
+
   const editRules = computed<FormRules>(() => ({
     caption: [{ max: 500, message: t('contentAudit.photo.rules.caption'), trigger: 'blur' }]
   }))
@@ -198,10 +260,13 @@
         {
           prop: 'operation',
           label: t('common.operation'),
-          width: 160,
+          width: 250,
           fixed: 'right',
           formatter: (row) =>
             h('div', [
+              h(ElButton, { type: 'info', link: true, onClick: () => openThumb(row) }, () =>
+                t('contentAudit.photo.view')
+              ),
               row.status === 1
                 ? h(ElButton, { type: 'primary', link: true, onClick: () => openEdit(row) }, () =>
                     t('common.edit')
@@ -256,27 +321,47 @@
       await updatePhoto(editingPhoto.value.id, { caption: editForm.caption.trim() })
       ElMessage.success(t('contentAudit.photo.editSuccess'))
       editVisible.value = false
-      refreshData()
+      await refreshData()
     } finally {
       editSubmitting.value = false
     }
   }
 
   /** 后台删除是软删（进用户回收站，用户可自行恢复、不删磁盘文件），二次确认里必须说清 */
-  const handleDelete = (row: PhotoItem) => {
-    ElMessageBox.confirm(
-      t('contentAudit.photo.deleteConfirm', { id: row.id }),
-      t('contentAudit.photo.deleteTitle'),
-      {
-        confirmButtonText: t('common.confirm'),
-        cancelButtonText: t('common.cancel'),
-        type: 'warning'
-      }
-    ).then(async () => {
+  const handleDelete = async (row: PhotoItem) => {
+    try {
+      await ElMessageBox.confirm(
+        t('contentAudit.photo.deleteConfirm', { id: row.id }),
+        t('contentAudit.photo.deleteTitle'),
+        {
+          confirmButtonText: t('common.confirm'),
+          cancelButtonText: t('common.cancel'),
+          type: 'warning'
+        }
+      )
       await deletePhoto(row.id)
       ElMessage.success(t('contentAudit.photo.deleteSuccess'))
       // 删最后一页最后一条时回上一页，避免停在空页
-      refreshRemove()
-    })
+      await refreshRemove()
+    } catch (error) {
+      if (error === 'cancel' || error === 'close') return
+    }
   }
 </script>
+
+<style scoped>
+  .photo-thumb-preview {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 300px;
+    overflow: hidden;
+    background: var(--el-fill-color-light);
+    border-radius: 12px;
+  }
+
+  .photo-thumb-image {
+    width: 100%;
+    max-height: 60vh;
+  }
+</style>

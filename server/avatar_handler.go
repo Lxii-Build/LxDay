@@ -28,7 +28,7 @@ func handleUploadAvatar(c *gin.Context) {
 	limits := defaultAvatarLimits()
 	releaseMultipartSlot, parseOK := acquireMultipartParseSlot()
 	if !parseOK {
-		rejectMultipartBusy(c, false)
+		rejectMultipartBusy(c)
 		return
 	}
 	defer releaseMultipartSlot()

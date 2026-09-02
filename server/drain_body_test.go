@@ -48,18 +48,18 @@ func TestFailDrainsRequestBody(t *testing.T) {
 	}
 }
 
-// afail（后台信封）同样要排空——后台 /upload 传 APK 可达数百 MB。
+// afail（后台信封）同样要排空。
 func TestAfailDrainsRequestBody(t *testing.T) {
 	body := bytes.Repeat([]byte("y"), 3*1024*1024)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest("POST", "/api/admin/upload", bytes.NewReader(body))
+	c.Request = httptest.NewRequest("POST", "/api/admin/users", bytes.NewReader(body))
 
 	afail(c, 401, 401, "登录已失效，请重新登录")
 
 	left, _ := io.Copy(io.Discard, c.Request.Body)
 	if left != 0 {
-		t.Fatalf("afail 后仍剩 %d 字节未读 —— 后台上传大文件时会 502", left)
+		t.Fatalf("afail 后仍剩 %d 字节未读 —— 大请求会在反代侧变成 502", left)
 	}
 	if rec.Code != 401 {
 		t.Fatalf("状态码应为 401，实际 %d", rec.Code)

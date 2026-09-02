@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -109,6 +110,10 @@ func handleAdminDeleteAlbum(c *gin.Context) {
 		return
 	}
 	if err := st.DeleteAlbum(id, pairID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			afail(c, http.StatusNotFound, 404, "相册不存在或已删除")
+			return
+		}
 		afail(c, 500, 500, "删除失败")
 		return
 	}

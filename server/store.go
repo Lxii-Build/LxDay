@@ -91,7 +91,7 @@ func (s *Store) UpdateUserProfile(id int64, nickname string, gender int, signatu
 func (s *Store) UpdateAdminUserProfile(id int64, email *string, nickname string, gender int,
 	signature, birthday *string) error {
 	res, err := s.DB.Exec(
-		"UPDATE `user` SET email=?, nickname=?, gender=?, signature=?, birthday=? WHERE id=?",
+		"UPDATE `user` SET email=?, nickname=?, gender=?, signature=?, birthday=?, updated_at=datetime('now') WHERE id=?",
 		email, nickname, gender, signature, birthday, id)
 	if err != nil {
 		return err
@@ -175,7 +175,7 @@ func (s *Store) UpdateAdminPairAnniversary(pairID int64, anniversary *time.Time)
 		value = *anniversary
 	}
 	res, err := s.DB.Exec(
-		"UPDATE pair SET anniversary_date=? WHERE id=? AND status=1",
+		"UPDATE pair SET anniversary_date=? WHERE id=? AND status=1 AND user_a_id>0 AND user_b_id>0",
 		value, pairID)
 	if err != nil {
 		return err
@@ -395,7 +395,7 @@ func (s *Store) UpdateAdminTodo(id, assigneeID int64, title, note string, remind
 	}
 	res, err := s.DB.Exec(
 		`UPDATE todo SET assignee_id=?, title=?, note=?, remind_at=?, remind_type=?, repeat_type=?,
-		 weekdays=?, remind_enabled=? WHERE id=? AND status<>2`,
+			 weekdays=?, remind_enabled=?, updated_at=datetime('now') WHERE id=? AND status<>2`,
 		assigneeID, title, note, reminder, remindType, repeatType, weekdays, remindEnabled, id)
 	if err != nil {
 		return err
@@ -421,8 +421,18 @@ func (s *Store) CompleteTodo(id, uid int64) (*Todo, error) {
 }
 
 func (s *Store) DeleteTodo(id int64) error {
-	_, err := s.DB.Exec(`UPDATE todo SET status=2 WHERE id=?`, id)
-	return err
+	res, err := s.DB.Exec(`UPDATE todo SET status=2, updated_at=datetime('now') WHERE id=? AND status<>2`, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (s *Store) GetTodo(id int64) (*Todo, error) {
@@ -470,8 +480,6 @@ func (s *Store) AdvanceTodoRemind(id int64, next *time.Time) error {
 	_, err := s.DB.Exec(`UPDATE todo SET remind_at=? WHERE id=?`, next, id)
 	return err
 }
-
-// ---------- 日记 ----------
 
 // ---------- 状态（Redis 为主，落库兜底） ----------
 

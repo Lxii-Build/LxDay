@@ -62,12 +62,7 @@
         </ElTableColumn>
         <ElTableColumn label="操作" width="140" fixed="right">
           <template #default="{ row }">
-            <ElButton
-              type="danger"
-              link
-              :disabled="!row.recycled_count"
-              @click="handlePurge(row)"
-            >
+            <ElButton type="danger" link :disabled="!row.recycled_count" @click="handlePurge(row)">
               清空回收站
             </ElButton>
           </template>
@@ -147,16 +142,20 @@
   }
 
   async function handlePurge(row: Api.Admin.StorageUsageItem) {
-    // 真删磁盘文件，不可恢复 —— 必须把后果写在确认框里，且不能是一句"确定吗"
-    await ElMessageBox.confirm(
-      `将永久删除「${row.couple}」回收站里的 ${row.recycled_count} 张照片` +
-        `（约 ${formatFileSize(row.recycled_bytes)}），服务器上的文件会一并清除，之后无法恢复。`,
-      '清空回收站',
-      { type: 'warning', confirmButtonText: '永久删除', cancelButtonText: '取消' }
-    )
-    const res = await purgeRecycleBin(row.pair_id)
-    ElMessage.success(`已清理 ${res.purged} 张，释放 ${formatFileSize(res.freed_bytes)}`)
-    load()
+    try {
+      // 真删磁盘文件，不可恢复 —— 必须把后果写在确认框里，且不能是一句"确定吗"
+      await ElMessageBox.confirm(
+        `将永久删除「${row.couple}」回收站里的 ${row.recycled_count} 张照片` +
+          `（约 ${formatFileSize(row.recycled_bytes)}），服务器上的文件会一并清除，之后无法恢复。`,
+        '清空回收站',
+        { type: 'warning', confirmButtonText: '永久删除', cancelButtonText: '取消' }
+      )
+      const res = await purgeRecycleBin(row.pair_id)
+      ElMessage.success(`已清理 ${res.purged} 张，释放 ${formatFileSize(res.freed_bytes)}`)
+      await load()
+    } catch (error) {
+      if (error === 'cancel' || error === 'close') return
+    }
   }
 
   onMounted(load)

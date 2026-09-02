@@ -30,7 +30,6 @@ func aok(c *gin.Context, data interface{}) {
 
 func afail(c *gin.Context, httpCode, bizCode int, msg string) {
 	// 与 fail 同理：不排空 body 的话，「大 body + 提前拒绝」会让 Nginx 收到 RST 变成 502。
-	// 后台的 /upload（APK 上传，可达数百 MB）尤其容易踩到。
 	drainRequestBody(c)
 	c.JSON(httpCode, gin.H{"code": bizCode, "msg": msg})
 }
@@ -123,7 +122,11 @@ func AdminAuth() gin.HandlerFunc {
 			return
 		}
 		if a.Status != 1 {
-			afail(c, http.StatusForbidden, 4033, "账号已被禁用")
+			// A valid token for a disabled account must not reveal more than an
+			// invalid token. Returning 403 here lets callers distinguish a real
+			// disabled administrator from a missing/invalid account and enumerate
+			// administrative identities.
+			afail(c, http.StatusUnauthorized, 401, "登录已失效，请重新登录")
 			c.Abort()
 			return
 		}
@@ -660,17 +663,18 @@ func handleAdminStats(c *gin.Context) { aok(c, st.DashboardStats()) }
 // ---------- 用户管理 ----------
 
 type AdminUserRow struct {
-	ID          int64     `json:"id"`
-	Username    *string   `json:"username"`
-	Email       *string   `json:"email"`
-	Nickname    string    `json:"nickname"`
-	AvatarURL   *string   `json:"avatar_url"`
-	Gender      int       `json:"gender"`
-	Signature   *string   `json:"signature"`
-	Birthday    *string   `json:"birthday"`
-	Anniversary *string   `json:"anniversary"`
-	Status      int       `json:"status"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID                 int64     `json:"id"`
+	Username           *string   `json:"username"`
+	Email              *string   `json:"email"`
+	Nickname           string    `json:"nickname"`
+	// 后台用户列表只需要辨认头像，不能把原图地址扩散到管理端。
+	AvatarThumbnailURL *string `json:"avatar_thumbnail_url"`
+	Gender             int       `json:"gender"`
+	Signature          *string   `json:"signature"`
+	Birthday           *string   `json:"birthday"`
+	Anniversary        *string   `json:"anniversary"`
+	Status             int       `json:"status"`
+	CreatedAt          time.Time `json:"created_at"`
 }
 
 func (s *Store) ListUsers(keyword string, status, limit, offset int) ([]AdminUserRow, int, error) {
@@ -695,7 +699,7 @@ func (s *Store) ListUsers(keyword string, status, limit, offset int) ([]AdminUse
 		return nil, 0, err
 	}
 	rows, err := s.DB.Query(
-		"SELECT u.id,u.username,u.email,u.nickname,u.avatar_url,u.gender,u.signature,u.birthday,u.status,u.created_at,"+
+		"SELECT u.id,u.username,u.email,u.nickname,u.avatar_thumbnail_url,u.gender,u.signature,u.birthday,u.status,u.created_at,"+
 			"(SELECT p.anniversary_date FROM pair p WHERE p.status=1 AND (p.user_a_id=u.id OR p.user_b_id=u.id) LIMIT 1) "+
 			"FROM `user` u"+where+
 			" ORDER BY u.id DESC LIMIT ? OFFSET ?", append(args, limit, offset)...)
@@ -707,7 +711,7 @@ func (s *Store) ListUsers(keyword string, status, limit, offset int) ([]AdminUse
 	for rows.Next() {
 		var u AdminUserRow
 		var birthday, anniversary sql.NullTime
-		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.Nickname, &u.AvatarURL, &u.Gender, &u.Signature, &birthday, &u.Status, &u.CreatedAt, &anniversary); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.Nickname, &u.AvatarThumbnailURL, &u.Gender, &u.Signature, &birthday, &u.Status, &u.CreatedAt, &anniversary); err != nil {
 			// 坏行跳过并留痕：忽略 Scan 错误会让 NULL 列静默变成零值。
 			slog.Error("scan admin_user_row failed", "err", err)
 			continue
@@ -733,7 +737,7 @@ func (s *Store) SetUserStatus(id int64, status int) error {
 		return fmt.Errorf("invalid user status %d", status)
 	}
 	res, err := s.DB.Exec(
-		"UPDATE `user` SET status=?, token_ver=token_ver+1 WHERE id=?",
+		"UPDATE `user` SET status=?, token_ver=token_ver+1, updated_at=datetime('now') WHERE id=?",
 		status, id)
 	if err != nil {
 		return err
@@ -897,11 +901,61 @@ func handleAdminSetUserStatus(c *gin.Context) {
 		return
 	}
 	if err := st.SetUserStatus(id, req.Status); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			afail(c, http.StatusNotFound, 404, "用户不存在")
+			return
+		}
 		afail(c, 500, 500, "操作失败")
 		return
 	}
-	st.AddAudit(c.GetInt64("aid"), "", "set_user_status", "user="+strconv.FormatInt(id, 10), c.ClientIP())
+	if req.Status == 2 {
+		// token_ver revokes HTTP access; also close the live socket and clear
+		// process state so a disabled user cannot keep receiving or sending
+		// realtime data until the normal connection timeout.
+		if hub != nil {
+			hub.disconnect(id)
+		}
+		if st.mem != nil {
+			st.mem.forgetUser(id)
+		}
+	}
+	st.AddAudit(c.GetInt64("aid"), c.GetString("admin_name"), "set_user_status", "user="+strconv.FormatInt(id, 10), c.ClientIP())
 	aok(c, gin.H{"ok": true})
+}
+
+// handleAdminDeleteUser permanently removes one user and the data owned by
+// that account. Active pairs must be unbound first so the remaining user is
+// never surprised by an implicit relationship change.
+func handleAdminDeleteUser(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		afail(c, 400, 400, "用户 ID 非法")
+		return
+	}
+	if err := st.DeleteUser(id); err != nil {
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			afail(c, http.StatusNotFound, 404, "用户不存在")
+		case errors.Is(err, errUserHasActivePair):
+			afail(c, http.StatusConflict, 409, "该用户仍在绑定关系中，请先解除绑定后再删除")
+		default:
+			afail(c, http.StatusInternalServerError, 500, "删除用户失败")
+		}
+		return
+	}
+	// Stop any already-open realtime session and discard all user-scoped
+	// process state. HTTP JWT requests are revoked by the deleted row itself;
+	// the explicit cleanup also prevents stale online/status/event data from
+	// surviving until a TTL or from being observed if an id is ever reused.
+	if hub != nil {
+		hub.disconnect(id)
+	}
+	if st.mem != nil {
+		st.mem.forgetUser(id)
+	}
+	st.AddAudit(c.GetInt64("aid"), c.GetString("admin_name"), "delete_user",
+		"user="+strconv.FormatInt(id, 10), c.ClientIP())
+	aok(c, gin.H{"ok": true, "deleted": id})
 }
 
 // APPEND-ADMIN-4
@@ -934,7 +988,7 @@ func (s *Store) ListPairs(keyword string, limit, offset int) ([]gin.H, int, erro
 	// 调 /pair/bind 填上去。BindPair 只拦"两个槽都满"，空位会被顺利填上。
 	// 绑定完成即成为对方的合法伴侣，从此相册、/media/<id>、待办、
 	// 状态历史（含 WiFi SSID 与前台应用）全部合法可读——
-	// 而相册与日记导出这些接口早就特意收敛到超管了，这条口子等于把那些收敛全部绕过。
+	// 而相册等私密接口早就特意收敛到超管了，这条口子等于把那些收敛全部绕过。
 	//
 	// 后台真正需要的只是「这条邀请还挂着没人用」，那是一个布尔值，不是那串码。
 	// 也不能下发前几位之类的"部分脱敏"：邀请码只有 8 位，泄露任何一段都在
@@ -979,8 +1033,18 @@ func (s *Store) ListPairs(keyword string, limit, offset int) ([]gin.H, int, erro
 }
 
 func (s *Store) UnbindPair(id int64) error {
-	_, err := s.DB.Exec("UPDATE pair SET status=0, unbind_time=datetime('now') WHERE id=?", id)
-	return err
+	res, err := s.DB.Exec("UPDATE pair SET status=0, unbind_time=datetime('now') WHERE id=? AND status=1 AND user_a_id>0 AND user_b_id>0", id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func handleAdminListPairs(c *gin.Context) {
@@ -1036,11 +1100,39 @@ func handleAdminUnbindPair(c *gin.Context) {
 		afail(c, 400, 400, "参数错误")
 		return
 	}
+	var userAID, userBID int64
+	var status int
+	if err := st.DB.QueryRow("SELECT user_a_id,user_b_id,status FROM pair WHERE id=?", id).Scan(&userAID, &userBID, &status); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			afail(c, http.StatusNotFound, 404, "绑定关系不存在")
+			return
+		}
+		afail(c, 500, 500, "读取关系失败")
+		return
+	}
+	if status != 1 || userAID <= 0 || userBID <= 0 {
+		afail(c, http.StatusConflict, 409, "该关系已经解除或尚未完成绑定")
+		return
+	}
 	if err := st.UnbindPair(id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			afail(c, http.StatusConflict, 409, "该关系已经解除")
+			return
+		}
 		afail(c, 500, 500, "操作失败")
 		return
 	}
-	st.AddAudit(c.GetInt64("aid"), "", "unbind_pair", "pair="+strconv.FormatInt(id, 10), c.ClientIP())
+	// Notify both sessions. The admin action must take effect in both Apps,
+	// not only in the database; MsgUnbound is transient and therefore is not
+	// replayed later to an offline session.
+	if hub != nil {
+		for _, uid := range []int64{userAID, userBID} {
+			if uid > 0 {
+				hub.route(uid, WsMessage{Type: MsgUnbound, Data: gin.H{"pair_id": id}})
+			}
+		}
+	}
+	st.AddAudit(c.GetInt64("aid"), c.GetString("admin_name"), "unbind_pair", "pair="+strconv.FormatInt(id, 10), c.ClientIP())
 	aok(c, gin.H{"ok": true})
 }
 
@@ -1085,7 +1177,7 @@ func handleAdminCancelPendingInvite(c *gin.Context) {
 
 // APPEND-ADMIN-5
 
-// ---------- 内容审核（待办 / 日记） ----------
+// ---------- 内容审核（待办 / 相册照片） ----------
 
 // ListTodosAll 后台待办列表（分页 + keyword，creator/assignee 名字从 user 解析）。
 // 契约字段：id,title,note,creator_id,creator_name,assignee_id,assignee_name,remind_enabled,remind_type,repeat_type,weekdays,remind_at,status,pair_id,created_at
@@ -1251,10 +1343,14 @@ func handleAdminDeleteTodo(c *gin.Context) {
 		return
 	}
 	if err := st.DeleteTodo(id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			afail(c, http.StatusNotFound, 404, "待办不存在或已删除")
+			return
+		}
 		afail(c, 500, 500, "删除失败")
 		return
 	}
-	st.AddAudit(c.GetInt64("aid"), "", "delete_todo", "todo="+strconv.FormatInt(id, 10), c.ClientIP())
+	st.AddAudit(c.GetInt64("aid"), c.GetString("admin_name"), "delete_todo", "todo="+strconv.FormatInt(id, 10), c.ClientIP())
 	aok(c, gin.H{"ok": true})
 }
 
@@ -1289,6 +1385,10 @@ func handleAdminDeletePhoto(c *gin.Context) {
 		return
 	}
 	if err := st.AdminDeletePhoto(id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			afail(c, http.StatusNotFound, 404, "照片不存在或已在回收站")
+			return
+		}
 		afail(c, 500, 500, "删除失败")
 		return
 	}
@@ -1472,21 +1572,17 @@ func handleAdminCreateAdmin(c *gin.Context) {
 	aok(c, gin.H{"id": id})
 }
 
-// ---------- 系统设置（站点/存储/推送/SMTP） ----------
+// ---------- 系统设置（站点/SMTP） ----------
 
 // settingKeys 敏感/展示类设置（含密钥），一律限超管读写。
 //
-// 已删掉 6 个废弃键（Q43=A）：storage.local_dir 与 5 个 OSS 键。
-// 0813 就定了「只留 local 存储、隐藏 OSS/COS/Kodo」，前端早已不显示，
-// 后端却还留着——留一个"配了没用"的键比没有这个键更糟：
-// 它会让人（包括未来的我）以为改它有效，然后浪费时间排查。
-// push.provider 同理：推送网关目前是日志占位实现，配它不产生任何行为。
+// 已删掉所有未接入的存储驱动与推送 provider 配置：
+// 留一个"配了没用"的键比没有这个键更糟，会让人误以为配置已经生效。
 //
 // 运行参数（相册配额/保留期/限流/互动冷却）不在这里，见 settings.go 的 runtimeSettingSpecs，
 // 那些键不含密钥，故对普通 admin 开放。
 var settingKeys = []string{
 	"site.name", "site.url", "site.logo", "site.description",
-	"storage.driver",
 	"smtp.host", "smtp.port", "smtp.username", "smtp.password", "smtp.from", "smtp.ssl",
 }
 
@@ -1506,7 +1602,6 @@ var auditPublicSettingKeys = map[string]bool{
 	"site.url":         true,
 	"site.logo":        true,
 	"site.description": true,
-	"storage.driver":   true,
 	"smtp.ssl":         true,
 	"smtp.port":        true,
 }
@@ -1745,8 +1840,18 @@ func (s *Store) UpsertNotifyTemplate(code, title, body string, enabled int) erro
 // DeleteNotifyTemplate 删除通知模板。此前模板只能增改不能删，
 // 写错一次就永久留在列表里。
 func (s *Store) DeleteNotifyTemplate(id int64) error {
-	_, err := s.DB.Exec("DELETE FROM notify_template WHERE id=?", id)
-	return err
+	res, err := s.DB.Exec("DELETE FROM notify_template WHERE id=?", id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (s *Store) AddNotifyRecord(code, title, body, target string, sent int) {
@@ -1833,10 +1938,33 @@ func handleAdminUpsertTemplate(c *gin.Context) {
 		afail(c, 400, 400, "参数错误")
 		return
 	}
-	if err := st.UpsertNotifyTemplate(req.Code, req.Title, req.Body, req.Enabled); err != nil {
+	code := strings.TrimSpace(req.Code)
+	title := strings.TrimSpace(req.Title)
+	body := strings.TrimSpace(req.Body)
+	// 模板内容会被写入数据库并用于推送；收敛长度可以避免后台误粘贴超大内容，
+	// 同时避免用空白字符串覆盖一个仍在使用的模板。
+	if code == "" || utf8.RuneCountInString(code) > 64 {
+		afail(c, 400, 400, "模板编码长度 1-64")
+		return
+	}
+	if title == "" || utf8.RuneCountInString(title) > 100 {
+		afail(c, 400, 400, "模板标题长度 1-100")
+		return
+	}
+	if body == "" || utf8.RuneCountInString(body) > 2000 {
+		afail(c, 400, 400, "模板内容长度 1-2000")
+		return
+	}
+	if req.Enabled != 0 && req.Enabled != 1 {
+		afail(c, 400, 400, "enabled 只能是 0 或 1")
+		return
+	}
+	if err := st.UpsertNotifyTemplate(code, title, body, req.Enabled); err != nil {
 		afail(c, 500, 500, "保存失败")
 		return
 	}
+	st.AddAudit(c.GetInt64("aid"), c.GetString("admin_name"), "upsert_notify_template",
+		"code="+code, c.ClientIP())
 	aok(c, gin.H{"ok": true})
 }
 
@@ -1861,6 +1989,16 @@ func handleAdminSendNotify(c *gin.Context) {
 		afail(c, 400, 400, "参数错误")
 		return
 	}
+	title := strings.TrimSpace(req.Title)
+	body := strings.TrimSpace(req.Body)
+	if title == "" || utf8.RuneCountInString(title) > 100 {
+		afail(c, 400, 400, "通知标题长度 1-100")
+		return
+	}
+	if body == "" || utf8.RuneCountInString(body) > 2000 {
+		afail(c, 400, 400, "通知内容长度 1-2000")
+		return
+	}
 	target := strings.TrimSpace(req.Target)
 	if target == "" {
 		target = "all"
@@ -1876,7 +2014,12 @@ func handleAdminSendNotify(c *gin.Context) {
 		afail(c, 400, 400, "目标用户为空，请检查 target")
 		return
 	}
-	notice := WsMessage{Type: MsgAdminNotice, Data: gin.H{"title": req.Title, "body": req.Body, "ts": time.Now().UnixMilli()}}
+	if hub == nil {
+		afail(c, http.StatusServiceUnavailable, 503, "通知服务暂不可用，请稍后重试")
+		return
+	}
+	templateCode := strings.TrimSpace(req.TemplateCode)
+	notice := WsMessage{Type: MsgAdminNotice, Data: gin.H{"title": title, "body": body, "ts": time.Now().UnixMilli()}}
 	// 异步扇出，避免在请求线程内串行遍历全量用户阻塞响应。
 	go func() {
 		for _, id := range ids {
@@ -1884,9 +2027,9 @@ func handleAdminSendNotify(c *gin.Context) {
 		}
 	}()
 	sent := len(ids)
-	st.AddNotifyRecord(req.TemplateCode, req.Title, req.Body, target, sent)
+	st.AddNotifyRecord(templateCode, title, body, target, sent)
 	st.AddAudit(c.GetInt64("aid"), c.GetString("admin_name"), "send_notify",
-		fmt.Sprintf("target=%s sent=%d title=%s", target, sent, req.Title), c.ClientIP())
+		fmt.Sprintf("target=%s sent=%d title=%s", target, sent, title), c.ClientIP())
 	aok(c, gin.H{"sent": sent})
 }
 
@@ -1900,12 +2043,20 @@ func resolveNotifyTargets(target string) ([]int64, error) {
 	if !ok {
 		return nil, errors.New("target 格式无效，应为 all 或 uid:1,2,3")
 	}
+	if len(raw) > 4096 {
+		return nil, errors.New("目标用户列表过长，最多 100 个用户")
+	}
 	seen := map[int64]bool{}
 	out := []int64{}
+	parsed := 0
 	for _, part := range strings.Split(raw, ",") {
 		p := strings.TrimSpace(part)
 		if p == "" {
 			continue
+		}
+		parsed++
+		if parsed > 100 {
+			return nil, errors.New("目标用户过多，最多 100 个用户")
 		}
 		id, err := strconv.ParseInt(p, 10, 64)
 		if err != nil || id <= 0 {
@@ -1922,62 +2073,6 @@ func resolveNotifyTargets(target string) ([]int64, error) {
 		out = append(out, id)
 	}
 	return out, nil
-}
-
-// APPEND-ADMIN-9
-
-// ---------- 通用文件上传（APK / LOGO 等，落存储抽象层） ----------
-
-func handleAdminUpload(c *gin.Context) {
-	releaseMultipartSlot, parseOK := acquireMultipartParseSlot()
-	if !parseOK {
-		rejectMultipartBusy(c, true)
-		return
-	}
-	defer releaseMultipartSlot()
-	defer releaseParsedMultipartForm(c)
-
-	// 先限制整个请求体，再让 FormFile 解析；否则 file.Size 检查之前就可能
-	// 把任意大的请求写入内存或临时盘。300MB 是业务上限，额外空间只留给 multipart 头。
-	const adminUploadMaxBytes = 300*1024*1024 + bytesHeaderSlack
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, adminUploadMaxBytes)
-
-	file, err := c.FormFile("file")
-	if err != nil {
-		afail(c, 400, 400, "缺少文件字段 file")
-		return
-	}
-	if file.Size > 300*1024*1024 {
-		afail(c, 400, 400, "文件过大（不超过 300MB）")
-		return
-	}
-	ext := strings.ToLower(filepath.Ext(file.Filename))
-	// 白名单：仅允许 APK 与常见图片；拒绝 html/svg/可执行等可致同源 XSS 或滥用的类型。
-	switch ext {
-	case ".apk", ".jpg", ".jpeg", ".png", ".webp", ".gif", ".ico":
-	default:
-		afail(c, 400, 400, "不支持的文件类型")
-		return
-	}
-	base := randomCode(20)
-	if base == "" {
-		afail(c, 500, 500, "安全随机源不可用")
-		return
-	}
-	rel := "upload/" + base + ext
-	dst := filepath.Join(uploadDir, filepath.FromSlash(rel))
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		afail(c, 500, 500, "存储目录创建失败")
-		return
-	}
-	if err := c.SaveUploadedFile(file, dst); err != nil {
-		afail(c, 500, 500, "保存失败")
-		return
-	}
-	releaseParsedMultipartForm(c)
-	url := newStorage().PublicURL(rel)
-	st.AddAudit(c.GetInt64("aid"), "", "upload", rel, c.ClientIP())
-	aok(c, gin.H{"url": url, "apk_url": url})
 }
 
 // ---------- 管理员管理（角色/状态/重置密码/删除） ----------
@@ -2160,6 +2255,10 @@ func handleAdminDeleteTemplate(c *gin.Context) {
 		return
 	}
 	if err := st.DeleteNotifyTemplate(id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			afail(c, http.StatusNotFound, 404, "通知模板不存在")
+			return
+		}
 		afail(c, 500, 500, "删除失败")
 		return
 	}
@@ -2216,7 +2315,6 @@ func registerAdminRoutes(r *gin.Engine) {
 	auth.GET("/pairs", handleAdminListPairs)
 	auth.GET("/todos", handleAdminListTodos)
 	auth.GET("/app-releases", handleAdminListAppReleases)
-	auth.GET("/server-info", handleAdminServerInfo)
 	auth.GET("/audit-logs", handleAdminListAudit)
 	auth.GET("/network-logs", handleAdminListNetworkLogs)
 	auth.GET("/notify-templates", handleAdminListTemplates)
@@ -2228,12 +2326,12 @@ func registerAdminRoutes(r *gin.Engine) {
 	//
 	// 此前只有 POST /admins 与 PUT /settings 挂了 requireSuper，其余全部裸奔，
 	// 于是「普通 admin」事实上等于超管：能读取 GET /settings 里的存储密钥、
-	// 能向全站用户群发通知、能删任意日记待办、能封禁用户、能解绑他人情侣关系、
-	// 能上传 300MB 文件落盘。这与「分角色」的初衷完全背离。
+	// 能向全站用户群发通知、能删任意待办、能封禁用户、能解绑他人情侣关系、
+	// 还能查看和修改全站私密内容。这与「分角色」的初衷完全背离。
 	sup := g.Group("", AdminAuth(), requireSuper())
-	sup.POST("/upload", handleAdminUpload)
 	sup.PUT("/users/:id", handleAdminUpdateUser)
 	sup.PUT("/users/:id/status", handleAdminSetUserStatus)
+	sup.DELETE("/users/:id", handleAdminDeleteUser)
 	sup.PUT("/pairs/:id", handleAdminUpdatePair)
 	sup.POST("/pairs/:id/unbind", handleAdminUnbindPair)
 	sup.POST("/pairs/:id/cancel-invite", handleAdminCancelPendingInvite)
@@ -2270,9 +2368,6 @@ func registerAdminRoutes(r *gin.Engine) {
 
 	// 相册管理 + 磁盘统计（Q28=D）。全部限超管：相册是全站最私密的内容。
 	registerAdminAlbumRoutes(sup)
-
-	// 日记导出：功能下线前的留档通道（Q33=B）。导完即可移除。
-	registerDiaryExportRoutes(sup)
 
 	sup.PUT("/notify-templates", handleAdminUpsertTemplate)
 	sup.DELETE("/notify-templates/:id", handleAdminDeleteTemplate)

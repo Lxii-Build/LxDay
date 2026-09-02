@@ -41,12 +41,7 @@ import top.yukonga.miuix.kmp.utils.PressFeedbackType
 /**
  * Tab ③ 发现：相册 / 一起听 / 一起看 入口卡。
  *
- * 「日记」功能已于 0821 整体移除（管理员 Q31=D：客户端、服务端接口、
- * 数据表、后台页面、文档全部清掉，彻底断根）。
- * 0811 那轮只删了客户端入口、留下服务端孤儿接口，结果 0820 又接回来了——
- * 留着半截实现，将来看到接口还在就会以为功能该有。
- *
- * App 名字仍叫「林曦日记」、包名仍是 com.linxi.diary，这两个不受影响。
+ * App 名字与包名保持历史兼容；发现页只展示当前实际提供的相册与互动入口。
  */
 @Composable
 fun DiscoverScreen(
@@ -55,7 +50,7 @@ fun DiscoverScreen(
     onOpenWatch: () -> Unit,
     albumEnabled: Boolean = true,
 ) {
-    // 真实数据：相册张数与日记篇数。
+    // 真实数据：相册照片张数。
     // 此前这里是 `delay(500)` 的**假加载**——转半秒圈只为「看起来像在加载」，
     // 既没有任何请求，也没有下拉刷新，纯装饰。
     var loading by remember { mutableStateOf(true) }

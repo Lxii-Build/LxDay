@@ -42,6 +42,7 @@
   "common": {
     "tips": "Prompt",
     "cancel": "Cancel",
+    "close": "Close",
     "confirm": "Confirm",
     "confirmDelete": "Delete",
     "logOutTips": "Do you want to log out?",
@@ -64,20 +65,11 @@
   "setting": {
     "menuType": {
       "title": "Menu Layout",
-      "list": [
-        "Vertical",
-        "Horizontal",
-        "Mixed",
-        "Dual"
-      ]
+      "list": ["Vertical", "Horizontal", "Mixed", "Dual"]
     },
     "theme": {
       "title": "Theme Style",
-      "list": [
-        "Light",
-        "Dark",
-        "System"
-      ]
+      "list": ["Light", "Dark", "System"]
     },
     "menu": {
       "title": "Menu Style"
@@ -87,17 +79,11 @@
     },
     "box": {
       "title": "Box Style",
-      "list": [
-        "Border",
-        "Shadow"
-      ]
+      "list": ["Border", "Shadow"]
     },
     "container": {
       "title": "Container Width",
-      "list": [
-        "Full",
-        "Boxed"
-      ]
+      "list": ["Full", "Boxed"]
     },
     "basics": {
       "title": "Basic Config",
@@ -286,7 +272,6 @@
       "pairsDescription": "Active relationships",
       "todos": "Active todos",
       "todosDescription": "Items still in progress",
-      "diaries": "Total diaries",
       "newUsers7d": "New in last 7 days",
       "newUsersDescription": "Accounts registered this week"
     },
@@ -328,6 +313,10 @@
     "disableSuccess": "User disabled",
     "editTitle": "Edit user profile",
     "editSuccess": "User profile saved",
+    "deleteTitle": "Permanently delete user",
+    "deleteConfirm": "Permanently delete \"{name}\"? This removes the account, personal photos, interactions, todos and status history. A user in an active pair must be unpaired first.",
+    "deleteSuccess": "User and owned data deleted",
+    "deleteError": "Failed to delete the user. Please try again.",
     "form": {
       "username": "Username",
       "nickname": "Nickname",
@@ -469,6 +458,11 @@
       "deleteTitle": "Delete photo",
       "deleteConfirm": "Photo #{id} will be soft-deleted and moved to the owner's trash, where they can restore it themselves. The file on disk is kept. Continue?",
       "deleteSuccess": "Moved to the owner's trash",
+      "view": "View thumbnail",
+      "thumbTitle": "View moderation thumbnail",
+      "thumbEmpty": "Thumbnail unavailable",
+      "thumbError": "Failed to load the thumbnail",
+      "thumbHint": "Photo #{id} is limited to a 384px moderation thumbnail. Every view is audited; the original is never provided.",
       "editTitle": "Edit photo caption",
       "editSuccess": "Photo caption saved",
       "form": {
@@ -478,71 +472,6 @@
         "caption": "Caption must be 500 characters or fewer"
       }
     }
-  },
-  "appVersion": {
-    "empty": "No releases yet",
-    "publish": "New release",
-    "download": "Download",
-    "online": "Publish",
-    "offline": "Unpublish",
-    "onlineSuccess": "Release published",
-    "offlineSuccess": "Release unpublished",
-    "publishSuccess": "Release created",
-    "editSuccess": "Release details saved",
-    "uploadSuccess": "Upload complete",
-    "uploadNoUrl": "Upload finished but no URL was returned. Please fill it in manually.",
-    "uploadFailed": "Upload failed. Try again or paste the APK URL directly.",
-    "filter": {
-      "allPlatforms": "All platforms"
-    },
-    "platform": {
-      "android": "Android",
-      "ios": "iOS"
-    },
-    "force": {
-      "yes": "Forced",
-      "no": "No"
-    },
-    "status": {
-      "online": "Published",
-      "offline": "Unpublished"
-    },
-    "table": {
-      "id": "ID",
-      "platform": "Platform",
-      "versionName": "Version",
-      "versionCode": "Build",
-      "apk": "APK",
-      "forceUpdate": "Forced",
-      "status": "Status",
-      "createdAt": "Released"
-    },
-    "dialog": {
-      "title": "New release",
-      "editTitle": "Edit release",
-      "submit": "Publish"
-    },
-    "form": {
-      "platform": "Platform",
-      "versionName": "Version name",
-      "versionNamePlaceholder": "e.g. 1.2.0",
-      "versionCode": "Build number",
-      "apkUrl": "APK URL",
-      "apkUrlPlaceholder": "Paste the APK download URL, or upload on the right",
-      "notes": "Release notes",
-      "notesPlaceholder": "What changed in this release",
-      "forceUpdate": "Force update",
-      "upload": "Upload"
-    },
-    "rules": {
-      "platform": "Select a platform",
-      "versionName": "Enter a version name",
-      "versionCodeRequired": "Enter a build number",
-      "versionCodePositive": "Build number must be a positive integer",
-      "versionCodeDuplicate": "Build number {code} is already used by \"{name}\". Publishing anyway may break update checks on the client. Continue?"
-    },
-    "deleteTitle": "Delete release",
-    "deleteConfirm": "Delete the release \"{name}\"?"
   },
   "albumManage": {
     "searchPlaceholder": "Search album name",
@@ -630,6 +559,23 @@
     "save": "Save settings",
     "saveFailed": "Could not save. Please try again.",
     "loadFailed": "Could not load settings. Please refresh.",
+    "runtime": {
+      "title": "Runtime parameters",
+      "hint": "Changes take effect immediately. Greyed-out fields are restricted to super administrators; ranges and defaults come from the server.",
+      "restoreDefaults": "Restore defaults",
+      "defaultsPending": "Defaults filled in. Save to apply them.",
+      "range": "Range {min}–{max}",
+      "default": "Default {value}",
+      "superOnly": "Super administrator only",
+      "invalid": "{label} must be an integer",
+      "outOfRange": "{label} must be between {min} and {max}",
+      "groups": {
+        "album": "Albums & uploads",
+        "retention": "Data retention",
+        "security": "Security & rate limits",
+        "interaction": "Interaction cooldowns"
+      }
+    },
     "site": {
       "title": "Site",
       "name": "Site name",
@@ -639,12 +585,6 @@
       "logo": "Site logo",
       "logoPlaceholder": "Logo image URL",
       "description": "Site description"
-    },
-    "storage": {
-      "title": "Storage",
-      "driver": "Driver",
-      "local": "Local disk",
-      "hint": "This build supports local disk storage only."
     },
     "smtp": {
       "title": "SMTP",

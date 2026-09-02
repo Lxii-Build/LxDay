@@ -48,7 +48,7 @@ func privateMediaDatePath(t time.Time) string {
 }
 
 // ================= 上传路径 / 公开 URL（日期分区，本地磁盘） =================
-// 头像与日记图片统一存本地 uploadDir/upload/年/月/日/<随机名><扩展名>，对外走 /upload 静态路由。
+// 头像与后台公开资源统一存本地 uploadDir/upload/年/月/日/<随机名><扩展名>，对外走 /upload 静态路由。
 // 站点地址(site.url)已配置 → 绝对 URL(https://域名/upload/...)；未配置 → 相对 /upload/...（客户端用 BASE_URL 兜底）。
 
 // uploadDatePath 返回当日日期分区相对路径 upload/YYYY/MM/DD（正斜杠，URL 与磁盘子路径共用）。
@@ -209,9 +209,8 @@ func fail(c *gin.Context, httpCode, bizCode int, msg string) {
 //
 // 实测（生产 love.lxii.cc）：body ≤1MB 正常回 403；≥2MB 一律 502；60MB 才是 Nginx 的 413。
 //
-// 上限 320MB：必须覆盖后台 APK 的 300MB 上传上限，否则大上传在鉴权/校验
-// 阶段被提前拒绝时，未读完的请求体仍会让 Go 关闭连接，Nginx 可能把业务错误
-// 放大成 502。真正更大的请求仍由 Nginx/client_max_body_size 拦截。
+// 上限 320MB：覆盖当前反代允许的最大请求体，并给提前拒绝的请求留出排空余量；
+// 真正更大的请求仍由 Nginx/client_max_body_size 拦截。
 func drainRequestBody(c *gin.Context) {
 	if c.Request == nil || c.Request.Body == nil {
 		return
@@ -1008,8 +1007,6 @@ func handleDeleteTodo(c *gin.Context) {
 	ok(c, gin.H{"deleted": id})
 }
 
-// ================= 日记 =================
-
 // ================= 情绪交互 =================
 
 func handleComfort(c *gin.Context) {
@@ -1212,10 +1209,6 @@ func handleBatteryCurve(c *gin.Context) {
 	}
 	ok(c, out)
 }
-
-// ================= 日记图片上传（本地磁盘） =================
-// 存储：uploadDir/upload/年/月/日/<随机名><扩展名>；Go 自托管 /upload/ 静态服务。
-// URL 带不可猜测随机名，纯自用场景免鉴权；公开 URL 形态见 publicUploadURL。
 
 // ================= 待办到点提醒定时扫描 =================
 // 每分钟检查一次「到点未完成」的待办，通知 assignee（在线 WS / 离线入队）。

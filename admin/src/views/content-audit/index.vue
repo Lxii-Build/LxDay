@@ -1,4 +1,4 @@
-<!-- 内容审核（待办 / 日记 / 相册照片） -->
+<!-- 内容审核（待办 / 相册照片） -->
 <template>
   <div class="content-audit-page art-full-height">
     <ElCard class="art-table-card" shadow="never">
@@ -17,7 +17,7 @@
 <script setup lang="ts">
   import { useUserStore } from '@/store/modules/user'
   import TodoTable from './modules/todo-table.vue'
-    import PhotoTable from './modules/photo-table.vue'
+  import PhotoTable from './modules/photo-table.vue'
 
   defineOptions({ name: 'ContentAudit' })
 

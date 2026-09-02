@@ -27,6 +27,14 @@ class WsEventRouterTest {
     }
 
     @Test
+    fun `解除绑定事件触发独立会话刷新`() {
+        assertEquals(
+            WsAction.Unbound,
+            WsEventRouter.route("""{"type":"unbound","data":{"pair_id":7}}"""),
+        )
+    }
+
+    @Test
     fun `未知或损坏事件安全忽略`() {
         assertNull(WsEventRouter.route("""{"type":"unknown"}"""))
         assertNull(WsEventRouter.route("not-json"))

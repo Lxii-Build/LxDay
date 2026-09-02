@@ -229,6 +229,7 @@ var transientEvents = map[string]bool{
 	MsgRingCancel:     true,
 	MsgRingStopped:    true,
 	MsgActionRejected: true,
+	MsgUnbound:        true,
 }
 
 func isTransient(t string) bool { return transientEvents[t] }

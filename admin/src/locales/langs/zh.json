@@ -42,6 +42,7 @@
   "common": {
     "tips": "提示",
     "cancel": "取消",
+    "close": "关闭",
     "confirm": "确定",
     "confirmDelete": "确认删除",
     "logOutTips": "是否退出登录？",
@@ -64,20 +65,11 @@
   "setting": {
     "menuType": {
       "title": "菜单布局",
-      "list": [
-        "垂直",
-        "水平",
-        "混合",
-        "双列"
-      ]
+      "list": ["垂直", "水平", "混合", "双列"]
     },
     "theme": {
       "title": "主题风格",
-      "list": [
-        "浅色",
-        "深色",
-        "系统"
-      ]
+      "list": ["浅色", "深色", "系统"]
     },
     "menu": {
       "title": "菜单风格"
@@ -87,17 +79,11 @@
     },
     "box": {
       "title": "盒子样式",
-      "list": [
-        "边框",
-        "阴影"
-      ]
+      "list": ["边框", "阴影"]
     },
     "container": {
       "title": "容器宽度",
-      "list": [
-        "铺满",
-        "定宽"
-      ]
+      "list": ["铺满", "定宽"]
     },
     "basics": {
       "title": "基础配置",
@@ -286,7 +272,6 @@
       "pairsDescription": "当前有效关系",
       "todos": "进行中待办",
       "todosDescription": "尚未完成的事项",
-      "diaries": "日记总数",
       "newUsers7d": "近 7 天新增",
       "newUsersDescription": "最近一周注册账户"
     },
@@ -328,6 +313,10 @@
     "disableSuccess": "已禁用该用户",
     "editTitle": "编辑用户资料",
     "editSuccess": "用户资料已保存",
+    "deleteTitle": "永久删除用户",
+    "deleteConfirm": "确定永久删除用户「{name}」吗？该账号及其个人照片、互动、待办和状态历史将无法恢复；仍在绑定中的用户必须先解绑。",
+    "deleteSuccess": "用户及其数据已删除",
+    "deleteError": "删除用户失败，请稍后重试",
     "form": {
       "username": "用户名",
       "nickname": "昵称",
@@ -469,6 +458,11 @@
       "deleteTitle": "删除照片",
       "deleteConfirm": "照片（#{id}）将被软删除，进入用户的回收站，用户可自行恢复；磁盘文件不会删除。确定继续吗？",
       "deleteSuccess": "已移入用户回收站",
+      "view": "查看缩略图",
+      "thumbTitle": "查看审核缩略图",
+      "thumbEmpty": "缩略图不可用",
+      "thumbError": "读取缩略图失败",
+      "thumbHint": "照片 #{id} 仅显示 384px 审核缩略图；每次查看都会记录审计，不提供原图。",
       "editTitle": "编辑照片描述",
       "editSuccess": "照片描述已保存",
       "form": {
@@ -478,71 +472,6 @@
         "caption": "描述不能超过 500 个字"
       }
     }
-  },
-  "appVersion": {
-    "empty": "暂无版本记录",
-    "publish": "发布新版本",
-    "download": "下载",
-    "online": "上架",
-    "offline": "下架",
-    "onlineSuccess": "已上架",
-    "offlineSuccess": "已下架",
-    "publishSuccess": "发布成功",
-    "editSuccess": "版本信息已保存",
-    "uploadSuccess": "上传成功",
-    "uploadNoUrl": "上传成功，但未返回地址，请手动填写",
-    "uploadFailed": "上传失败，请稍后重试或直接填写 APK 地址",
-    "filter": {
-      "allPlatforms": "全部平台"
-    },
-    "platform": {
-      "android": "Android",
-      "ios": "iOS"
-    },
-    "force": {
-      "yes": "强制",
-      "no": "否"
-    },
-    "status": {
-      "online": "已发布",
-      "offline": "已下架"
-    },
-    "table": {
-      "id": "ID",
-      "platform": "平台",
-      "versionName": "版本名",
-      "versionCode": "版本号",
-      "apk": "APK",
-      "forceUpdate": "强更",
-      "status": "状态",
-      "createdAt": "发布时间"
-    },
-    "dialog": {
-      "title": "发布新版本",
-      "editTitle": "编辑版本信息",
-      "submit": "发布"
-    },
-    "form": {
-      "platform": "平台",
-      "versionName": "版本名",
-      "versionNamePlaceholder": "如 1.2.0",
-      "versionCode": "版本号",
-      "apkUrl": "APK 地址",
-      "apkUrlPlaceholder": "填写 APK 下载地址，或点击右侧上传",
-      "notes": "更新说明",
-      "notesPlaceholder": "本次更新内容",
-      "forceUpdate": "强制更新",
-      "upload": "上传"
-    },
-    "rules": {
-      "platform": "请选择平台",
-      "versionName": "请输入版本名",
-      "versionCodeRequired": "请输入版本号",
-      "versionCodePositive": "版本号必须是大于 0 的整数",
-      "versionCodeDuplicate": "版本号 {code} 已被「{name}」占用，继续发布可能导致客户端更新判断异常。仍要继续吗？"
-    },
-    "deleteTitle": "删除版本",
-    "deleteConfirm": "确定要删除版本「{name}」吗？"
   },
   "albumManage": {
     "searchPlaceholder": "搜索相册名",
@@ -630,6 +559,23 @@
     "save": "保存设置",
     "saveFailed": "保存失败，请稍后重试",
     "loadFailed": "加载设置失败，请刷新重试",
+    "runtime": {
+      "title": "运行参数",
+      "hint": "这些参数保存后立即生效。灰色项目仅超级管理员可以修改，范围与默认值由服务端统一控制。",
+      "restoreDefaults": "恢复默认",
+      "defaultsPending": "已填入默认值，点击保存后生效",
+      "range": "范围 {min}–{max}",
+      "default": "默认 {value}",
+      "superOnly": "仅超级管理员可改",
+      "invalid": "「{label}」必须填写整数",
+      "outOfRange": "「{label}」必须在 {min}–{max} 范围内",
+      "groups": {
+        "album": "相册与上传",
+        "retention": "数据保留",
+        "security": "安全与限流",
+        "interaction": "互动冷却"
+      }
+    },
     "site": {
       "title": "站点信息",
       "name": "站点名称",
@@ -639,12 +585,6 @@
       "logo": "站点 LOGO",
       "logoPlaceholder": "LOGO 图片地址",
       "description": "站点描述"
-    },
-    "storage": {
-      "title": "存储配置",
-      "driver": "存储驱动",
-      "local": "本地磁盘",
-      "hint": "当前版本仅支持本地磁盘存储。"
     },
     "smtp": {
       "title": "SMTP 邮件",

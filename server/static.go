@@ -23,8 +23,8 @@ var webDistFS embed.FS
 
 // registerStatic 去 Nginx 后由 Go 自托管静态资源：
 //   - GET /healthz 存活检查、GET /readyz 依赖就绪检查
-//   - /upload/*  日期分区公开上传（头像/日记图片，disk: uploadDir/upload/年/月/日/...），禁用目录列举
-//   - /uploads/* 兼容旧路径（历史头像 / 后台 APK·LOGO，disk: uploadDir/*），禁用目录列举
+//   - /upload/*  日期分区公开上传（头像/公开资源，disk: uploadDir/upload/年/月/日/...），禁用目录列举
+//   - /uploads/* 兼容旧路径（历史头像与公开资源，disk: uploadDir/*），禁用目录列举
 //   - 其余非 /api、/ws、/upload(s)、/healthz、/readyz 的 GET/HEAD 请求交给内嵌 SPA（命中静态文件直返，否则回退 index.html）
 func registerStatic(r *gin.Engine) {
 	r.GET("/healthz", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
@@ -56,7 +56,7 @@ func registerStatic(r *gin.Engine) {
 
 	// 新：日期分区上传，URL /upload/年/月/日/xxx → disk uploadDir/upload/年/月/日/xxx
 	r.StaticFS("/upload", gin.Dir(filepath.Join(uploadDir, "upload"), false))
-	// 旧：兼容历史头像与后台上传（APK/LOGO），URL /uploads/xxx → disk uploadDir/xxx
+	// 旧：兼容历史头像与公开资源，URL /uploads/xxx → disk uploadDir/xxx
 	r.StaticFS("/uploads", gin.Dir(uploadDir, false))
 
 	// 内嵌后台前端（去掉 webdist/ 前缀，根即 SPA 根）

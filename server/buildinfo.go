@@ -1,9 +1,8 @@
 package main
 
 import (
+	"runtime"
 	"strings"
-
-	"github.com/gin-gonic/gin"
 )
 
 // These values are replaced by the release/build workflows with -ldflags.
@@ -21,10 +20,4 @@ func shortCommit(commit string) string {
 	return commit
 }
 
-func handleAdminServerInfo(c *gin.Context) {
-	aok(c, gin.H{
-		"version": serverVersion,
-		"commit":  shortCommit(serverCommit),
-		"go":      "1.25",
-	})
-}
+func serverGoVersion() string { return runtime.Version() }

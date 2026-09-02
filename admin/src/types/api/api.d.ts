@@ -84,7 +84,7 @@ declare namespace Api {
       username: string | null
       email: string | null
       nickname: string
-      avatar_url: string | null
+      avatar_thumbnail_url: string | null
       gender: number
       signature: string | null
       birthday: string | null
@@ -93,7 +93,9 @@ declare namespace Api {
       created_at: string
     }
     type UserList = Api.Common.PaginatedResponse<UserItem>
-    type UserSearchParams = Partial<Api.Common.CommonSearchParams & { keyword: string; status: number }>
+    type UserSearchParams = Partial<
+      Api.Common.CommonSearchParams & { keyword: string; status: number }
+    >
     interface UserUpdateParams {
       email?: string | null
       nickname: string
@@ -221,13 +223,15 @@ declare namespace Api {
       super: boolean
     }
 
-    /** GET /runtime-settings 的响应 */
+    /** GET /runtime-settings 与 GET /settings 的响应 */
     interface RuntimeSettingsResp {
       values: Record<string, string>
       /** 默认值，供「一键恢复默认」填回 */
       defaults: Record<string, string>
       meta: RuntimeSettingMeta[]
     }
+
+    type SettingsResponse = RuntimeSettingsResp
 
     /**
      * 相册照片列表项（后台审核用）
@@ -290,11 +294,7 @@ declare namespace Api {
       releases: AppReleaseItem[]
       server_version: string
       server_commit: string
-    }
-    interface ServerInfo {
-      version: string
-      commit: string
-      go: string
+      server_go: string
     }
 
     interface AlbumUpdateParams {
@@ -392,7 +392,7 @@ declare namespace Api {
     type AdminListResponse = AdminItem[] | { list: AdminItem[]; total: number }
     type AdminSearchParams = Partial<Api.Common.CommonSearchParams>
 
-    /** 系统设置键值 map */
+    /** 系统设置提交用键值 map */
     type Settings = Record<string, string>
   }
 }

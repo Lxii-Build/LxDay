@@ -1,9 +1,19 @@
 <!-- 通知 - 模板管理 -->
 <template>
   <div class="notify-templates">
+    <ElAlert
+      v-if="!isSuper"
+      type="info"
+      show-icon
+      :closable="false"
+      :title="$t('systemSettings.runtime.superOnly')"
+      class="mb-3"
+    />
     <div class="mb-3 flex justify-end">
       <ElButton :loading="loading" @click="loadTemplates">{{ $t('common.refresh') }}</ElButton>
-      <ElButton type="primary" @click="openDialog()">{{ $t('notify.templates.create') }}</ElButton>
+      <ElButton v-if="isSuper" type="primary" @click="openDialog()">
+        {{ $t('notify.templates.create') }}
+      </ElButton>
     </div>
 
     <ElTable v-loading="loading" :data="templates" border>
@@ -27,10 +37,15 @@
       </ElTableColumn>
       <ElTableColumn :label="$t('common.operation')" width="140" fixed="right">
         <template #default="{ row }">
-          <ElButton type="primary" link @click="openDialog(row)">{{ $t('common.edit') }}</ElButton>
-          <ElButton type="danger" link @click="handleDelete(row)">
-            {{ $t('common.delete') }}
-          </ElButton>
+          <template v-if="isSuper">
+            <ElButton type="primary" link @click="openDialog(row)">{{
+              $t('common.edit')
+            }}</ElButton>
+            <ElButton type="danger" link @click="handleDelete(row)">
+              {{ $t('common.delete') }}
+            </ElButton>
+          </template>
+          <span v-else class="art-text-gray-400">{{ $t('systemSettings.runtime.superOnly') }}</span>
         </template>
       </ElTableColumn>
       <template #empty>
@@ -49,14 +64,22 @@
           <ElInput
             v-model.trim="formData.code"
             :disabled="isEdit"
+            maxlength="64"
+            show-word-limit
             :placeholder="$t('notify.templates.codePlaceholder')"
           />
         </ElFormItem>
         <ElFormItem :label="$t('notify.templates.table.title')" prop="title">
-          <ElInput v-model.trim="formData.title" />
+          <ElInput v-model.trim="formData.title" maxlength="100" show-word-limit />
         </ElFormItem>
         <ElFormItem :label="$t('notify.templates.table.body')" prop="body">
-          <ElInput v-model="formData.body" type="textarea" :rows="4" />
+          <ElInput
+            v-model="formData.body"
+            type="textarea"
+            :rows="4"
+            maxlength="2000"
+            show-word-limit
+          />
         </ElFormItem>
         <ElFormItem :label="$t('notify.templates.table.enabled')">
           <ElSwitch v-model="formData.enabled" :active-value="1" :inactive-value="0" />
@@ -75,12 +98,15 @@
 <script setup lang="ts">
   import { useI18n } from 'vue-i18n'
   import { fetchNotifyTemplates, upsertNotifyTemplate, deleteNotifyTemplate } from '@/api/admin'
+  import { useUserStore } from '@/store/modules/user'
   import { formatDateTime } from '@/utils/format/datetime'
-  import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+  import { ElAlert, ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 
   defineOptions({ name: 'NotifyTemplates' })
 
   const { t } = useI18n()
+  const userStore = useUserStore()
+  const isSuper = computed(() => userStore.getUserInfo.roles?.includes('super') ?? false)
 
   const templates = ref<Api.Admin.NotifyTemplate[]>([])
   const loading = ref(false)
@@ -132,26 +158,29 @@
       await upsertNotifyTemplate({ ...formData })
       ElMessage.success(t('common.saveSuccess'))
       dialogVisible.value = false
-      loadTemplates()
+      await loadTemplates()
     } finally {
       submitting.value = false
     }
   }
 
-  const handleDelete = (row: Api.Admin.NotifyTemplate) => {
-    ElMessageBox.confirm(
-      t('notify.templates.deleteConfirm', { code: row.code }),
-      t('notify.templates.deleteTitle'),
-      {
-        confirmButtonText: t('common.confirmDelete'),
-        cancelButtonText: t('common.cancel'),
-        type: 'warning'
-      }
-    ).then(async () => {
+  const handleDelete = async (row: Api.Admin.NotifyTemplate) => {
+    try {
+      await ElMessageBox.confirm(
+        t('notify.templates.deleteConfirm', { code: row.code }),
+        t('notify.templates.deleteTitle'),
+        {
+          confirmButtonText: t('common.confirmDelete'),
+          cancelButtonText: t('common.cancel'),
+          type: 'warning'
+        }
+      )
       await deleteNotifyTemplate(row.id)
       ElMessage.success(t('common.deleteSuccess'))
-      loadTemplates()
-    })
+      await loadTemplates()
+    } catch (error) {
+      if (error === 'cancel' || error === 'close') return
+    }
   }
 
   onMounted(loadTemplates)

@@ -46,7 +46,7 @@ const adminCSP = "default-src 'self'; " +
 // 不下发这些头的后果：
 //   - 缺 nosniff：上传目录里的文本被浏览器嗅探成 HTML/JS 执行 → 同源存储型 XSS；
 //   - 缺 X-Frame-Options：后台被第三方页面 iframe 套壳做点击劫持（诱导超管点「删除管理员」）；
-//   - 缺 Referrer-Policy：后台/日记页跳外链时把带图片路径的完整 URL 塞进 Referer 头，
+//   - 缺 Referrer-Policy：后台/私密内容页跳外链时把带图片路径的完整 URL 塞进 Referer 头，
 //     情侣私密照片 URL 因此泄露给任意第三方站点（本项目图片仅靠随机文件名保密，URL 泄露=照片泄露）。
 func SecurityHeaders() gin.HandlerFunc {
 	const csp = adminCSP
@@ -88,7 +88,7 @@ var errWeakPassword = errors.New("密码至少 12 位，且需同时包含大写
 var errPasswordTooLong = errors.New("密码不能超过 72 字节")
 
 // validateStrongPassword 后台管理员口令强度：>=12 位且含大小写字母与数字。
-// 原实现只校验 len>=6，超管能把口令设成 "123456"——后台一旦被爆破即全站数据（含情侣私密日记）失守。
+// 原实现只校验 len>=6，超管能把口令设成 "123456"——后台一旦被爆破即全站数据（含情侣私密相册）失守。
 func validateStrongPassword(pw string) error {
 	if len([]byte(pw)) > maxPasswordBytes {
 		return errPasswordTooLong
@@ -127,7 +127,7 @@ func isValidAdminRole(role string) bool { return adminRoles[role] }
 // validateUploadURL 校验客户端提交的图片 URL 必须指向本站 /upload/ 下的资源。
 // 原实现把任意字符串直接入库并回显给双方客户端，可被用于：
 //   - 注入 javascript:/data: 串 → 客户端 WebView 渲染时执行脚本；
-//   - 注入外部图床/攻击者服务器 URL → 对方一打开日记就把 IP、UA、访问时间回传给攻击者（追踪像素）。
+//   - 注入外部图床/攻击者服务器 URL → 对方一打开相册就把 IP、UA、访问时间回传给攻击者（追踪像素）。
 //
 // 允许两种形态（与 publicUploadURL 的两种输出一致）：
 //   - 相对路径 /upload/...（site.url 未配置时）

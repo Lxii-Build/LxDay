@@ -170,6 +170,13 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request, uid int64) {
 		old.conn.Close()
 	}
 	h.store.SetOnline(uid, true)
+	// A disable/delete can race the handshake between registering the socket
+	// and marking the user online. Re-check before sending queued private data;
+	// fail closed so a just-disabled account is never left online by this path.
+	if status, _, err := h.store.UserAuthState(uid); err != nil || status != 1 {
+		h.disconnect(uid)
+		return
+	}
 
 	// 上线补偿：先推对方最新状态，再补离线事件（含未绑定时错过的 paired 事件）
 	h.pushLatestPartner(uid)
@@ -218,8 +225,36 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request, uid int64) {
 	}
 }
 
+// disconnect forcibly removes a user's current connection. It is used after
+// account disable/deletion so an already-open WebSocket cannot keep sending
+// status or interaction frames with an account that is no longer usable.
+func (h *Hub) disconnect(uid int64) {
+	h.mu.Lock()
+	client, ok := h.conns[uid]
+	if ok {
+		delete(h.conns, uid)
+	}
+	h.mu.Unlock()
+	if !ok {
+		return
+	}
+	// Close wakes the read loop. Its cleanup sees that the connection is no
+	// longer current and therefore cannot clear a replacement connection.
+	_ = client.conn.Close()
+	h.store.SetOnline(uid, false)
+}
+
 // 处理客户端上行消息
 func (h *Hub) handleIncoming(from int64, data []byte) {
+	// The initial HTTP upgrade authenticates the token, but a WebSocket can
+	// live for minutes or hours afterwards. Recheck account state for every
+	// frame so a disabled or permanently deleted account cannot continue using
+	// an already-open connection.
+	status, _, err := h.store.UserAuthState(from)
+	if err != nil || status != 1 {
+		h.disconnect(from)
+		return
+	}
 	var m WsMessage
 	if err := json.Unmarshal(data, &m); err != nil {
 		return
@@ -310,7 +345,9 @@ func (h *Hub) handleIncoming(from int64, data []byte) {
 			}[m.Type]
 			if id := interactionID(payload); id != "" {
 				h.store.RemoveQueuedInteraction(partner, requestType, id)
-				h.push.Cancel(partner, requestType, id)
+				if h.push != nil {
+					h.push.Cancel(partner, requestType, id)
+				}
 			}
 		}
 		h.route(partner, WsMessage{Type: m.Type, Data: payload})
@@ -355,7 +392,7 @@ func (h *Hub) route(to int64, m WsMessage) {
 	// 离线：先入补偿队列
 	h.store.PushEventQ(to, string(b))
 	// 高优事件再走系统推送，保证离线必达
-	if isHighPriority(m.Type) {
+	if isHighPriority(m.Type) && h.push != nil {
 		h.push.Send(to, m.Type, m.Data)
 	}
 }
@@ -380,7 +417,7 @@ func (h *Hub) pushLatestPartner(uid int64) {
 	}
 }
 
-// 业务层转发工具（HTTP handler 在创建待办/日记后调用）
+// 业务层转发工具（HTTP handler 在创建待办或相册互动后调用）
 func (h *Hub) Notify(pair *Pair, from int64, m WsMessage) {
 	partner := h.store.PartnerID(pair, from)
 	h.route(partner, m)

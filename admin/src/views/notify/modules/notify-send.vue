@@ -1,7 +1,16 @@
 <!-- 通知 - 下发 -->
 <template>
   <div class="notify-send">
+    <ElAlert
+      v-if="!isSuper"
+      type="info"
+      show-icon
+      :closable="false"
+      :title="$t('systemSettings.runtime.superOnly')"
+      class="mb-4"
+    />
     <ElForm
+      v-if="isSuper"
       ref="formRef"
       :model="formData"
       :rules="rules"
@@ -17,7 +26,7 @@
           @change="applyTemplate"
         >
           <ElOption
-            v-for="tpl in templates"
+            v-for="tpl in enabledTemplates"
             :key="tpl.code"
             :label="`${tpl.title}（${tpl.code}）`"
             :value="tpl.code"
@@ -25,13 +34,20 @@
         </ElSelect>
       </ElFormItem>
       <ElFormItem :label="$t('notify.send.title')" prop="title">
-        <ElInput v-model.trim="formData.title" :placeholder="$t('notify.send.titlePlaceholder')" />
+        <ElInput
+          v-model.trim="formData.title"
+          maxlength="100"
+          show-word-limit
+          :placeholder="$t('notify.send.titlePlaceholder')"
+        />
       </ElFormItem>
       <ElFormItem :label="$t('notify.send.body')" prop="body">
         <ElInput
           v-model="formData.body"
           type="textarea"
           :rows="4"
+          maxlength="2000"
+          show-word-limit
           :placeholder="$t('notify.send.bodyPlaceholder')"
         />
       </ElFormItem>
@@ -42,7 +58,12 @@
         </ElSelect>
       </ElFormItem>
       <ElFormItem v-if="targetMode === 'uid'" :label="$t('notify.send.uids')" prop="uids">
-        <ElInput v-model.trim="formData.uids" :placeholder="$t('notify.send.uidsPlaceholder')" />
+        <ElInput
+          v-model.trim="formData.uids"
+          maxlength="4096"
+          show-word-limit
+          :placeholder="$t('notify.send.uidsPlaceholder')"
+        />
       </ElFormItem>
       <ElFormItem>
         <ElButton type="primary" :loading="sending" @click="handleSend">
@@ -56,13 +77,19 @@
 <script setup lang="ts">
   import { useI18n } from 'vue-i18n'
   import { fetchNotifyTemplates, sendNotify } from '@/api/admin'
-  import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
+  import { useUserStore } from '@/store/modules/user'
+  import { ElAlert, ElMessage, type FormInstance, type FormRules } from 'element-plus'
 
   defineOptions({ name: 'NotifySend' })
 
   const { t } = useI18n()
+  const userStore = useUserStore()
+  const isSuper = computed(() => userStore.getUserInfo.roles?.includes('super') ?? false)
 
   const templates = ref<Api.Admin.NotifyTemplate[]>([])
+  const enabledTemplates = computed(() =>
+    templates.value.filter((template) => template.enabled === 1)
+  )
   const formRef = ref<FormInstance>()
   const sending = ref(false)
 

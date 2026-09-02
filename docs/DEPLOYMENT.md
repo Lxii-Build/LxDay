@@ -37,7 +37,7 @@
    docker compose down               # 停止（保留数据卷）
    ```
 
-数据卷：`db_data`（SQLite 数据库文件）、`uploads`（头像/日记图片/APK 等公开资源）、
+数据卷：`db_data`（SQLite 数据库文件）、`uploads`（头像与历史公开资源）、
 `uploads_private`（相册原图/缩略图，仅由 `/media/<id>` 鉴权代理读取）。清空数据需显式
 `docker compose down -v`（谨慎）。
 
@@ -59,8 +59,8 @@
   ```
   Caddy 自动处理 WebSocket 与证书续期。
 
-### 邮箱验证码 / 存储 / 站点信息
-登录后台 → 系统设置：填 SMTP（注册邮箱验证码）、存储方式、站点名/LOGO 等，存于数据库 `app_setting`，随时可改、无需重启。
+### 邮箱验证码 / 站点信息
+登录后台 → 系统设置：填 SMTP（注册邮箱验证码）、站点名/LOGO 等，存于数据库 `app_setting`，随时可改、无需重启。
 
 ---
 
@@ -101,7 +101,7 @@ cd admin
 npm install && npm run build           # 产物在 admin/dist
 ```
 把 `admin/dist` 交给任意静态服务器（或 `admin/Dockerfile` 的 Nginx 镜像）托管，并把 `/api`、`/ws`、
-`/media` 反代到后端 `127.0.0.1:7740`；`/upload`、`/uploads` 与后端共享公开上传目录；`/media` 不能配置成静态目录，必须保留后端鉴权。仓库提供的 `deploy/nginx.conf` 已按服务端容器端口 `7740` 配置。
+`/media` 反代到后端 `127.0.0.1:7740`；`/upload`、`/uploads` 仅用于历史公开资源并与后端共享目录；`/media` 不能配置成静态目录，必须保留后端鉴权。仓库提供的 `deploy/nginx.conf` 已按服务端容器端口 `7740` 配置。
 
 ---
 

@@ -2,14 +2,14 @@ package com.linxi.diary.ui.navigation
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -32,7 +32,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -40,7 +39,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.linxi.diary.data.ProfileRefreshAction
 import com.linxi.diary.data.ProfileRuntime
 import com.linxi.diary.data.ApiClient
 import com.linxi.diary.data.AuthEvents
@@ -100,6 +98,25 @@ private val tabs = listOf(
     TabItem("我的", MiuixIcons.Contacts)
 )
 
+private enum class NavigationDirection {
+    Forward,
+    Back,
+}
+
+/**
+ * 全局页面转场：所有 Screen 状态都从这里进出，避免某个二级页漏掉返回动画。
+ * 进入子页时从右侧推入，返回父页时从左侧回退；不再叠加缩放，避免返回时弹跳。
+ */
+private fun AnimatedContentTransitionScope<Screen>.globalScreenTransition(
+    direction: NavigationDirection,
+): ContentTransform {
+    val slideDirection =
+        if (direction == NavigationDirection.Forward) SlideDirection.Left else SlideDirection.Right
+    return (slideIntoContainer(slideDirection, tween(320)) + fadeIn(tween(180))) togetherWith
+        (slideOutOfContainer(slideDirection, tween(320)) + fadeOut(tween(220)))
+            .using(SizeTransform(clip = true))
+}
+
 @Composable
 fun LinxiApp() {
     val context = LocalContext.current.applicationContext
@@ -116,6 +133,12 @@ fun LinxiApp() {
             }
         )
     }
+    var navigationDirection by remember { mutableStateOf(NavigationDirection.Forward) }
+    fun navigate(to: Screen, direction: NavigationDirection = NavigationDirection.Forward) {
+        if (screen == to) return
+        navigationDirection = direction
+        screen = to
+    }
     LaunchedEffect(screen) {
         Logs.i("Nav", "screen=$screen pairId=${UserPrefs.pairId} consented=${UserPrefs.privacyConsented}")
     }
@@ -127,6 +150,7 @@ fun LinxiApp() {
     var albumArg by remember { mutableStateOf(0L to "相册") }
     var viewerPhotos by remember { mutableStateOf<List<com.linxi.diary.data.PhotoItem>>(emptyList()) }
     var viewerIndex by remember { mutableStateOf(0) }
+    var viewerReturnScreen by remember { mutableStateOf(Screen.AlbumDetail) }
     // 选图结果：选择器页返回后由相册详情页消费。
     var pickedUris by remember { mutableStateOf<List<android.net.Uri>>(emptyList()) }
     // 选图的目的地：相册上传 or 头像。此前 PhotoPicker 返回后固定回 AlbumDetail，
@@ -139,7 +163,7 @@ fun LinxiApp() {
         ProfileRuntime.actions.collect { action ->
             if (action.navigateToBind) {
                 StatusForegroundService.stop(context)
-                screen = Screen.Bind
+                navigate(Screen.Bind)
             }
         }
     }
@@ -155,7 +179,7 @@ fun LinxiApp() {
             StatusSyncManager.disconnect()
             StatusForegroundService.stop(context)
             ProfileRuntime.clearSession()
-            screen = Screen.Login
+            navigate(Screen.Login)
         }
     }
     // 启动检查更新 + 会话校验：登录态下先探一次受鉴权接口，旧 token 失效会 401 触发上面的自动登出。
@@ -182,73 +206,75 @@ fun LinxiApp() {
         Box(Modifier.fillMaxSize().padding(rootPadding)) {
             AnimatedContent(
                 targetState = screen,
+                modifier = Modifier.fillMaxSize(),
                 transitionSpec = {
-                    (fadeIn(tween(220)) + slideInHorizontally(tween(280)) { it / 6 } +
-                        scaleIn(tween(220), initialScale = 0.985f)) togetherWith
-                        (fadeOut(tween(160)) + slideOutHorizontally(tween(220)) { -it / 12 } +
-                            scaleOut(tween(160), targetScale = 0.985f))
+                    globalScreenTransition(navigationDirection)
                 },
-                label = "screen",
+                contentKey = { it },
+                label = "global-screen-transition",
             ) { target ->
                 when (target) {
-                    Screen.Login -> LoginScreen(
+                Screen.Login -> LoginScreen(
                     onLoggedIn = {
                         // 已绑定则直接进主页（退出登录不解绑），未绑定才进绑定页。
                         mainInitialPage = 0
-                        screen = if (UserPrefs.pairId > 0) Screen.Main else Screen.Bind
+                        navigate(if (UserPrefs.pairId > 0) Screen.Main else Screen.Bind)
                     },
-                    onNavigateRegister = { screen = Screen.Register },
+                    onNavigateRegister = { navigate(Screen.Register) },
                 )
                 Screen.Register -> RegisterScreen(
-                    onRegistered = { screen = Screen.Bind },
-                    onBack = { screen = Screen.Login },
+                    onRegistered = { navigate(Screen.Bind) },
+                    onBack = { navigate(Screen.Login, NavigationDirection.Back) },
                 )
                 Screen.Bind -> BindScreen(
                     onBound = {
                         mainInitialPage = 0
-                        screen = Screen.Main
+                        navigate(Screen.Main)
                     },
-                    onBack = { screen = Screen.Login },
+                    onBack = { navigate(Screen.Login, NavigationDirection.Back) },
                 )
                 Screen.History -> HistoryScreen(onBack = {
                     mainInitialPage = 3
-                    screen = Screen.Main
+                    navigate(Screen.Main, NavigationDirection.Back)
                 })
                 Screen.Appearance -> AppearanceScreen(
                     onBack = {
                         mainInitialPage = 3
-                        screen = Screen.Main
+                        navigate(Screen.Main, NavigationDirection.Back)
                     },
                 )
                 Screen.DiscoverAlbum -> if (!albumEnabled) {
-                    FeatureDisabledScreen("相册", onBack = { mainInitialPage = 2; screen = Screen.Main })
+                    FeatureDisabledScreen("相册", onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) })
                 } else {
                     AlbumListScreen(
-                        onBack = { mainInitialPage = 2; screen = Screen.Main },
-                        onOpenAlbum = { id, name -> albumArg = id to name; screen = Screen.AlbumDetail },
-                        onOpenOnThisDay = { screen = Screen.OnThisDay },
-                        onOpenRecycleBin = { screen = Screen.RecycleBin },
+                        onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) },
+                        onOpenAlbum = { id, name -> albumArg = id to name; navigate(Screen.AlbumDetail) },
+                        onOpenOnThisDay = { navigate(Screen.OnThisDay) },
+                        onOpenRecycleBin = { navigate(Screen.RecycleBin) },
                         onThisDayEnabled = onThisDayEnabled,
                     )
                 }
                 Screen.RecycleBin -> if (!albumEnabled) {
-                    FeatureDisabledScreen("回收站", onBack = { mainInitialPage = 2; screen = Screen.Main })
+                    FeatureDisabledScreen("回收站", onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) })
                 } else {
-                    RecycleBinScreen(onBack = { screen = Screen.DiscoverAlbum })
+                    RecycleBinScreen(onBack = { navigate(Screen.DiscoverAlbum, NavigationDirection.Back) })
                 }
                 Screen.AlbumDetail -> if (!albumEnabled) {
-                    FeatureDisabledScreen("相册", onBack = { mainInitialPage = 2; screen = Screen.Main })
+                    FeatureDisabledScreen("相册", onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) })
                 } else {
                     AlbumDetailScreen(
                         albumId = albumArg.first,
                         albumName = albumArg.second,
-                        onBack = { screen = Screen.DiscoverAlbum },
+                        onBack = { navigate(Screen.DiscoverAlbum, NavigationDirection.Back) },
                         onOpenPhoto = { list, index ->
-                            viewerPhotos = list; viewerIndex = index; screen = Screen.PhotoViewer
+                            viewerPhotos = list
+                            viewerIndex = index
+                            viewerReturnScreen = Screen.AlbumDetail
+                            navigate(Screen.PhotoViewer)
                         },
                         onPickPhotos = {
                             pickerTarget = PickerTarget.Album
-                            screen = Screen.PhotoPicker
+                            navigate(Screen.PhotoPicker)
                         },
                         pickedUris = pickedUris,
                         onPickedConsumed = { pickedUris = emptyList() },
@@ -258,32 +284,37 @@ fun LinxiApp() {
                     title = if (pickerTarget == PickerTarget.Avatar) "选择头像" else "选择照片",
                     multiple = pickerTarget == PickerTarget.Album,
                     onBack = {
-                        screen = if (pickerTarget == PickerTarget.Avatar) Screen.ProfileEdit
-                        else Screen.AlbumDetail
+                        navigate(
+                            if (pickerTarget == PickerTarget.Avatar) Screen.ProfileEdit else Screen.AlbumDetail,
+                            NavigationDirection.Back,
+                        )
                     },
                     onPicked = { uris ->
                         if (pickerTarget == PickerTarget.Avatar) {
                             // 头像是单选：拿第一张进裁剪页
                             cropUri = uris.firstOrNull()
-                            screen = if (cropUri != null) Screen.AvatarCrop else Screen.ProfileEdit
+                            navigate(
+                                if (cropUri != null) Screen.AvatarCrop else Screen.ProfileEdit,
+                                if (cropUri != null) NavigationDirection.Forward else NavigationDirection.Back,
+                            )
                         } else {
                             pickedUris = uris
-                            screen = Screen.AlbumDetail
+                            navigate(Screen.AlbumDetail, NavigationDirection.Back)
                         }
                     },
                 )
                 Screen.AvatarCrop -> {
                     val target = cropUri
                     if (target == null) {
-                        screen = Screen.ProfileEdit
+                        navigate(Screen.ProfileEdit, NavigationDirection.Back)
                     } else {
                         AvatarCropScreen(
                             uri = target,
-                            onCancel = { cropUri = null; screen = Screen.ProfileEdit },
+                            onCancel = { cropUri = null; navigate(Screen.ProfileEdit, NavigationDirection.Back) },
                             onCropped = { file ->
                                 croppedAvatar = file
                                 cropUri = null
-                                screen = Screen.ProfileEdit
+                                navigate(Screen.ProfileEdit, NavigationDirection.Back)
                             },
                         )
                     }
@@ -291,51 +322,54 @@ fun LinxiApp() {
                 Screen.PhotoViewer -> PhotoViewerScreen(
                     photos = viewerPhotos,
                     initialIndex = viewerIndex,
-                    onBack = { screen = Screen.AlbumDetail },
-                    onDeleted = { screen = Screen.AlbumDetail },
+                    onBack = { navigate(viewerReturnScreen, NavigationDirection.Back) },
+                    onDeleted = { navigate(viewerReturnScreen, NavigationDirection.Back) },
                     photoSocialEnabled = photoSocialEnabled,
                 )
                 Screen.OnThisDay -> if (!albumEnabled || !onThisDayEnabled) {
-                    FeatureDisabledScreen("这一天", onBack = { mainInitialPage = 2; screen = Screen.Main })
+                    FeatureDisabledScreen("这一天", onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) })
                 } else {
                     OnThisDayScreen(
-                        onBack = { screen = Screen.DiscoverAlbum },
+                        onBack = { navigate(Screen.DiscoverAlbum, NavigationDirection.Back) },
                         onOpenPhoto = { list, index ->
-                            viewerPhotos = list; viewerIndex = index; screen = Screen.PhotoViewer
+                            viewerPhotos = list
+                            viewerIndex = index
+                            viewerReturnScreen = Screen.OnThisDay
+                            navigate(Screen.PhotoViewer)
                         },
                     )
                 }
-                Screen.DiscoverListen -> DiscoverPlaceholderScreen("一起听", onBack = { mainInitialPage = 2; screen = Screen.Main })
-                Screen.DiscoverWatch -> DiscoverPlaceholderScreen("一起看", onBack = { mainInitialPage = 2; screen = Screen.Main })
+                Screen.DiscoverListen -> DiscoverPlaceholderScreen("一起听", onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) })
+                Screen.DiscoverWatch -> DiscoverPlaceholderScreen("一起看", onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) })
                 Screen.ProfileEdit -> ProfileEditScreen(
-                    onBack = { mainInitialPage = 3; screen = Screen.Main },
+                    onBack = { mainInitialPage = 3; navigate(Screen.Main, NavigationDirection.Back) },
                     onPickAvatar = {
                         pickerTarget = PickerTarget.Avatar
-                        screen = Screen.PhotoPicker
+                        navigate(Screen.PhotoPicker)
                     },
                     croppedAvatar = croppedAvatar,
                     onCroppedConsumed = { croppedAvatar = null },
                 )
                 Screen.KeepAliveCheck -> KeepAliveCheckScreen(
-                    onBack = { mainInitialPage = 3; screen = Screen.Main },
+                    onBack = { mainInitialPage = 3; navigate(Screen.Main, NavigationDirection.Back) },
                 )
                 Screen.About -> AboutScreen(
-                    onBack = { mainInitialPage = 3; screen = Screen.Main },
-                    onLogout = { screen = Screen.Login },
-                    onUnbound = { screen = Screen.Bind },
+                    onBack = { mainInitialPage = 3; navigate(Screen.Main, NavigationDirection.Back) },
+                    onLogout = { navigate(Screen.Login) },
+                    onUnbound = { navigate(Screen.Bind) },
                 )
                 Screen.Main -> MainTabs(
                     initialPage = mainInitialPage,
                     albumEnabled = albumEnabled,
-                    onOpenHistory = { screen = Screen.History },
-                    onOpenBind = { screen = Screen.Bind },
-                    onOpenAppearance = { screen = Screen.Appearance },
-                    onOpenAlbum = { screen = Screen.DiscoverAlbum },
-                    onOpenListen = { screen = Screen.DiscoverListen },
-                    onOpenWatch = { screen = Screen.DiscoverWatch },
-                    onOpenProfileEdit = { screen = Screen.ProfileEdit },
-                    onOpenAbout = { screen = Screen.About },
-                    onOpenKeepAliveCheck = { screen = Screen.KeepAliveCheck },
+                    onOpenHistory = { navigate(Screen.History) },
+                    onOpenBind = { navigate(Screen.Bind) },
+                    onOpenAppearance = { navigate(Screen.Appearance) },
+                    onOpenAlbum = { navigate(Screen.DiscoverAlbum) },
+                    onOpenListen = { navigate(Screen.DiscoverListen) },
+                    onOpenWatch = { navigate(Screen.DiscoverWatch) },
+                    onOpenProfileEdit = { navigate(Screen.ProfileEdit) },
+                    onOpenAbout = { navigate(Screen.About) },
+                    onOpenKeepAliveCheck = { navigate(Screen.KeepAliveCheck) },
                 )
                 }
             }

@@ -18,7 +18,7 @@ import com.linxi.diary.ui.theme.rememberThemeState
 import com.linxi.diary.util.Logs
 
 /**
- * 首页：4 Tab 导航（主页/待办/日记/我的）。
+ * 首页：4 Tab 导航（主页/待办/发现/我的）。
  * 启动前置：请求运行时权限（通知 13+、定位 10+）；未授权时应用仍可打开，
  * 采集在「已授权 + 共享开启」时才由前台服务执行，避免闪退。
  * 主题：LinxiTheme（跟随系统 / 浅色 / 深色，SharedPreferences 即时刷新）。

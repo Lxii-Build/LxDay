@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -129,6 +130,50 @@ func (m *memStore) getStatus(uid int64) *DeviceStatus {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.status[uid]
+}
+
+// forgetUser removes all user-scoped in-memory state after a permanent
+// account deletion. Keeping any of it would make a deleted account appear
+// online, replay old events after an id is reused, or retain its last private
+// device status until the normal TTL/sweeper path runs.
+func (m *memStore) forgetUser(uid int64) {
+	if uid <= 0 {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.online, uid)
+	delete(m.status, uid)
+	delete(m.eventQ, uid)
+
+	// Only remove keys whose complete shape is owned by the user id. A plain
+	// suffix match would also delete a future request-derived key such as an
+	// email address that happens to end in ":7".
+	uidText := strconv.FormatInt(uid, 10)
+	uidSuffix := ":" + uidText
+	userKey := func(key string) bool {
+		for _, prefix := range []string{"statusrate:", "wifirate:", "inflight:", "bind:fail:"} {
+			if key == prefix+uidText {
+				return true
+			}
+		}
+		for _, prefix := range []string{"media:cnt:", "media:bytes:"} {
+			if strings.HasPrefix(key, prefix) && strings.HasSuffix(key, uidSuffix) {
+				return true
+			}
+		}
+		return key == "lowbattery:"+uidText
+	}
+	for key := range m.kv {
+		if userKey(key) {
+			delete(m.kv, key)
+		}
+	}
+	for key := range m.counter {
+		if userKey(key) {
+			delete(m.counter, key)
+		}
+	}
 }
 
 // recordLowBattery 原子记录最近一次有效电量，并判断是否值得提醒伴侣。
