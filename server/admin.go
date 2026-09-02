@@ -663,12 +663,12 @@ func handleAdminStats(c *gin.Context) { aok(c, st.DashboardStats()) }
 // ---------- 用户管理 ----------
 
 type AdminUserRow struct {
-	ID                 int64     `json:"id"`
-	Username           *string   `json:"username"`
-	Email              *string   `json:"email"`
-	Nickname           string    `json:"nickname"`
+	ID       int64   `json:"id"`
+	Username *string `json:"username"`
+	Email    *string `json:"email"`
+	Nickname string  `json:"nickname"`
 	// 后台用户列表只需要辨认头像，不能把原图地址扩散到管理端。
-	AvatarThumbnailURL *string `json:"avatar_thumbnail_url"`
+	AvatarThumbnailURL *string   `json:"avatar_thumbnail_url"`
 	Gender             int       `json:"gender"`
 	Signature          *string   `json:"signature"`
 	Birthday           *string   `json:"birthday"`
