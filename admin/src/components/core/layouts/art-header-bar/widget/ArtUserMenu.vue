@@ -6,17 +6,19 @@
     :width="240"
     :hide-after="0"
     :offset="10"
-    trigger="hover"
+    trigger="click"
     :show-arrow="false"
     popper-class="user-menu-popover"
     popper-style="padding: 5px 16px;"
   >
     <template #reference>
-      <img
-        class="size-8.5 mr-5 c-p rounded-full max-sm:w-6.5 max-sm:h-6.5 max-sm:mr-[16px]"
-        src="@imgs/common/logo.webp"
-        alt="avatar"
-      />
+      <button
+        type="button"
+        class="mr-5 flex size-11 items-center justify-center rounded-full border-0 bg-transparent p-0 max-sm:mr-[16px]"
+        :aria-label="$t('topBar.user.menu')"
+      >
+        <img class="size-8.5 rounded-full max-sm:size-8" src="@imgs/common/logo.webp" alt="" />
+      </button>
     </template>
     <template #default>
       <div class="pt-3">
@@ -33,18 +35,22 @@
           </div>
         </div>
         <ul class="py-4 mt-3 border-t border-g-300/80">
-          <li class="btn-item" @click="goPage('/change-credentials')">
-            <ArtSvgIcon icon="ri:lock-password-line" />
-            <span>{{ $t('topBar.user.userCenter') }}</span>
+          <li>
+            <button type="button" class="btn-item" @click="goPage('/change-credentials')">
+              <ArtSvgIcon icon="ri:lock-password-line" aria-hidden="true" />
+              <span>{{ $t('topBar.user.userCenter') }}</span>
+            </button>
           </li>
-          <li class="btn-item" @click="toRepo()">
-            <ArtSvgIcon icon="ri:github-line" />
-            <span>{{ $t('topBar.user.repo') }}</span>
+          <li>
+            <button type="button" class="btn-item" @click="toRepo()">
+              <ArtSvgIcon icon="ri:github-line" aria-hidden="true" />
+              <span>{{ $t('topBar.user.repo') }}</span>
+            </button>
           </li>
           <div class="w-full h-px my-2 bg-g-300/80"></div>
-          <div class="log-out c-p" @click="loginOut">
+          <button type="button" class="log-out" @click="loginOut">
             {{ $t('topBar.user.logout') }}
-          </div>
+          </button>
         </ul>
       </div>
     </template>
@@ -114,7 +120,7 @@
 
   @layer components {
     .btn-item {
-      @apply flex items-center p-2 mb-3 select-none rounded-md cursor-pointer last:mb-0;
+      @apply flex min-h-11 w-full items-center border-0 bg-transparent p-2 mb-3 select-none rounded-md cursor-pointer last:mb-0 text-left;
 
       span {
         @apply text-sm;
@@ -131,15 +137,22 @@
   }
 
   .log-out {
-    @apply py-1.5
+    @apply min-h-11 w-full py-1.5
     mt-5
     text-xs
     text-center
+    bg-transparent
+    cursor-pointer
     border
     border-g-400
-    rounded-md
-    transition-all
-    duration-200
-    hover:shadow-xl;
+    rounded-md;
+    transition:
+      box-shadow 200ms,
+      background-color 200ms,
+      color 200ms;
+
+    &:hover {
+      @apply shadow-xl;
+    }
   }
 </style>

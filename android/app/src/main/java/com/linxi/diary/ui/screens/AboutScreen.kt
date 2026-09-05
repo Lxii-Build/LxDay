@@ -109,7 +109,7 @@ data class UpdateInfo(
                 hasUpdate = j.optBoolean("has_update"),
                 // 服务端明确不返回强制更新；这里也不信任旧服务端的 force 字段。
                 force = false,
-                channel = j.optString("channel", "stable"),
+                channel = j.optString("channel", "all"),
                 version = candidate,
                 history = history,
             )
@@ -160,6 +160,33 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit)
                     fontSize = 13.sp,
                     color = colorScheme.onSurfaceVariantSummary,
                 )
+                Text(
+                    "提交 ${BuildConfig.COMMIT_SHORT_HASH} · 统一更新频道（正式版与测试版）",
+                    fontSize = 12.sp,
+                    color = colorScheme.onSurfaceVariantSummary,
+                )
+            }
+        }
+        item {
+            Card(Modifier.padding(top = 12.dp).fillMaxWidth()) {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("关于林曦日记", fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "林曦日记是面向两个人的自托管情侣应用：共同相册、实时状态、待办提醒、互动和一起听都由你自己的服务端承载。",
+                        color = colorScheme.onSurfaceVariantSummary,
+                        fontSize = 13.sp,
+                    )
+                    Text(
+                        "网易云音乐登录只发生在本机。Cookie 使用 Android Keystore 加密，音乐搜索、收藏、歌词和播放不会把第三方凭据上传给林曦服务端；一起听房间只同步歌曲 ID 与时间轴。",
+                        color = colorScheme.onSurfaceVariantSummary,
+                        fontSize = 13.sp,
+                    )
+                    Text(
+                        "版本号用于发行追踪，提交短哈希用于定位对应源码；遇到问题时请一并提供这两项信息。",
+                        color = colorScheme.onSurfaceVariantSummary,
+                        fontSize = 13.sp,
+                    )
+                }
             }
         }
         item {
@@ -178,7 +205,7 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit)
                             scope.launch {
                                 runCatching {
                                     UpdateInfo.fromJson(
-                                        ApiClient.checkUpdate(BuildConfig.VERSION_CODE, BuildConfig.UPDATE_CHANNEL),
+                                        ApiClient.checkUpdate(BuildConfig.VERSION_CODE),
                                     )
                                 }
                                     .onSuccess { info ->
@@ -201,7 +228,7 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit)
                 )
                 ArrowPreference(
                     title = "查看更新日志",
-                    summary = "仓库 CHANGELOG · ${if (BuildConfig.UPDATE_CHANNEL == "testing") "含测试版" else "正式版"}",
+                    summary = "仓库 CHANGELOG · 统一更新流",
                     startAction = { AboutIcon(MiuixIcons.Update) },
                     onClick = {
                         if (!checking) {
@@ -209,7 +236,7 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit)
                             scope.launch {
                                 runCatching {
                                     UpdateInfo.fromJson(
-                                        ApiClient.checkUpdate(BuildConfig.VERSION_CODE, BuildConfig.UPDATE_CHANNEL),
+                                        ApiClient.checkUpdate(BuildConfig.VERSION_CODE),
                                     )
                                 }.onSuccess {
                                     update = it

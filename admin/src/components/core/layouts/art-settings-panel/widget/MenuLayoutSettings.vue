@@ -7,9 +7,14 @@
         v-for="(item, index) in configOptions.menuLayoutList"
         :key="item.value"
         @click="switchMenuLayouts(item.value)"
+        role="button"
+        tabindex="0"
+        :aria-label="$t(`setting.menuType.list[${index}]`)"
+        @keydown.enter.prevent="switchMenuLayouts(item.value)"
+        @keydown.space.prevent="switchMenuLayouts(item.value)"
       >
         <div class="box" :class="{ 'is-active': item.value === menuType, 'mt-16': index > 2 }">
-          <img :src="item.img" />
+          <img :src="item.img" alt="" />
         </div>
         <p class="name">{{ $t(`setting.menuType.list[${index}]`) }}</p>
       </div>

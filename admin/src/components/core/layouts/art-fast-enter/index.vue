@@ -2,10 +2,11 @@
 <template>
   <ElPopover
     ref="popoverRef"
+    v-model:visible="visible"
     :width="700"
     :offset="0"
     :show-arrow="false"
-    trigger="hover"
+    trigger="click"
     placement="bottom-start"
     popper-class="fast-enter-popover"
     :popper-style="{
@@ -19,14 +20,16 @@
       </div>
     </template>
 
-    <div class="grid grid-cols-[2fr_0.8fr]">
+    <div class="grid grid-cols-[2fr_0.8fr]" role="menu">
       <div>
         <div class="grid grid-cols-2 gap-1.5">
           <!-- 应用列表 -->
-          <div
+          <button
+            type="button"
             v-for="application in enabledApplications"
             :key="application.name"
-            class="mr-3 c-p flex-c gap-3 rounded-lg p-2 hover:bg-g-200/70 dark:hover:bg-g-200/90 hover:[&_.app-icon]:!bg-transparent"
+            role="menuitem"
+            class="mr-3 flex-c gap-3 rounded-lg border-0 bg-transparent p-2 text-left hover:bg-g-200/70 dark:hover:bg-g-200/90 hover:[&_.app-icon]:!bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-theme"
             @click="handleApplicationClick(application)"
           >
             <div class="app-icon size-12 flex-cc rounded-lg bg-g-200/80 dark:bg-g-300/30">
@@ -40,20 +43,22 @@
               <h3 class="m-0 text-sm font-medium text-g-800">{{ application.name }}</h3>
               <p class="mt-1 text-xs text-g-600">{{ application.description }}</p>
             </div>
-          </div>
+          </button>
         </div>
       </div>
 
       <div class="border-l-d pl-6 pt-2">
         <h3 class="mb-2.5 text-base font-medium text-g-800">快速链接</h3>
         <ul>
-          <li
-            v-for="quickLink in enabledQuickLinks"
-            :key="quickLink.name"
-            class="c-p py-2 hover:[&_span]:text-theme"
-            @click="handleQuickLinkClick(quickLink)"
-          >
-            <span class="text-g-600 no-underline">{{ quickLink.name }}</span>
+          <li v-for="quickLink in enabledQuickLinks" :key="quickLink.name">
+            <button
+              type="button"
+              role="menuitem"
+              class="w-full border-0 bg-transparent py-2 text-left hover:[&_span]:text-theme focus-visible:outline focus-visible:outline-2 focus-visible:outline-theme"
+              @click="handleQuickLinkClick(quickLink)"
+            >
+              <span class="text-g-600 no-underline">{{ quickLink.name }}</span>
+            </button>
           </li>
         </ul>
       </div>
@@ -70,6 +75,7 @@
 
   const router = useRouter()
   const popoverRef = ref()
+  const visible = ref(false)
 
   // 使用快速入口配置
   const { enabledApplications, enabledQuickLinks } = useFastEnter()
@@ -94,6 +100,7 @@
     }
 
     popoverRef.value?.hide()
+    visible.value = false
   }
 
   /**

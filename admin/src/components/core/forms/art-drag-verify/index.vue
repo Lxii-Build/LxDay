@@ -168,10 +168,6 @@
     }
   }
 
-  // 全局事件监听器添加
-  document.addEventListener('touchstart', onTouchStart)
-  document.addEventListener('touchmove', onTouchMove, { passive: false })
-
   // 获取数值形式的宽度
   const getNumericWidth = (): number => {
     if (typeof props.width === 'string') {
@@ -201,7 +197,7 @@
       dragVerify.value?.style.setProperty('--pwidth', -Math.floor(numericWidth / 2) + 'px')
     })
 
-    // 重复添加事件监听器（确保事件绑定）
+    // 全局监听器只在组件挂载后注册一次，避免每次验证都叠加监听回调。
     document.addEventListener('touchstart', onTouchStart)
     document.addEventListener('touchmove', onTouchMove, { passive: false })
   })
@@ -271,7 +267,9 @@
     if (state.isMoving && !props.value) {
       const numericWidth = getNumericWidth()
       // 计算当前位置
-      let _x = (e.pageX || e.touches[0].pageX) - state.x
+      const pageX = e.pageX ?? e.touches?.[0]?.pageX
+      if (pageX == null) return
+      let _x = pageX - state.x
 
       // 在有效范围内移动
       if (_x > 0 && _x <= numericWidth - props.height) {
@@ -294,13 +292,18 @@
     if (state.isMoving && !props.value) {
       const numericWidth = getNumericWidth()
       // 计算最终位置
-      let _x = (e.pageX || e.changedTouches[0].pageX) - state.x
+      const pageX = e.pageX ?? e.changedTouches?.[0]?.pageX
+      if (pageX == null) {
+        state.isMoving = false
+        return
+      }
+      let _x = pageX - state.x
 
       if (_x < numericWidth - props.height) {
         // 未拖拽到末端，重置位置
         state.isOk = true
         handler.value.style.left = '0'
-        handler.value.style.transition = 'all 0.2s'
+        handler.value.style.transition = 'left 0.2s'
         progressBar.value.style.width = '0'
         state.isOk = false
       } else {

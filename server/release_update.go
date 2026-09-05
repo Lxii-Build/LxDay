@@ -302,11 +302,12 @@ func releaseJSON(r githubRelease, changelog map[string]string) gin.H {
 	}
 }
 
-func releaseMatchesChannel(r githubRelease, channel string) bool {
-	if channel == "testing" {
-		return true
-	}
-	return !r.Prerelease
+// releaseMatchesChannel is kept as a compatibility-shaped helper for callers
+// and tests from the pre-unified update flow. Stable and prerelease builds now
+// deliberately share one update stream; prerelease remains metadata shown in
+// the UI, not a visibility filter.
+func releaseMatchesChannel(r githubRelease, _ string) bool {
+	return !r.Draft && strings.TrimSpace(r.TagName) != ""
 }
 
 // newerRelease compares the monotonically increasing Android versionCode
@@ -328,10 +329,9 @@ func newerRelease(candidate, current githubRelease) bool {
 // explicitly optional.
 func handleCheckUpdate(c *gin.Context) {
 	cur, _ := strconv.Atoi(c.DefaultQuery("version_code", "0"))
-	channel := strings.ToLower(strings.TrimSpace(c.DefaultQuery("channel", "stable")))
-	if channel != "testing" {
-		channel = "stable"
-	}
+	// `channel` remains accepted on the wire for old clients, but it is ignored:
+	// formal and testing releases intentionally use one update channel.
+	const channel = "all"
 	releases, err := fetchGitHubReleases(c.Request.Context())
 	if err != nil {
 		ok(c, gin.H{"has_update": false, "force": false, "channel": channel, "history": []gin.H{}})

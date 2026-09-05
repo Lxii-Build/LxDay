@@ -46,6 +46,7 @@ import top.yukonga.miuix.kmp.utils.PressFeedbackType
 @Composable
 fun DiscoverScreen(
     onOpenAlbum: () -> Unit,
+    onOpenMusic: () -> Unit = {},
     onOpenListen: () -> Unit,
     onOpenWatch: () -> Unit,
     albumEnabled: Boolean = true,
@@ -94,6 +95,8 @@ fun DiscoverScreen(
                     )
                     Spacer(Modifier.height(12.dp))
                 }
+                DiscoverCard("音乐", "搜索、收藏、歌词和本机播放", MiuixIcons.Music, onOpenMusic)
+                Spacer(Modifier.height(12.dp))
                 DiscoverCard("一起听", "分享此刻在听的歌", MiuixIcons.Music, onOpenListen)
                 Spacer(Modifier.height(12.dp))
                 DiscoverCard("一起看", "同步你们喜欢的影像", MiuixIcons.RecordingTape, onOpenWatch)

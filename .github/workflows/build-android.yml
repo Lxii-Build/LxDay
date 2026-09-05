@@ -11,10 +11,6 @@ on:
         description: WebSocket 地址（WS_URL，留空由 App 推导）
         required: false
         default: ''
-      app_key:
-        description: 应用密钥（APP_KEY，可选）
-        required: false
-        default: ''
       build_type:
         description: 构建类型
         type: choice
@@ -44,8 +40,6 @@ jobs:
     env:
       IN_BASE_URL: ${{ inputs.server_url }}
       IN_WS_URL: ${{ inputs.ws_url }}
-      # 兼容旧工作流输入：build.gradle.kts 会忽略 APP_KEY，绝不把共享密钥编进 APK。
-      IN_APP_KEY: ${{ inputs.app_key || secrets.APP_KEY }}
       IN_VERSION_NAME: ${{ inputs.version_name }}
       IN_VERSION_CODE: ${{ inputs.version_code }}
     steps:
@@ -91,7 +85,6 @@ jobs:
           ./gradlew :app:testDebugUnitTest :app:lint${{ inputs.build_type }} --no-daemon \
             -PBASE_URL="$IN_BASE_URL" \
             -PWS_URL="$IN_WS_URL" \
-            -PAPP_KEY="$IN_APP_KEY" \
             -PVERSION_NAME="$IN_VERSION_NAME" \
             -PVERSION_CODE="$IN_VERSION_CODE"
 
@@ -105,7 +98,6 @@ jobs:
           ARGS=(
             -PBASE_URL="$IN_BASE_URL"
             -PWS_URL="$IN_WS_URL"
-            -PAPP_KEY="$IN_APP_KEY"
             -PVERSION_NAME="$IN_VERSION_NAME"
             -PVERSION_CODE="$IN_VERSION_CODE"
           )

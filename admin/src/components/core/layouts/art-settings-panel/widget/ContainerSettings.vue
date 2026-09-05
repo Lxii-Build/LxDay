@@ -2,9 +2,12 @@
   <div>
     <SectionTitle :title="$t('setting.container.title')" class="mt-12.5" />
     <div class="flex">
-      <div
+      <button
         v-for="option in containerWidthOptions"
         :key="option.value"
+        type="button"
+        :aria-pressed="containerWidth === option.value"
+        :aria-label="option.label"
         class="flex-cc flex-1 h-16 mt-5 mr-3.5 mb-3.5 cursor-pointer !border-2 rounded-lg !text-g-800 last:mr-0"
         :class="{
           'border-theme [&_i]:!text-theme': containerWidth === option.value,
@@ -14,7 +17,7 @@
       >
         <ArtSvgIcon :icon="option.icon" class="mr-2 text-lg" />
         <span class="text-sm">{{ option.label }}</span>
-      </div>
+      </button>
     </div>
   </div>
 </template>

@@ -305,13 +305,8 @@ func signTokenWithVer(uid int64, tokenVer int64) (string, error) {
 // ParseToken 解析用户 token，返回 uid 与 claims 中的 token_ver。
 // 老 token 无 tv 字段 → 视为 0，与新库默认值一致，升级后不会把所有人踢下线。
 func ParseToken(token string) (int64, int64, error) {
-	t, err := jwt.Parse(token, func(t *jwt.Token) (interface{}, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method")
-		}
-		return []byte(cfg.App.JWTSecret), nil
-	})
-	if err != nil || !t.Valid {
+	t, err := parseSignedToken(token)
+	if err != nil || t == nil || !t.Valid {
 		if err == nil {
 			err = fmt.Errorf("invalid token")
 		}
@@ -321,12 +316,15 @@ func ParseToken(token string) (int64, int64, error) {
 	if !ok {
 		return 0, 0, fmt.Errorf("bad claims")
 	}
-	uidF, ok := claims["uid"].(float64)
-	if !ok {
+	uid, err := tokenClaimInt64(claims, "uid", true, true)
+	if err != nil {
 		return 0, 0, fmt.Errorf("bad claims")
 	}
-	tv, _ := claims["tv"].(float64)
-	return int64(uidF), int64(tv), nil
+	tv, err := tokenClaimInt64(claims, "tv", false, false)
+	if err != nil {
+		return 0, 0, fmt.Errorf("bad claims")
+	}
+	return uid, tv, nil
 }
 
 // authUserByToken 用户鉴权的公共校验：token 合法性 + 账号存在 + 未被封禁 + token_ver 未被撤销。
@@ -552,6 +550,9 @@ func handleUnbind(c *gin.Context) {
 		// 另一条并发解绑请求已经完成，幂等返回成功，不重复通知。
 		ok(c, gin.H{"unbound": true})
 		return
+	}
+	if listenHub != nil {
+		listenHub.closePairRooms(pair.ID)
 	}
 	if partner > 0 {
 		hub.route(partner, WsMessage{Type: MsgUnbound, Data: gin.H{"pair_id": pair.ID}})

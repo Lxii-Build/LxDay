@@ -43,6 +43,7 @@ import com.linxi.diary.data.ProfileRuntime
 import com.linxi.diary.data.ApiClient
 import com.linxi.diary.data.AuthEvents
 import com.linxi.diary.data.ClientRuntimeConfig
+import com.linxi.diary.data.NeteaseTrack
 import com.linxi.diary.service.StatusForegroundService
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.ui.liquid.miuix.FloatingBottomBar
@@ -62,6 +63,10 @@ import com.linxi.diary.ui.screens.DiscoverScreen
 import com.linxi.diary.ui.screens.FeatureDisabledScreen
 import com.linxi.diary.ui.screens.HistoryScreen
 import com.linxi.diary.ui.screens.KeepAliveCheckScreen
+import com.linxi.diary.ui.screens.ListenTogetherScreen
+import com.linxi.diary.ui.screens.LyricsScreen
+import com.linxi.diary.ui.screens.MusicHomeScreen
+import com.linxi.diary.ui.screens.MusicSettingsScreen
 import com.linxi.diary.ui.screens.LoginScreen
 import com.linxi.diary.ui.screens.NowScreen
 import com.linxi.diary.ui.screens.PrivacyConsentDialog
@@ -159,6 +164,7 @@ fun LinxiApp() {
     // 待裁剪的图与裁剪结果
     var cropUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var croppedAvatar by remember { mutableStateOf<java.io.File?>(null) }
+    var musicTrack by remember { mutableStateOf<NeteaseTrack?>(null) }
     LaunchedEffect(Unit) {
         ProfileRuntime.actions.collect { action ->
             if (action.navigateToBind) {
@@ -191,7 +197,6 @@ fun LinxiApp() {
                 UpdateInfo.fromJson(
                     ApiClient.checkUpdate(
                         com.linxi.diary.BuildConfig.VERSION_CODE,
-                        com.linxi.diary.BuildConfig.UPDATE_CHANNEL,
                     ),
                 )
             }
@@ -339,7 +344,27 @@ fun LinxiApp() {
                         },
                     )
                 }
-                Screen.DiscoverListen -> DiscoverPlaceholderScreen("一起听", onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) })
+                Screen.DiscoverListen -> if (!ClientRuntimeConfig.listenTogetherEnabled) {
+                    FeatureDisabledScreen("一起听", onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) })
+                } else {
+                    ListenTogetherScreen(onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) })
+                }
+                Screen.Music -> MusicHomeScreen(
+                    onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) },
+                    onOpenLyrics = { track -> musicTrack = track; navigate(Screen.Lyrics) },
+                    onOpenListenTogether = { navigate(Screen.DiscoverListen) },
+                )
+                Screen.Lyrics -> {
+                    val track = musicTrack
+                    if (track == null) {
+                        navigate(Screen.Music, NavigationDirection.Back)
+                    } else {
+                        LyricsScreen(
+                            track = track,
+                            onBack = { navigate(Screen.Music, NavigationDirection.Back) },
+                        )
+                    }
+                }
                 Screen.DiscoverWatch -> DiscoverPlaceholderScreen("一起看", onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) })
                 Screen.ProfileEdit -> ProfileEditScreen(
                     onBack = { mainInitialPage = 3; navigate(Screen.Main, NavigationDirection.Back) },
@@ -358,6 +383,10 @@ fun LinxiApp() {
                     onLogout = { navigate(Screen.Login) },
                     onUnbound = { navigate(Screen.Bind) },
                 )
+                Screen.MusicSettings -> MusicSettingsScreen(
+                    onBack = { mainInitialPage = 3; navigate(Screen.Main, NavigationDirection.Back) },
+                    onOpenMusic = { navigate(Screen.Music) },
+                )
                 Screen.Main -> MainTabs(
                     initialPage = mainInitialPage,
                     albumEnabled = albumEnabled,
@@ -365,10 +394,12 @@ fun LinxiApp() {
                     onOpenBind = { navigate(Screen.Bind) },
                     onOpenAppearance = { navigate(Screen.Appearance) },
                     onOpenAlbum = { navigate(Screen.DiscoverAlbum) },
+                    onOpenMusic = { navigate(Screen.Music) },
                     onOpenListen = { navigate(Screen.DiscoverListen) },
                     onOpenWatch = { navigate(Screen.DiscoverWatch) },
                     onOpenProfileEdit = { navigate(Screen.ProfileEdit) },
                     onOpenAbout = { navigate(Screen.About) },
+                    onOpenMusicSettings = { navigate(Screen.MusicSettings) },
                     onOpenKeepAliveCheck = { navigate(Screen.KeepAliveCheck) },
                 )
                 }
@@ -387,10 +418,12 @@ private fun MainTabs(
     onOpenBind: () -> Unit,
     onOpenAppearance: () -> Unit,
     onOpenAlbum: () -> Unit,
+    onOpenMusic: () -> Unit,
     onOpenListen: () -> Unit,
     onOpenWatch: () -> Unit,
     onOpenProfileEdit: () -> Unit,
     onOpenAbout: () -> Unit,
+    onOpenMusicSettings: () -> Unit,
     onOpenKeepAliveCheck: () -> Unit,
 ) {
     val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { tabs.size })
@@ -457,6 +490,7 @@ private fun MainTabs(
                     1 -> TodoScreen()
                     2 -> DiscoverScreen(
                         onOpenAlbum = onOpenAlbum,
+                        onOpenMusic = onOpenMusic,
                         onOpenListen = onOpenListen,
                         onOpenWatch = onOpenWatch,
                         albumEnabled = albumEnabled,
@@ -468,7 +502,8 @@ private fun MainTabs(
                         onOpenHistory = onOpenHistory,
                         onOpenAppearance = onOpenAppearance,
                         onOpenProfileEdit = onOpenProfileEdit,
-                        onOpenAbout = onOpenAbout
+                        onOpenAbout = onOpenAbout,
+                        onOpenMusicSettings = onOpenMusicSettings,
                     )
                 }
             }
@@ -545,7 +580,7 @@ private enum class Screen {
     Login, Register, Bind, Main, History, Appearance, ProfileEdit, About,
     DiscoverAlbum, AlbumDetail, PhotoPicker, PhotoViewer, OnThisDay, RecycleBin,
     AvatarCrop, KeepAliveCheck,
-    DiscoverListen, DiscoverWatch,
+    DiscoverListen, DiscoverWatch, Music, Lyrics, MusicSettings,
 }
 
 /** 选图器的用途。决定单选/多选、标题，以及选完该回哪个页面。 */

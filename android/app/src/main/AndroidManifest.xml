@@ -84,6 +84,11 @@
             </intent-filter>
         </service>
 
+        <!-- 本机音乐通知的播放/暂停动作；不接收外部应用广播。 -->
+        <receiver
+            android:name=".data.MusicNotificationReceiver"
+            android:exported="false" />
+
         <!--
           开机自启保活 + 重建待办闹钟。
           只监听 BOOT_COMPLETED：LOCKED_BOOT_COMPLETED 需要 directBootAware=true 才会投递，
@@ -139,6 +144,17 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 网易云官方网页登录：仅本机读取登录 Cookie，禁止外部应用拉起。 -->
+        <activity
+            android:name=".ui.NeteaseWebLoginActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
+            android:name=".ui.NeteaseQrLoginActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
 
         <!-- 强制响铃全屏页 -->
         <activity

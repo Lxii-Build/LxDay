@@ -35,6 +35,24 @@ func TestValidateStrongPassword(t *testing.T) {
 	}
 }
 
+func TestValidJWTSecret(t *testing.T) {
+	valid := "0123456789abcdef0123456789abcdef"
+	for _, secret := range []string{"", "change-me-012345678901234567890123", "short", "   " + valid + "   "} {
+		if secret == "   "+valid+"   " {
+			if !validJWTSecret(secret) {
+				t.Fatalf("whitespace around a sufficiently long secret should be accepted")
+			}
+			continue
+		}
+		if validJWTSecret(secret) {
+			t.Fatalf("weak JWT secret accepted: %q", secret)
+		}
+	}
+	if !validJWTSecret(valid) {
+		t.Fatal("32-byte JWT secret rejected")
+	}
+}
+
 // role 白名单：此前 role 无校验，可写入任意字符串，
 // 拼错一个字母就产生既非 admin 也非 super 的「幽灵角色」。
 func TestIsValidAdminRole(t *testing.T) {

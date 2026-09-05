@@ -84,6 +84,9 @@ fun PhotoViewerScreen(
     var liked by remember { mutableStateOf(false) }
     var likeCount by remember { mutableStateOf(0) }
     var comments by remember { mutableStateOf<List<PhotoCommentItem>>(emptyList()) }
+    var commentsLoading by remember { mutableStateOf(false) }
+    var commentsError by remember { mutableStateOf<String?>(null) }
+    var commentsReload by remember { mutableIntStateOf(0) }
     var commentDraft by remember { mutableStateOf("") }
     var showComments by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
@@ -171,23 +174,28 @@ fun PhotoViewerScreen(
     }
 
     // 翻页即刷新该张的点赞/评论。
-    LaunchedEffect(current.id, photoSocialEnabled) {
+    LaunchedEffect(current.id, photoSocialEnabled, commentsReload) {
         liked = if (photoSocialEnabled) current.likedByMe else false
         likeCount = if (photoSocialEnabled) current.likeCount else 0
         caption = current.caption
         captionDraft = current.caption
         editingCaption = false
         comments = emptyList()
+        commentsError = null
         if (!photoSocialEnabled) showComments = false
         if (photoSocialEnabled) {
-            runCatching { ApiClient.photoDetail(current.id) }.onSuccess { d ->
-                liked = d.optBoolean("liked", liked)
-                likeCount = d.optInt("like_count", likeCount)
-                val arr = d.optJSONArray("comments")
-                comments = if (arr == null) emptyList() else {
-                    (0 until arr.length()).map { PhotoCommentItem.fromJson(arr.getJSONObject(it)) }
+            commentsLoading = true
+            runCatching { ApiClient.photoDetail(current.id) }
+                .onSuccess { d ->
+                    liked = d.optBoolean("liked", liked)
+                    likeCount = d.optInt("like_count", likeCount)
+                    val arr = d.optJSONArray("comments")
+                    comments = if (arr == null) emptyList() else {
+                        (0 until arr.length()).map { PhotoCommentItem.fromJson(arr.getJSONObject(it)) }
+                    }
                 }
-            }
+                .onFailure { commentsError = "评论加载失败，请重试" }
+            commentsLoading = false
         }
     }
 
@@ -361,7 +369,24 @@ fun PhotoViewerScreen(
                         Modifier.padding(12.dp).heightIn(max = 260.dp).verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        if (comments.isEmpty()) {
+                        if (commentsLoading) {
+                            Text(
+                                "正在加载评论…",
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            )
+                        } else if (commentsError != null) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    commentsError.orEmpty(),
+                                    modifier = Modifier.weight(1f),
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                )
+                                Button(
+                                    onClick = { commentsReload++ },
+                                    variant = LxButtonVariant.Neutral,
+                                ) { Text("重试", fontSize = 12.sp) }
+                            }
+                        } else if (comments.isEmpty()) {
                             Text(
                                 "还没有评论",
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -402,15 +427,7 @@ fun PhotoViewerScreen(
                                     runCatching { ApiClient.commentPhoto(current.id, text) }
                                         .onSuccess {
                                             commentDraft = ""
-                                            runCatching { ApiClient.photoDetail(current.id) }
-                                                .onSuccess { d ->
-                                                    val arr = d.optJSONArray("comments")
-                                                    comments = if (arr == null) emptyList() else {
-                                                        (0 until arr.length()).map {
-                                                            PhotoCommentItem.fromJson(arr.getJSONObject(it))
-                                                        }
-                                                    }
-                                                }
+                                            commentsReload++
                                         }
                                     busy = false
                                 }

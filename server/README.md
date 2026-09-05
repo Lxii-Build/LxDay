@@ -1,254 +1,88 @@
-# 林曦日记 · 服务端
+# LxDay Server
 
-Go **1.25**（HEIC/AVIF 解码器要求，见下）+ Gin + gorilla/websocket
-+ **内嵌 SQLite**（`modernc.org/sqlite`，纯 Go 无 CGO）
-+ **进程内存态**（替代 Redis）。无 MySQL、无 Redis、无 Nginx——运营后台前端产物由
-`go:embed` 内嵌，同一进程同时提供 API / WebSocket / 后台静态页 / 上传文件服务。
-部署形态见 [../docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md)，架构图见 [../ARCHITECTURE.md](../ARCHITECTURE.md)。
+Go + Gin 服务端，提供 Android REST API、WebSocket、运营后台静态资源、图片鉴权代理和后台管理 API。SQLite 使用纯 Go 驱动，默认单实例运行。
 
-## 快速启动
+## 运行
+
+要求 Go 1.26+。从 `server` 目录执行：
 
 ```bash
-# 1. 配置（可选：不给 config.yaml 也能起，全走环境变量 + 默认值）
-cp config.example.yaml config.yaml
-# 编辑 config.yaml：jwt_secret（必填）/ db.path / app_key / storage.upload_dir
-
-# 2. 运行（建表自动完成：启动执行内嵌 sql/schema.sql，幂等）
-mkdir -p uploads uploads-private data
-go mod tidy
-JWT_SECRET=$(openssl rand -hex 32) go run . config.yaml
+go test -timeout 400s ./...
+go vet ./...
+CGO_ENABLED=0 go build -trimpath -o linxi-server .
 ```
 
-`jwt_secret` 未设置或含 `change` 字样会**拒绝启动**（空密钥等于令牌可任意伪造）。
-环境变量 `JWT_SECRET` / `APP_KEY` / `PORT` / `DB_PATH` 覆盖配置文件同名项；`APP_KEY` 仅为旧部署兼容字段，当前认证依赖 HTTPS 与 JWT。
+启动参数是可选配置文件路径：
 
-## 目录
-
-| 文件 | 说明 |
-|---|---|
-| main.go | 入口 + 路由注册 + 配置加载 + SQLite 初始化（WAL / busy_timeout / MaxOpenConns=1） |
-| models.go | 数据模型 + WebSocket 消息协议 |
-| store.go | SQLite 数据访问 + 内存态封装（在线/状态/离线队列/冷却） |
-| memstore.go | 进程内存态实现（替代 Redis；重启即失，见下「说明」） |
-| migrations.go | 启动执行内嵌 `sql/schema.sql` + 幂等补列（`PRAGMA table_info` 探测） |
-| hub.go | WebSocket 实时通道（单机内存路由，多节点扩展点见注释） |
-| handlers.go | 认证/绑定/待办/历史/状态上报 handler + JWTAuth |
-| account.go | 注册/登录/邮箱验证码/扩展资料 |
-| invite.go | 邀请码生成与绑定限流 |
-| album_handlers.go | 相册与照片接口（含保留字分派） |
-| album_media.go | `POST /media` 上传 + `/media/:id` 鉴权代理 + 上传配额 |
-| album_store.go | 相册数据访问（4 张表） |
-| avatar_*.go / exif.go | 纯 Go 图片处理链（解码/缩放/EXIF），不依赖 libvips |
-| admin.go | 后台 `/api/admin/*`（AdminAuth + requireSuper） |
-| netlog.go | 结构化日志 + 请求日志异步落库（含 skip 前缀） |
-| security.go | 安全响应头 / 口令强度 / 上传 URL 白名单 |
-| static.go | 内嵌后台 SPA + `/upload(s)` 静态 + `/healthz` |
-| push.go | 推送网关适配层（个推/极光，当前为占位实现） |
-| sql/schema.sql | 建表脚本（18 张表，全部 `IF NOT EXISTS`，服务端启动自动执行） |
-
-## 接口速览
-
-以 `main.go` 的路由注册段为准。中间件链：全局 `SecurityHeaders → RequestLogger → Recovery`；
-`/api/v1/*` 的公开接口使用 HTTPS 与按 IP 限流，登录后的接口再过 `JWTAuth`。
-客户端不再携带可被解包提取的共享密钥；`APP_KEY` 只保留为旧部署兼容字段。
-
-**公开（无需登录）**
-
-```
-POST /api/v1/auth/register           注册
-POST /api/v1/auth/login              登录
-POST /api/v1/auth/send-code          发送邮箱验证码（60s 冷却，码 10min 有效）
-GET  /api/v1/app/latest?platform=&version_code=&channel=stable|testing   从 GitHub Releases 检查更新并返回历史
+```bash
+JWT_SECRET="$(openssl rand -hex 32)" ./linxi-server ./config.yaml
 ```
 
-**绑定与资料**
+没有配置文件时，服务使用默认值和环境变量；生产环境必须提供非默认且至少 32 字节的 `JWT_SECRET`。容器入口会创建并修复 `/app/data`、`/app/uploads` 和 `/app/uploads-private` 的权限，然后以非 root 用户运行服务。
 
-```
-GET  /api/v1/pair/status             绑定状态
-POST /api/v1/pair/create-invite      生成 8 位邀请码（1h 有效）
-POST /api/v1/pair/bind               绑定（失败限流 10min/5 次）
-POST /api/v1/pair/unbind             主动解绑（双向生效）
-POST /api/v1/pair/cancel-invite      取消自己发出的邀请
-PUT  /api/v1/pair/anniversary        设置纪念日
-GET  /api/v1/profile                 双人资料（自己 + 伴侣）
-PUT  /api/v1/profile                 改昵称
-GET  /api/v1/profile/me              自己的扩展资料
-PUT  /api/v1/profile/me              改扩展资料（昵称/性别/签名/生日）
-POST /api/v1/profile/avatar          头像上传（multipart, 落 /upload/YYYY/MM/DD/）
-```
+## 配置
 
-**状态 / 待办 / 互动**
+`config.example.yaml` 只包含启动级配置：
 
-```
-GET  /api/v1/partner/status          对方实时状态
-POST /api/v1/todos                   创建待办
-GET  /api/v1/todos                   待办列表
-PUT  /api/v1/todos/:id               编辑待办
-POST /api/v1/todos/:id/complete      完成待办
-DELETE /api/v1/todos/:id             删除待办
-POST /api/v1/interactions/comfort    求陪伴（冷却 7s/1 次）
-POST /api/v1/interactions/calm       求冷静（冷却 7s/1 次，与 comfort 分桶）
-POST /api/v1/interactions/ring       强制响铃（默认 600s/3 次，可配）
-GET  /api/v1/status/history?date=&limit=&offset=   状态历史时间线
-GET  /api/v1/status/history/battery?date=          24h 电量曲线
-POST /api/v1/push/register-token     注册推送 token（预留）
-DELETE /api/v1/push/token            注销推送 token（预留）
-WS   /ws（Authorization: Bearer <JWT>）实时通道
-GET  /healthz                        健康检查（compose healthcheck 用）
+```yaml
+app:
+  port: 7740
+  jwt_secret: ""
+  token_ttl_hours: 720
+  ring_cooldown_seconds: 600
+  ring_cooldown_limit: 3
+  app_key: ""        # 旧部署兼容字段，当前客户端不使用
+db:
+  path: data/lxday.db
+storage:
+  upload_dir: uploads
+push:
+  provider: none
 ```
 
-**相册**（0820 新增，共 21 条：16 条 `/api/v1` 直接注册 + 3 条通配分派 + 2 条 `/media`）
+环境变量 `JWT_SECRET`、`DB_PATH` 和旧兼容字段 `APP_KEY` 可覆盖对应配置。相册配额、保留期、限流、互动冷却和令牌 TTL 等运行参数必须在后台“系统设置”中调整；它们在 `app_setting` 中保存并即时生效，不要另加环境变量或改编排文件。
 
-完整入参与返回见 [../docs/ALBUM.md](../docs/ALBUM.md)。
+## 路由概览
 
-```
-GET  /api/v1/albums                  相册列表（含 photo_count / cover_thumb_url）
-POST /api/v1/albums                  新建相册（name 1-32 字）
-GET  /api/v1/albums/:id              相册详情（photo_count 现算）
-PUT  /api/v1/albums/:id              改名 / 设封面（封面必须是本 pair 的正常照片）
-DELETE /api/v1/albums/:id            删除相册（status=2）
-GET  /api/v1/albums/:id/photos?page=&size=   相册内照片（id=0 为「未归类」虚拟相册）
-POST /api/v1/albums/:id/photos       把已上传照片挂入相册（单次 ≤200 张，触发 album_new）
-POST /api/v1/media                   上传单张（multipart 字段名 file，≤20MB，落 album_id=0）
-GET  /api/v1/photos/:id              照片详情 + 评论 + 点赞态
-PUT  /api/v1/photos/:id              改描述（≤500 字）
-DELETE /api/v1/photos/:id            软删进回收站（不删盘上文件）
-POST /api/v1/photos/:id/restore      从回收站恢复
-POST /api/v1/photos/:id/like         点赞
-DELETE /api/v1/photos/:id/like       取消点赞
-POST /api/v1/photos/:id/comments     评论（1-500 字）
-DELETE /api/v1/photos/:id/comments/:cid   删评论（只能删自己的）
+公开接口：
 
-# 通配分派（非独立注册的路由，见下「三处易踩的设计决策」①）
-GET  /api/v1/albums/summary          相册概要 → handleAlbumByID 内识别
-GET  /api/v1/photos/on-this-day?month=&day=   历年同月同日 → handlePhotoByID 内识别
-GET  /api/v1/photos/recycled?page=&size=      回收站列表 → handlePhotoByID 内识别
+- `POST /api/v1/auth/register`
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/send-code`
+- `GET /api/v1/app/latest`
+- `GET /healthz`、`GET /readyz`
 
-# 图片读取：挂在根路径，只过 JWTAuth，见 ②
-GET  /media/:id                      原图字节流
-GET  /media/:id/thumb                缩略图字节流（长边 384，网格用）
-GET  /media/:id/preview              中间尺寸字节流（长边 1080，大图页先加载这档）
-```
+用户 JWT 接口：
 
-### 三处易踩的设计决策
+- `/pair/*`：关系状态、邀请码、绑定、解绑和纪念日；
+- `/profile*`：资料和头像；
+- `/todos*`：待办；
+- `/interactions/*`：陪伴、冷静、响铃；
+- `/status`、`/status/history*`：状态上报与历史；
+- `/albums*`、`/photos*`、`/media`：相册、照片和回收站；
+- `/listen/rooms*`：一起听房间按 `pair_id` 唯一创建，已绑定情侣可自动加入（没有房间时自动创建），兼容口令加入、网易云歌曲 ID/播放时间轴同步和离开；房间状态落 SQLite，实时事件走独立 WSS。网易云 Cookie、密码与解析出的播放地址只留在客户端。
+- `/push/*`：兼容 token 注册入口，当前不接入商业推送。
 
-**① `/albums/summary`、`/photos/on-this-day`、`/photos/recycled` 不是独立注册的路由。**
-gin 的路由树不允许同一层级同时存在静态段与通配段，同时注册 `/albums/summary` 与
-`/albums/:id` 会在**启动时 panic**——不是 404，是进程起不来，容器会陷入反复重启。
-故只注册通配路由，在 handler 内识别保留字：`handleAlbumByID` 认 `summary`，
-`handlePhotoByID` 认 `on-this-day` 与 `recycled`。**对外路径与独立注册毫无差别**，客户端无感。
-代价：以后新增保留字必须同步改 handler 的 switch，且相册不能有 id 为 `summary` 的字面路径。
+后台接口统一在 `/api/admin/*`，使用管理员 JWT 和 RBAC。用户、关系、待办、照片、通知、存储、设置、审计和网络日志的读写都在服务端再次校验权限与数据归属，不能依赖后台页面隐藏按钮。
 
-**② `/media/:id` 挂在根路径而非 `/api/v1` 下，只过 `JWTAuth`。**
-根路径是因为 `netlog.go` 的日志 skip 前缀是 `/media`——挂到 `/api/v1/media` 就会漏出
-skip 名单，每张照片的完整 URL 都被写进 `request_log`，而后台「网络日志」页对管理员可读，
-等于任何管理员都能从日志里直接点开情侣的私密照片。那正是这套代理要防的事。
-这是因为图片由客户端图片库（Coil）发起，只携带 `Authorization` 头即可完成鉴权。
-鉴权由 `JWTAuth` + `mustPair` + 照片 `pair_id` 比对承担，
-**归属不符与 id 不存在返回同一个 403**（区别对待等于给出「该 id 存在」的探测信号）。
+WebSocket 地址为 `/ws`，状态同步令牌只允许放在 `Authorization: Bearer ...` 请求头中，不接受查询串令牌。一起听建立 `/api/v1/listen/rooms/<id>/ws` 时，JWT 与 `X-Lx-Listen-Token` 房间会话令牌都走请求头；查询串仅为旧客户端兼容保留。媒体地址统一走 `/media/<id>`、`/media/<id>/thumb` 和 `/media/<id>/preview` 鉴权代理。
 
-**③ 相册照片对外 URL 一律是 `/media/<photoId>` 与 `/media/<photoId>/thumb`。**
-真实磁盘相对路径只存在库里：`Photo` 的 `diskPath` / `diskThumb` 是**非导出字段**，
-`encoding/json` 看不见，不可能被序列化出去。原因是 `/upload` 与 `/uploads` 两个静态目录
-**完全无鉴权**，只靠随机文件名保密；真实路径一旦经截图、日志、Referer 外泄，
-拿到 URL 的任何人无需登录即可看到私密照片。读取的唯一闸门是 `handleGetMedia`，
-其中 `safeUploadPath` 还会挡住库值被写坏时的路径穿越。响应头 `Cache-Control: private`
-只允许终端自己缓存，禁止中间代理与 CDN 留副本。
+## 数据和文件
 
-**运营后台 `/api/admin/*`**（`admin.go`，使用 `AdminAuth`）
+- `server/sql/schema.sql` 是新库结构的基线；`migrations.go` 负责老库补列和索引升级。
+- SQLite 使用 WAL、busy timeout 和单连接池。迁移顺序必须是建表、补列、建索引。
+- 公开头像/历史资源在 `upload_dir` 下；私密相册在同级私密目录，禁止静态暴露真实路径。
+- 在线态、验证码、限流、相册日配额、一起听 WS 会话和离线事件在内存；一起听房间元数据与播放状态落库。进程重启后需按情侣关系重新建立 WS 会话，服务当前不支持多实例横向扩展。
+- 请求日志跳过私密媒体和公开上传路径，不记录认证头、请求体或共享密钥。
 
-`AdminAuth` 的 role / must_change / status **全部实时读库，不信 token 里的副本**——
-否则管理员被降级或禁用后，旧 token 仍按老权限畅通整个有效期。
-首登改密前只放行 `/user/info` 与 `/change-credentials`。
+## 安全实现
 
-```
-POST /api/admin/login                登录（失败限流 10min/5 次）
+- JWT 固定 HS256，用户和管理员令牌都校验签名、有效期、主体类型和令牌版本。
+- 每个请求实时读取用户/管理员状态；封禁或令牌版本变更会立即撤销旧会话，WebSocket 连接也走相同校验。
+- 登录失败响应不区分账号不存在、密码错误和账号被禁用，并受 IP/账号限流保护。
+- JSON、邮箱、分页、上传文件、图片像素/帧数/派生图和 WebSocket 帧都有长度或资源上限；HTTP、SMTP 和 WS 写入有超时。
+- 所有危险操作使用统一错误响应、审计记录和服务端权限检查。
 
-# AdminAuth：普通管理员可读
-GET  /api/admin/user/info            当前管理员信息
-POST /api/admin/change-credentials   改自己的账号密码（首登强制）
-GET  /api/admin/stats                概览统计
-GET  /api/admin/users                用户列表
-GET  /api/admin/pairs                情侣关系列表
-GET  /api/admin/todos                待办列表
-GET  /api/admin/app-releases         GitHub Releases 版本列表
-GET  /api/admin/audit-logs           系统日志（管理员操作审计）
-GET  /api/admin/network-logs         网络日志（API 请求日志）
-GET  /api/admin/notify-templates     通知模板列表
-GET  /api/admin/notify-records       通知记录列表
+## 构建后台内嵌镜像
 
-# AdminAuth + requireSuper：敏感操作一律限超管
-PUT  /api/admin/users/:id                   编辑用户资料（昵称/邮箱/性别/简介/生日）
-PUT  /api/admin/users/:id/status          封禁 / 解封用户
-DELETE /api/admin/users/:id               永久删除用户及其数据（有效绑定需先解除）
-PUT  /api/admin/pairs/:id                 编辑关系纪念日
-POST /api/admin/pairs/:id/unbind          强制解绑
-POST /api/admin/pairs/:id/cancel-invite   作废挂起邀请码
-PUT  /api/admin/todos/:id                 编辑待办与提醒规则
-DELETE /api/admin/todos/:id               删待办
-GET  /api/admin/photos                    相册照片审核（只给元数据）
-GET  /api/admin/photos/:id/thumb          查看 384px 审核缩略图（不提供原图）
-PUT  /api/admin/photos/:id                编辑照片描述
-DELETE /api/admin/photos/:id              软删照片（进用户回收站，用户可自行恢复）
-GET  /api/admin/albums                    相册列表、照片数与占用空间
-PUT  /api/admin/albums/:id                编辑相册名称
-DELETE /api/admin/albums/:id              软删相册，照片退回未归类
-GET  /api/admin/storage-stats             磁盘占用与回收站统计
-POST /api/admin/pairs/:id/purge-recycle-bin  永久清空该关系的回收站
-GET  /api/admin/admins                    管理员列表
-POST /api/admin/admins                    新增管理员
-PUT  /api/admin/admins/:id                改角色（白名单 admin/super）
-PUT  /api/admin/admins/:id/status         启用 / 禁用管理员
-POST /api/admin/admins/:id/reset-password 重置管理员密码
-DELETE /api/admin/admins/:id              删管理员
-GET  /api/admin/settings                  读系统设置（含 SMTP 主机/账号，故限超管）
-PUT  /api/admin/settings                  改系统设置
-POST /api/admin/settings/smtp-test        SMTP 连通性测试
-PUT  /api/admin/notify-templates          新增 / 更新通知模板
-DELETE /api/admin/notify-templates/:id    删通知模板
-POST /api/admin/notify                    向用户群发通知
-```
-
-**为什么这些要收敛到 `requireSuper`**：此前只有 `POST /admins` 与 `PUT /settings` 挂了它，
-其余全部裸奔，于是「普通 admin」事实上等于超管——能从 `GET /settings` 读出存储与 SMTP 密钥、
-能全站群发、能删任意待办与照片、能封禁用户、能解绑他人情侣关系、能查看和修改全站私密内容。
-相册照片是全站最私密的内容，**列表与删除都限超管，普通 admin 连元数据都不给看**；
-且列表接口不返回图片 URL——管理员没有用户 token，本就读不了 `/media/<id>`，
-返回 URL 只会凭空多一条泄露面。
-
-统一响应：`{"code":0,"message":"ok","data":{...}}`（后台 `/api/admin/*` 用 `{code,msg,data}` 信封）。
-
-业务错误码：
-
-| 码 | 含义 | 码 | 含义 |
-|---|---|---|---|
-| 1001 | 未绑定 / 已绑定 | 1013 | 邮件服务未配置 |
-| 1002 | 参数错误 | 1014 | 验证码发送失败 |
-| 1003 | 未授权（登录已失效） | 1015 | 验证码错误或已过期 |
-| 1006 | 昵称 / 用户名 / 邮箱被占用 | 1016 | 验证码试错超限 |
-| 1007 | 账号或密码错误 | 1017 | 无权访问该资源（越权） |
-| 1008 | 邀请码生成失败 | 1018 | 账号已被禁用 |
-| 1009 | 邀请码无效或已过期 | 1019 | 绑定尝试过于频繁 |
-| 1010 | 操作失败 | 1020 | 相册上传超配额（200 张 / 500MB / 日） |
-| 1011 | 响铃过于频繁 | | |
-| 1012 | 登录尝试过于频繁 | | |
-
-## 待接入 / 说明
-
-1. **推送**：按设计决策**不接商业推送**，纯 WS + 离线重连补拉 + 本地 AlarmManager。`push.go` 保持占位，`/push/*` 接口为预留。
-2. **头像/公开资源上传**：本地磁盘，落 `uploadDir/upload/YYYY/MM/DD/<随机名>`，由 Go 自托管
-   `/upload/*`（新）与 `/uploads/*`（旧兼容）两条静态路由，**均无鉴权**、均关目录列举。
-   **相册照片**落在同级的 `uploadDir-private/media/YYYY/MM/DD/<随机名>`，不挂静态路由，
-   对外只走 `/media/<id>` 鉴权代理；启动时会把历史 `photo` 文件迁过去。
-3. **状态历史**：客户端 5min 上报时服务端 `INSERT OR IGNORE` 落 `status_history`（幂等，SQLite 语法）；
-   待办到点提醒每分钟扫描一次（`scanDueTodos` goroutine）。
-4. **内存态即失**：在线态、伴侣最新状态、离线事件队列（**100 条上限 + 24h TTL**）、
-   邮箱验证码、各类限流计数、相册当日配额全在进程内存（`memstore.go`），**进程重启即全部丢失**。
-   表现为：双方短暂显示离线、未补推的离线事件永久丢失、验证码需重发、限流计数归零。
-   这是换掉 Redis 换来的部署简化，代价已知且接受。
-5. **单进程约束**：内存态与 `hub.go` 的 WS 路由表都在进程内，**起第二个副本会导致跨副本的
-   伴侣互相看不到在线、消息转发丢失**。横向扩容必须先把两者换成外部共享存储
-   （Redis + Pub/Sub 或网关路由）。
-6. **SQLite 单写者**：`SetMaxOpenConns(1)` + WAL + `busy_timeout(5000)`。
-   并发量足够，但慢查询会串行阻塞后续请求。
-7. **本地运行需建目录**：`mkdir -p uploads uploads-private data`（容器镜像里已由 Dockerfile 建好；`uploads-private` 用于相册私密媒体，不能挂公开静态路由）。
+仓库根 `Dockerfile` 会执行 `npm ci`、`npm run build`，把 `admin/dist` 放入临时 `server/webdist` 后编译。`server/webdist` 为构建输入，不要把后台构建产物提交到仓库；生产更新使用镜像 tag 和 [docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md) 的升级流程。

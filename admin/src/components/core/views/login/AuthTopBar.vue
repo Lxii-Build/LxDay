@@ -13,35 +13,45 @@
         <div
           class="color-dots absolute right-0 rounded-full flex-c gap-2 rounded-5 px-2.5 py-2 pr-9 pl-2.5 opacity-0"
         >
-          <div
+          <button
+            type="button"
             v-for="(color, index) in mainColors"
             :key="color"
-            class="color-dot relative size-5 c-p flex-cc rounded-full opacity-0"
+            class="color-dot relative size-5 min-h-11 min-w-11 c-p flex-cc rounded-full border-0 opacity-0"
+            :aria-label="$t('setting.color.choose', { color })"
             :class="{ active: color === systemThemeColor }"
             :style="{ background: color, '--index': index }"
             @click="changeThemeColor(color)"
           >
             <ArtSvgIcon v-if="color === systemThemeColor" icon="ri:check-fill" class="text-white" />
-          </div>
+          </button>
         </div>
-        <div class="btn palette-btn relative z-[2] h-8 w-8 c-p flex-cc tad-300">
+        <button
+          type="button"
+          class="btn palette-btn relative z-[2] size-11 c-p flex-cc tad-300 border-0 bg-transparent"
+          :aria-label="$t('topBar.actions.themeColor')"
+        >
           <ArtSvgIcon
             icon="ri:palette-line"
             class="text-xl text-g-800 transition-colors duration-300"
           />
-        </div>
+        </button>
       </div>
       <ElDropdown
         v-if="shouldShowLanguage"
         @command="changeLanguage"
         popper-class="langDropDownStyle"
       >
-        <div class="btn language-btn h-8 w-8 c-p flex-cc tad-300">
+        <button
+          type="button"
+          class="btn language-btn size-11 c-p flex-cc tad-300 border-0 bg-transparent"
+          :aria-label="$t('topBar.actions.language')"
+        >
           <ArtSvgIcon
             icon="ri:translate-2"
             class="text-[19px] text-g-800 transition-colors duration-300"
           />
-        </div>
+        </button>
         <template #dropdown>
           <ElDropdownMenu>
             <div v-for="lang in languageOptions" :key="lang.value" class="lang-btn-item">
@@ -56,16 +66,18 @@
           </ElDropdownMenu>
         </template>
       </ElDropdown>
-      <div
+      <button
+        type="button"
         v-if="shouldShowThemeToggle"
-        class="btn theme-btn h-8 w-8 c-p flex-cc tad-300"
+        class="btn theme-btn size-11 c-p flex-cc tad-300 border-0 bg-transparent"
+        :aria-label="$t(isDark ? 'topBar.actions.useLightTheme' : 'topBar.actions.useDarkTheme')"
         @click="themeAnimation"
       >
         <ArtSvgIcon
           :icon="isDark ? 'ri:sun-fill' : 'ri:moon-line'"
           class="text-xl text-g-800 transition-colors duration-300"
         />
-      </div>
+      </button>
     </div>
   </div>
 </template>
@@ -117,7 +129,10 @@
 
   .color-dot {
     box-shadow: 0 2px 4px rgb(0 0 0 / 15%);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition:
+      box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+      transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+      opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     transition-delay: calc(var(--index) * 0.05s);
     transform: translateX(20px) scale(0.8);
   }
@@ -133,7 +148,18 @@
     transform: translateX(0);
   }
 
+  .color-picker-expandable:focus-within .color-dots {
+    pointer-events: auto;
+    opacity: 1;
+    transform: translateX(0);
+  }
+
   .color-picker-expandable:hover .color-dot {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+
+  .color-picker-expandable:focus-within .color-dot {
     opacity: 1;
     transform: translateX(0) scale(1);
   }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/tls"
+	"database/sql"
 	"errors"
 	"fmt"
 	"mime"
@@ -62,15 +63,41 @@ type smtpConfig struct {
 }
 
 func loadSMTP() (smtpConfig, error) {
-	get := func(k string) string { v, _ := st.GetSetting(k); return strings.TrimSpace(v) }
-	sc := smtpConfig{
-		Host:     get("smtp.host"),
-		Port:     get("smtp.port"),
-		Username: get("smtp.username"),
-		Password: get("smtp.password"),
-		From:     get("smtp.from"),
-		SSL:      get("smtp.ssl") == "true",
+	var sc smtpConfig
+	if st == nil || st.DB == nil {
+		return sc, errors.New("store not initialized")
 	}
+	get := func(k string) (string, error) {
+		v, err := st.GetSetting(k)
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil
+		}
+		if err != nil {
+			return "", fmt.Errorf("read SMTP setting %s: %w", k, err)
+		}
+		return strings.TrimSpace(v), nil
+	}
+	var err error
+	if sc.Host, err = get("smtp.host"); err != nil {
+		return sc, err
+	}
+	if sc.Port, err = get("smtp.port"); err != nil {
+		return sc, err
+	}
+	if sc.Username, err = get("smtp.username"); err != nil {
+		return sc, err
+	}
+	if sc.Password, err = get("smtp.password"); err != nil {
+		return sc, err
+	}
+	if sc.From, err = get("smtp.from"); err != nil {
+		return sc, err
+	}
+	ssl, err := get("smtp.ssl")
+	if err != nil {
+		return sc, err
+	}
+	sc.SSL = ssl == "true"
 	if sc.From == "" {
 		sc.From = sc.Username
 	}
@@ -86,8 +113,6 @@ func loadSMTP() (smtpConfig, error) {
 	}
 	return sc, nil
 }
-
-// APPEND-ACCOUNT-1
 
 func buildMessage(from, to, subject, body string) []byte {
 	enc := mime.QEncoding.Encode("utf-8", subject)
@@ -246,8 +271,6 @@ func handleSendEmailCode(c *gin.Context) {
 	ok(c, gin.H{"sent": true, "expires_in": int(emailCodeTTLNow().Seconds())})
 }
 
-// APPEND-ACCOUNT-2
-
 // ---------- 注册 ----------
 
 func handleRegister(c *gin.Context) {
@@ -386,7 +409,10 @@ func applyProfileAvatarDefault(p *UserProfile) {
 	if p == nil {
 		return
 	}
-	logo, _ := st.GetSetting("site.logo")
+	logo, err := st.GetSetting("site.logo")
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return
+	}
 	logo = strings.TrimSpace(logo)
 	p.AvatarURL = avatarOrLogo(p.AvatarURL, logo)
 	p.AvatarThumbnailURL = avatarOrLogo(p.AvatarThumbnailURL, logo)

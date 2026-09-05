@@ -12,8 +12,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -25,8 +27,10 @@ import coil3.compose.AsyncImage
 import com.linxi.diary.data.ApiClient
 import com.linxi.diary.data.AppImageLoader
 import com.linxi.diary.data.PhotoItem
+import com.linxi.diary.data.PagingMerge
 import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.components.KernelScreen
+import com.linxi.diary.ui.components.LoadingRow
 import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
 import com.linxi.diary.ui.components.LxConfirmDialog
@@ -52,6 +56,8 @@ fun RecycleBinScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
 
     var photos by remember { mutableStateOf<List<PhotoItem>>(emptyList()) }
+    var total by remember { mutableIntStateOf(0) }
+    var page by remember { mutableIntStateOf(0) }
     var keepDays by remember { mutableStateOf(-1) }
     var loading by remember { mutableStateOf(true) }
     var refreshing by remember { mutableStateOf(false) }
@@ -60,23 +66,51 @@ fun RecycleBinScreen(onBack: () -> Unit) {
     var purgeTarget by remember { mutableStateOf<PhotoItem?>(null) }
     var confirmPurgeAll by remember { mutableStateOf(false) }
     var purgeBusy by remember { mutableStateOf(false) }
+    var loadingMore by remember { mutableStateOf(false) }
+    var reachedEnd by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
 
-    fun load(pull: Boolean = false) {
+    fun load(pull: Boolean = false, append: Boolean = false) {
+        if (append && (loadingMore || loading || reachedEnd || photos.size >= total)) return
         scope.launch {
-            if (pull) refreshing = true else loading = true
+            val targetPage = if (append) page + 1 else 1
+            if (append) loadingMore = true else if (pull) refreshing = true else loading = true
             error = null
-            runCatching { ApiClient.recycledPhotosFull() }
+            runCatching { ApiClient.recycledPhotosFull(targetPage) }
                 .onSuccess { result ->
-                    photos = result.first
-                    keepDays = result.second
+                    if (append) {
+                        val duplicatePage = PagingMerge.allDuplicates(photos, result.photos) { it.id }
+                        photos = PagingMerge.appendDistinct(photos, result.photos) { it.id }
+                        reachedEnd = result.photos.isEmpty() || duplicatePage || result.page * result.size >= result.total
+                    } else {
+                        photos = result.photos
+                        reachedEnd = result.photos.isEmpty() || result.page * result.size >= result.total
+                    }
+                    total = result.total
+                    page = result.page
+                    keepDays = result.keepDays
                 }
                 .onFailure { error = albumFriendlyError(it) }
             loading = false
             refreshing = false
+            loadingMore = false
         }
     }
 
     LaunchedEffect(Unit) { load() }
+
+    LaunchedEffect(listState, photos.size, total, loading, loadingMore, reachedEnd) {
+        snapshotFlow {
+            val info = listState.layoutInfo
+            info.visibleItemsInfo.lastOrNull()?.index to info.totalItemsCount
+        }.collect { (lastVisible, itemCount) ->
+            if (!loading && !loadingMore && !reachedEnd && photos.isNotEmpty() && photos.size < total &&
+                lastVisible != null && lastVisible >= itemCount - 3
+            ) {
+                load(append = true)
+            }
+        }
+    }
 
     purgeTarget?.let { target ->
         LxConfirmDialog(
@@ -105,7 +139,7 @@ fun RecycleBinScreen(onBack: () -> Unit) {
         LxConfirmDialog(
             show = true,
             title = "清空回收站",
-            message = "回收站里的 ${photos.size} 张照片将被永久删除，" +
+            message = "回收站里的 ${total.coerceAtLeast(photos.size)} 张照片将被永久删除，" +
                 "服务器上的文件一并清除，之后无法恢复。",
             confirmText = "全部永久删除",
             destructive = true,
@@ -131,6 +165,7 @@ fun RecycleBinScreen(onBack: () -> Unit) {
         isRefreshing = refreshing,
         onRefresh = { load(pull = true) },
         loading = loading,
+        listState = listState,
     ) {
         if (photos.isNotEmpty()) {
             item {
@@ -246,6 +281,9 @@ fun RecycleBinScreen(onBack: () -> Unit) {
                     }
                 }
             }
+        }
+        if (loadingMore) {
+            item(key = "recycle-loading-more") { LoadingRow() }
         }
     }
 }

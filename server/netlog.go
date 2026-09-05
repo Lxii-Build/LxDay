@@ -45,8 +45,6 @@ type RequestLog struct {
 
 var reqLogCh = make(chan RequestLog, 1024)
 
-// PLACEHOLDER_NETLOG
-
 // startRequestLogWorker 单消费者异步落库（避免每请求起 goroutine）；并周期跑数据保留清理。
 // 两个 worker 都受进程根 context 管理，停机时先退出再关闭 SQLite。
 func startRequestLogWorker(ctx context.Context, wg *sync.WaitGroup) {

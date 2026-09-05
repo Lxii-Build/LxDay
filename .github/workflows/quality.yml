@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache-dependency-path: server/go.sum
       - working-directory: server
         run: |
@@ -37,6 +37,13 @@ jobs:
           test -z "$(gofmt -l .)"
           go vet ./...
           go test -timeout 400s ./...
+      - name: 服务端可达包漏洞扫描
+        working-directory: server
+        env:
+          GOMAXPROCS: '2'
+        # x/crypto 仍包含未维护的 openpgp 模块（无修复版本），但本服务不导入它；
+        # 扫描可达包，避免把不可达模块条目误当成运行时漏洞阻断 CI。
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 -scan=package ./...
 
   admin:
     name: 后台类型检查与构建

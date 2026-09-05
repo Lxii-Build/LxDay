@@ -3,10 +3,12 @@
     <SectionTitle :title="$t('setting.color.title')" class="mt-10" />
     <div class="-mr-4">
       <div class="flex flex-wrap">
-        <div
+        <button
           v-for="color in configOptions.mainColors"
           :key="color"
-          class="flex items-center justify-center size-[23px] mr-4 mb-2.5 cursor-pointer rounded-full transition-all duration-200 hover:opacity-85"
+          type="button"
+          class="flex items-center justify-center size-11 mr-2 mb-1 cursor-pointer rounded-full border-0 transition-opacity duration-200 hover:opacity-85"
+          :aria-label="$t('setting.color.choose', { color })"
           :style="{ background: `${color} !important` }"
           @click="colorHandlers.selectColor(color)"
         >
@@ -15,7 +17,7 @@
             class="text-base !text-white"
             v-show="color === systemThemeColor"
           />
-        </div>
+        </button>
       </div>
     </div>
   </div>

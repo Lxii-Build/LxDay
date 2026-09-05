@@ -159,6 +159,25 @@ CREATE TABLE IF NOT EXISTS app_setting (
 );
 -- __NEXT_SCHEMA2__
 
+-- 一起听房间。音频文件不落服务端，只保存可同步的播放元数据。
+CREATE TABLE IF NOT EXISTS listen_room (
+  id                             TEXT PRIMARY KEY,
+  pair_id                        INTEGER NOT NULL,
+  host_user_id                   INTEGER NOT NULL,
+  join_secret_hash               TEXT NOT NULL,
+  allow_member_control           INTEGER NOT NULL DEFAULT 1,
+  auto_pause_on_member_change    INTEGER NOT NULL DEFAULT 1,
+  -- Deprecated compatibility column; server never exposes third-party URLs.
+  share_audio_links              INTEGER NOT NULL DEFAULT 0,
+  state_json                     TEXT NOT NULL DEFAULT '{}',
+  status                         INTEGER NOT NULL DEFAULT 1,
+  created_at                     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at                     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_listen_room_pair_status ON listen_room(pair_id, status);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_listen_room_pair_active
+  ON listen_room(pair_id) WHERE status=1;
+
 CREATE TABLE IF NOT EXISTS admin_user (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   username      TEXT    NOT NULL,

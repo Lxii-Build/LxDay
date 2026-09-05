@@ -113,6 +113,8 @@ func IPRateLimit(spec ipRateSpec) gin.HandlerFunc {
 			// —— 那里面有邮箱与口令。
 			slog.Warn("ip rate limit exceeded",
 				"rule", spec.name, "ip", ip, "limit", spec.limit, "window", spec.window.String())
+			// 让客户端可以按服务端窗口退避，而不是固定重试或反复撞限流。
+			c.Header("Retry-After", strconv.FormatInt(int64(spec.window/time.Second), 10))
 			fail(c, http.StatusTooManyRequests, 1012, spec.msg)
 			c.Abort()
 			return

@@ -87,6 +87,13 @@ func registerStatic(r *gin.Engine) {
 				info, statErr := f.Stat()
 				f.Close()
 				if statErr == nil && !info.IsDir() {
+					if strings.HasPrefix(name, "assets/") {
+						// Vite 为 assets 生成内容哈希，允许浏览器与 CDN 长缓存；
+						// index.html 仍走 no-cache，发布新版本时能及时拿到新入口。
+						c.Header("Cache-Control", "public, max-age=31536000, immutable")
+					} else {
+						c.Header("Cache-Control", "no-cache")
+					}
 					fileServer.ServeHTTP(c.Writer, req)
 					return
 				}
@@ -94,6 +101,7 @@ func registerStatic(r *gin.Engine) {
 		}
 		// 其余交给 SPA 前端路由：回退 index.html
 		if len(indexHTML) > 0 {
+			c.Header("Cache-Control", "no-cache, must-revalidate")
 			c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
 			return
 		}

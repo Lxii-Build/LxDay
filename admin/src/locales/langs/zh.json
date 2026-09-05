@@ -16,12 +16,15 @@
   },
   "topBar": {
     "actions": {
+      "home": "返回首页",
       "toggleMenu": "展开或收起菜单",
       "refresh": "刷新当前页面",
       "quickAccess": "打开快速入口",
       "enterFullscreen": "进入全屏",
       "exitFullscreen": "退出全屏",
       "language": "切换语言",
+      "themeColor": "选择主题色",
+      "themeToggle": "切换明暗主题",
       "settings": "打开界面设置",
       "useLightTheme": "切换到浅色主题",
       "useDarkTheme": "切换到深色主题",
@@ -30,7 +33,8 @@
     "user": {
       "userCenter": "修改凭据",
       "repo": "项目仓库",
-      "logout": "退出登录"
+      "logout": "退出登录",
+      "menu": "打开用户菜单"
     },
     "guide": {
       "title": "点击这里查看",
@@ -43,6 +47,8 @@
     "tips": "提示",
     "cancel": "取消",
     "close": "关闭",
+    "previous": "向左滚动",
+    "next": "向右滚动",
     "confirm": "确定",
     "confirmDelete": "确认删除",
     "logOutTips": "是否退出登录？",
@@ -60,7 +66,8 @@
     "saveSuccess": "保存成功",
     "deleteSuccess": "删除成功",
     "enableSuccess": "已启用",
-    "disableSuccess": "已禁用"
+    "disableSuccess": "已禁用",
+    "more": "更多标签操作"
   },
   "setting": {
     "menuType": {
@@ -75,7 +82,8 @@
       "title": "菜单风格"
     },
     "color": {
-      "title": "系统主题色"
+      "title": "系统主题色",
+      "choose": "选择主题色 {color}"
     },
     "box": {
       "title": "盒子样式",
@@ -215,6 +223,9 @@
     },
     "storageStats": {
       "title": "磁盘统计"
+    },
+    "listenTogether": {
+      "title": "一起听房间"
     }
   },
   "table": {
@@ -231,6 +242,12 @@
       "searchSelectPlaceholder": "请选择"
     },
     "selection": "选择",
+    "search": "搜索",
+    "size": "调整表格密度",
+    "fullscreen": "全屏",
+    "exitFullscreen": "退出全屏",
+    "columns": "列设置",
+    "settings": "表格设置",
     "sizeOptions": {
       "small": "紧凑",
       "default": "默认",
@@ -366,6 +383,26 @@
       "members": "成员",
       "anniversary": "纪念日"
     }
+  },
+  "listenTogether": {
+    "eyebrow": "LISTEN TOGETHER",
+    "title": "一起听房间",
+    "description": "查看当前同步房间；关闭房间会让两台手机立即停止同步。",
+    "roomsTitle": "活动房间",
+    "playing": "播放中",
+    "paused": "已暂停",
+    "noTrack": "尚未同步歌曲",
+    "pair": "关系 #{id}",
+    "host": "房主 #{id}",
+    "members": "{count} 人在线",
+    "close": "关闭房间",
+    "closeTitle": "关闭一起听房间",
+    "closeConfirm": "确定关闭房间 {room} 吗？两台手机会立即停止同步，但不会影响本机音乐播放。",
+    "closeSuccess": "房间已关闭",
+    "empty": "当前没有活动房间",
+    "loading": "正在读取房间…",
+    "loadFailed": "读取房间失败，请检查网络后重试",
+    "retry": "重新加载"
   },
   "contentAudit": {
     "tabs": {
@@ -506,6 +543,7 @@
     "send": {
       "template": "使用模板",
       "templatePlaceholder": "可选，选择后自动填充标题与内容",
+      "templateLoadFailed": "通知模板加载失败",
       "title": "标题",
       "titlePlaceholder": "通知标题",
       "body": "内容",
@@ -516,7 +554,8 @@
       "uids": "用户 ID",
       "uidsPlaceholder": "多个用逗号分隔，如 1,2,3",
       "submit": "下发通知",
-      "success": "下发成功，已推送 {count} 人"
+      "success": "下发成功，已入队 {count} 人",
+      "queued": "通知已入队 {count} 人，设备是否收到取决于在线状态"
     },
     "templates": {
       "create": "新增模板",
@@ -543,7 +582,7 @@
         "body": "内容",
         "template": "模板",
         "target": "目标",
-        "sentCount": "推送数",
+        "queuedCount": "入队数",
         "createdAt": "下发时间"
       }
     },
@@ -554,6 +593,41 @@
       "uidsRequired": "请输入至少一个用户 ID",
       "uidsInvalid": "用户 ID 只能是正整数，多个用逗号分隔"
     }
+  },
+  "storageStats": {
+    "retention": {
+      "title": "数据保留策略",
+      "goSettings": "去系统设置调整",
+      "recycleBin": "回收站保留",
+      "statusHistory": "状态历史保留",
+      "networkLog": "网络日志保留",
+      "forever": "永久保留",
+      "days": "{days} 天"
+    },
+    "pairsTitle": "各情侣占用（按占用降序）",
+    "table": {
+      "pairId": "情侣 ID",
+      "couple": "情侣",
+      "photoCount": "照片数",
+      "storage": "占用",
+      "recycleBin": "回收站"
+    },
+    "summary": {
+      "photoCount": "照片总数",
+      "originalStorage": "原图占用",
+      "dbOriginal": "库中记录的原图字节数",
+      "diskUsage": "磁盘实际占用",
+      "diskHint": "{count} 个文件，含缩略图与预览图",
+      "recycled": "回收站占用",
+      "pending": "{count} 张待清理"
+    },
+    "units": { "photos": "张" },
+    "purge": "清空回收站",
+    "purgeTitle": "清空回收站",
+    "purgeConfirm": "将永久删除「{couple}」回收站里的 {count} 张照片（约 {size}），服务器上的文件会一并清除，之后无法恢复。",
+    "purgeConfirmButton": "永久删除",
+    "purgeSuccess": "已清理 {count} 张，释放 {size}",
+    "empty": "还没有照片"
   },
   "systemSettings": {
     "save": "保存设置",
@@ -573,7 +647,8 @@
         "album": "相册与上传",
         "retention": "数据保留",
         "security": "安全与限流",
-        "interaction": "互动冷却"
+        "interaction": "互动冷却",
+        "listenTogether": "一起听"
       }
     },
     "site": {

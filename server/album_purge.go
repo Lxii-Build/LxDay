@@ -75,17 +75,6 @@ func (s *Store) purgePhotoRows(id, pairID int64) error {
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.Exec(`DELETE FROM photo_comment WHERE photo_id=?`, id); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`DELETE FROM photo_like WHERE photo_id=?`, id); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(
-		`UPDATE album SET cover_photo_id=NULL WHERE cover_photo_id=? AND pair_id=?`,
-		id, pairID); err != nil {
-		return err
-	}
 	res, err := tx.Exec(`DELETE FROM photo WHERE id=? AND pair_id=? AND status=2`, id, pairID)
 	if err != nil {
 		return err
@@ -97,6 +86,20 @@ func (s *Store) purgePhotoRows(id, pairID int64) error {
 	if n == 0 {
 		return sql.ErrNoRows
 	}
+	// Delete related rows only after the guarded photo delete succeeds. A photo
+	// may have been restored between the initial read and this transaction;
+	// cleaning its comments first would otherwise lose data on a restored photo.
+	if _, err := tx.Exec(`DELETE FROM photo_comment WHERE photo_id=?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM photo_like WHERE photo_id=?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
+		`UPDATE album SET cover_photo_id=NULL WHERE cover_photo_id=? AND pair_id=?`,
+		id, pairID); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -106,17 +109,7 @@ func (s *Store) PurgeRecycleBin(pairID int64) (int, int64, error) {
 	if err != nil {
 		return 0, 0, err
 	}
-	var count int
-	var freed int64
-	for _, p := range photos {
-		if err := s.purgePhotoRows(p.ID, p.PairID); err != nil {
-			slog.Error("purge photo rows failed", "photo_id", p.ID, "err", err)
-			continue
-		}
-		freed += removePhotoFiles(p)
-		count++
-	}
-	return count, freed, nil
+	return s.purgePhotoBatch(photos)
 }
 
 // listRecycledForPurge 列出待彻底删除的照片。
@@ -164,17 +157,52 @@ func (s *Store) PurgeExpiredRecycleBin(days int) (int, int64, error) {
 	if err != nil {
 		return 0, 0, err
 	}
-	var count int
-	var freed int64
-	for _, p := range photos {
-		if err := s.purgePhotoRows(p.ID, p.PairID); err != nil {
-			slog.Error("purge expired photo failed", "photo_id", p.ID, "err", err)
-			continue
-		}
-		freed += removePhotoFiles(p)
-		count++
+	return s.purgePhotoBatch(photos)
+}
+
+// purgePhotoBatch 在一个事务中完成一批回收站行的删除，再释放磁盘文件。
+// 逐张调用 purgePhotoRows 会为每张照片单独 Begin/Commit；回收站较大时既慢又长时间
+// 占用 SQLite 写锁。事务失败时不会删任何文件，保证数据库与磁盘仍可由后续任务收敛。
+func (s *Store) purgePhotoBatch(photos []*Photo) (int, int64, error) {
+	if len(photos) == 0 {
+		return 0, 0, nil
 	}
-	return count, freed, nil
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return 0, 0, err
+	}
+	defer tx.Rollback()
+	removed := make([]*Photo, 0, len(photos))
+	for _, p := range photos {
+		res, err := tx.Exec(`DELETE FROM photo WHERE id=? AND pair_id=? AND status=2`, p.ID, p.PairID)
+		if err != nil {
+			return 0, 0, err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return 0, 0, err
+		}
+		if n == 1 {
+			if _, err := tx.Exec(`DELETE FROM photo_comment WHERE photo_id=?`, p.ID); err != nil {
+				return 0, 0, err
+			}
+			if _, err := tx.Exec(`DELETE FROM photo_like WHERE photo_id=?`, p.ID); err != nil {
+				return 0, 0, err
+			}
+			if _, err := tx.Exec(`UPDATE album SET cover_photo_id=NULL WHERE cover_photo_id=? AND pair_id=?`, p.ID, p.PairID); err != nil {
+				return 0, 0, err
+			}
+			removed = append(removed, p)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, 0, err
+	}
+	var freed int64
+	for _, p := range removed {
+		freed += removePhotoFiles(p)
+	}
+	return len(removed), freed, nil
 }
 
 // recycleRemainingDays 回收站照片还剩几天被自动删除。

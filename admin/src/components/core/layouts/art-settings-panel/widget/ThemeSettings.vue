@@ -6,9 +6,14 @@
       v-for="(item, index) in configOptions.themeList"
       :key="item.theme"
       @click="switchThemeStyles(item.theme)"
+      role="button"
+      tabindex="0"
+      :aria-label="$t(`setting.theme.list[${index}]`)"
+      @keydown.enter.prevent="switchThemeStyles(item.theme)"
+      @keydown.space.prevent="switchThemeStyles(item.theme)"
     >
       <div class="box" :class="{ 'is-active': item.theme === systemThemeMode }">
-        <img :src="item.img" />
+        <img :src="item.img" alt="" />
       </div>
       <p class="name">{{ $t(`setting.theme.list[${index}]`) }}</p>
     </div>

@@ -99,6 +99,27 @@
 }
 
 /*
+ * 编辑/删除通常使用 Element Plus 的 link 按钮。
+ * link 按钮默认只有文字高度，放在手机卡片或窄表格里很难准确点中；
+ * 这里统一把共享表格里的操作按钮扩大到触达下限，不改变它们的语义颜色。
+ */
+@media (width <= 768px) {
+  .art-table {
+    .art-table__card-actions {
+      :deep(.el-button) {
+        min-height: 44px;
+        padding: 10px 12px;
+      }
+    }
+
+    :deep(.el-table .el-button.is-link) {
+      min-height: 44px;
+      padding: 10px 8px;
+    }
+  }
+}
+
+/*
  * 窄屏卡片化（管理员 Q44=B）。
  *
  * ≤768px 时 art-table 不渲染 el-table 而渲染卡片列表：

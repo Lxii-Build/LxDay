@@ -180,7 +180,49 @@ object MediaStoreImages {
     }
 
     /**
-     * 分页查询。
+     * 为一次选择会话读取稳定快照。
+     *
+     * 多卷照片无法在 SQL 层做全局排序分页，所以无论请求哪一页，旧实现都会先把
+     * **全部卷完整扫描一遍**再切片。选择 2000 张照片时就会重复全盘扫描 10 次，
+     * 图库越大，滚动越卡。选择器现在进页只调用本方法一次，后续分桶与翻页都在
+     * 这份轻量元数据快照上完成；图片像素仍由 Coil 按需解码，不会一起进内存。
+     *
+     * 若所有卷都读取失败则抛错，让 UI 显示“读取失败 + 重试”，不能再把权限撤销、
+     * MediaProvider 异常等故障伪装成“没有找到照片”。部分卷失败时保留其它卷结果。
+     */
+    suspend fun queryLibrary(context: Context, limitPerVolume: Int? = null): List<LocalImage> = withContext(Dispatchers.IO) {
+        val all = mutableListOf<LocalImage>()
+        var successfulVolumes = 0
+        for (uri in contentUris(context)) {
+            val result = queryVolume(context, uri, limitPerVolume)
+            if (result.succeeded) {
+                successfulVolumes++
+                all += result.images
+            }
+        }
+        if (successfulVolumes == 0) error("无法读取系统相册")
+
+        // 复用 MediaSortPolicy：测的规则与跑的规则必须是同一份，否则测试形同虚设。
+        all.sortWith { a, b -> MediaSortPolicy.compare(a.takenAtMs, a.id, b.takenAtMs, b.id) }
+        all
+    }
+
+    /** 从稳定快照里取一个相册桶；选择器切桶时不再访问 MediaProvider。 */
+    fun imagesInBucket(all: List<LocalImage>, bucket: String): List<LocalImage> =
+        if (bucket == BUCKET_ALL) all
+        else all.filter { it.bucketName.ifBlank { "其他" } == bucket }
+
+    /** 从已按时间排序的快照构建分桶（含固定在最前面的“全部”）。 */
+    fun bucketsFrom(all: List<LocalImage>): List<ImageBucket> {
+        val grouped = all.groupBy { it.bucketName.ifBlank { "其他" } }
+        val buckets = grouped.map { (name, items) ->
+            ImageBucket(name = name, count = items.size, coverUri = items.firstOrNull()?.uri)
+        }.sortedByDescending { it.count }
+        return listOf(ImageBucket(BUCKET_ALL, all.size, all.firstOrNull()?.uri)) + buckets
+    }
+
+    /**
+     * 分页查询。保留给非会话型调用方；选择器应优先使用 [queryLibrary] 复用快照。
      *
      * @param bucket 相册名；[BUCKET_ALL] 表示不过滤
      * @param offset 已加载条数
@@ -191,48 +233,27 @@ object MediaStoreImages {
         bucket: String = BUCKET_ALL,
         offset: Int = 0,
         pageSize: Int = PAGE_SIZE,
-    ): List<LocalImage> = withContext(Dispatchers.IO) {
-        // 多卷时无法在 SQL 层跨卷分页，故逐卷全量读元数据后统一排序再切页。
-        // 元数据本身很轻（每条几十字节），几万条也只有几 MB；
-        // 真正重的是解码图片，那由 Coil 按需做。
-        val all = mutableListOf<LocalImage>()
-        for (uri in contentUris(context)) {
-            all += queryVolume(context, uri, bucket)
-        }
-        // 复用 MediaSortPolicy：测的规则与跑的规则必须是同一份，否则测试形同虚设。
-        all.sortWith { a, b -> MediaSortPolicy.compare(a.takenAtMs, a.id, b.takenAtMs, b.id) }
-        val range = MediaSortPolicy.pageRange(all.size, offset, pageSize) ?: return@withContext emptyList()
-        all.slice(range)
+    ): List<LocalImage> {
+        val bucketImages = imagesInBucket(queryLibrary(context), bucket)
+        val range = MediaSortPolicy.pageRange(bucketImages.size, offset, pageSize) ?: return emptyList()
+        return bucketImages.slice(range)
     }
 
     /** 列出全部分桶（含「全部」），按张数降序。 */
-    suspend fun queryBuckets(context: Context): List<ImageBucket> = withContext(Dispatchers.IO) {
-        val all = mutableListOf<LocalImage>()
-        for (uri in contentUris(context)) {
-            all += queryVolume(context, uri, BUCKET_ALL)
-        }
-        all.sortByDescending { it.takenAtMs }
-        val grouped = all.groupBy { it.bucketName.ifBlank { "其他" } }
-        val buckets = grouped.map { (name, items) ->
-            ImageBucket(name = name, count = items.size, coverUri = items.firstOrNull()?.uri)
-        }.sortedByDescending { it.count }
-        // 「全部」固定在最前
-        listOf(ImageBucket(BUCKET_ALL, all.size, all.firstOrNull()?.uri)) + buckets
-    }
+    suspend fun queryBuckets(context: Context): List<ImageBucket> = bucketsFrom(queryLibrary(context))
 
-    private fun queryVolume(context: Context, contentUri: Uri, bucket: String): List<LocalImage> {
+    private data class VolumeQueryResult(
+        val images: List<LocalImage>,
+        val succeeded: Boolean,
+    )
+
+    private fun queryVolume(context: Context, contentUri: Uri, limit: Int? = null): VolumeQueryResult {
         val out = mutableListOf<LocalImage>()
-        val selection: String?
-        val args: Array<String>?
-        if (bucket == BUCKET_ALL) {
-            selection = null
-            args = null
-        } else {
-            selection = "${MediaStore.Images.Media.BUCKET_DISPLAY_NAME} = ?"
-            args = arrayOf(bucket)
-        }
+        var succeeded = false
         runCatching {
-            context.contentResolver.query(contentUri, PROJECTION, selection, args, ORDER_BY)
+            val safeLimit = limit?.takeIf { it > 0 }?.coerceAtMost(1000)
+            val sortOrder = if (safeLimit == null) ORDER_BY else "$ORDER_BY LIMIT $safeLimit"
+            context.contentResolver.query(contentUri, PROJECTION, null, null, sortOrder)
                 ?.use { cursor ->
                     val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
                     val takenCol = cursor.getColumnIndex(MediaStore.Images.Media.DATE_TAKEN)
@@ -260,14 +281,17 @@ object MediaStoreImages {
                                 ?.let { cursor.getString(it) } ?: "",
                         )
                     }
+                    // 完整走完 cursor 才算成功；0 行是合法的空相册。
+                    // 若列缺失或遍历中途异常，不能把半截结果伪装成完整数据。
+                    succeeded = true
                 }
         }.onFailure { Logs.w("MediaStore", "query images failed for $contentUri", it) }
-        return out
+        return VolumeQueryResult(out, succeeded)
     }
 
     /** 旧签名保留：一次性取前 N 张（供不需要分页的场景）。 */
     suspend fun query(context: Context, limit: Int = PAGE_SIZE): List<LocalImage> =
-        queryPage(context, BUCKET_ALL, 0, limit)
+        queryLibrary(context, limitPerVolume = limit).take(limit)
 
     /** 「2026 年 8 月」；时间戳缺失时归入「更早」。 */
     fun monthLabelOf(ms: Long): String {

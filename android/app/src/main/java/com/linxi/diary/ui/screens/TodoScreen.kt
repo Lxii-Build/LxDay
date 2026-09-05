@@ -39,7 +39,6 @@ import top.yukonga.miuix.kmp.icon.basic.Search
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
@@ -136,6 +135,7 @@ fun TodoScreen() {
         listState = listState,
         isRefreshing = refreshing,
         onRefresh = { refresh(pull = true) },
+        loading = loading,
         header = {
             SearchRow(
                 query = rawQuery,
@@ -151,8 +151,7 @@ fun TodoScreen() {
             )
         },
     ) {
-        when {
-            loading -> item { CircularProgressIndicator(Modifier.padding(24.dp)) }
+        if (!loading) when {
             todos.isEmpty() -> item {
                 Column(
                     Modifier.fillMaxWidth().padding(top = 48.dp),
@@ -609,5 +608,4 @@ private fun StepBtn(text: String, enabled: Boolean, onClick: () -> Unit) {
 
 private fun isoFromMillis(ms: Long): String =
     SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.US).format(Date(ms))
-
 

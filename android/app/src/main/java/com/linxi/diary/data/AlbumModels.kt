@@ -81,6 +81,15 @@ data class PhotoItem(
     }
 }
 
+/** 回收站分页结果，total 用于避免只按当前页数量确认「清空」。 */
+data class RecycleBinPage(
+    val photos: List<PhotoItem>,
+    val total: Int,
+    val keepDays: Int,
+    val page: Int,
+    val size: Int,
+)
+
 /**
  * 相册概要。未归类张数由**服务端**直接给出。
  *

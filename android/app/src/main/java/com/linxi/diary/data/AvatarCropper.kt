@@ -215,7 +215,8 @@ object AvatarCropper {
                 }
             }
 
-            output = File(context.cacheDir, "avatar_${System.currentTimeMillis()}.jpg")
+            // 时间戳在并发裁剪时可能相同；系统临时文件保证不会覆盖另一项任务的输出。
+            output = File.createTempFile("avatar_", ".jpg", context.cacheDir)
             output!!.outputStream().use {
                 if (!bmp.compress(Bitmap.CompressFormat.JPEG, 92, it)) {
                     error("图片编码失败")

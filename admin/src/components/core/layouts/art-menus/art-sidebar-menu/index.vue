@@ -11,11 +11,36 @@
       class="dual-menu-left"
       :style="{ width: dualMenuShowText ? '80px' : '64px', background: getMenuTheme.background }"
     >
-      <ArtLogo class="logo" @click="navigateToHome" />
+      <ArtLogo
+        class="logo"
+        role="button"
+        tabindex="0"
+        :aria-label="$t('topBar.actions.home')"
+        @click="navigateToHome"
+        @keydown.enter="navigateToHome"
+        @keydown.space.prevent="navigateToHome"
+      />
 
       <ElScrollbar style="height: calc(100% - 135px)">
         <ul>
-          <li v-for="menu in firstLevelMenus" :key="menu.path" @click="handleMenuJump(menu, true)">
+          <li
+            v-for="menu in firstLevelMenus"
+            :key="menu.path"
+            role="button"
+            tabindex="0"
+            :aria-current="
+              menu.meta.isFirstLevel
+                ? menu.path === route.path
+                  ? 'page'
+                  : undefined
+                : menu.path === firstLevelMenuPath
+                  ? 'page'
+                  : undefined
+            "
+            @click="handleMenuJump(menu, true)"
+            @keydown.enter="handleMenuJump(menu, true)"
+            @keydown.space.prevent="handleMenuJump(menu, true)"
+          >
             <ElTooltip
               class="box-item"
               effect="dark"
@@ -69,8 +94,13 @@
     >
       <!-- Logo、系统名称 -->
       <div
-        class="header"
+        class="header focus-visible:outline focus-visible:outline-2 focus-visible:outline-theme"
+        role="button"
+        tabindex="0"
+        :aria-label="$t('topBar.actions.home')"
         @click="navigateToHome"
+        @keydown.space.prevent="navigateToHome"
+        @keydown.enter="navigateToHome"
         :style="{
           background: getMenuTheme.background
         }"
@@ -110,15 +140,25 @@
       </ElScrollbar>
 
       <!-- 双列菜单右侧折叠按钮 -->
-      <div class="dual-menu-collapse-btn" v-if="isDualMenu" @click="toggleMenuVisibility">
+      <button
+        v-if="isDualMenu"
+        type="button"
+        class="dual-menu-collapse-btn"
+        :aria-label="$t('topBar.actions.toggleMenu')"
+        @click="toggleMenuVisibility"
+        @keydown.space.prevent="toggleMenuVisibility"
+        @keydown.enter="toggleMenuVisibility"
+      >
         <ArtSvgIcon
           class="text-g-500/70"
           :icon="menuOpen ? 'ri:arrow-left-wide-fill' : 'ri:arrow-right-wide-fill'"
         />
-      </div>
+      </button>
 
-      <div
+      <button
+        type="button"
         class="menu-model"
+        :aria-label="$t('common.close')"
         @click="toggleMenuVisibility"
         :style="{
           opacity: !menuOpen ? 0 : 1,

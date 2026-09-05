@@ -85,6 +85,15 @@ fun AvatarCropScreen(
     var loadFailed by remember(uri) { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
 
+    // 预览 Bitmap 不属于 Compose 的可回收资源；URI 切换或页面离开时必须主动释放。
+    // 以 preview 为 key，清理回调拿到的是刚被替换/移除的那一份，不会误回收新预览。
+    DisposableEffect(preview) {
+        val ownedPreview = preview
+        onDispose {
+            if (ownedPreview != null && !ownedPreview.isRecycled) ownedPreview.recycle()
+        }
+    }
+
     // 手势状态：scale 与位移都作用在图片上，裁剪框不动。
     var scale by remember(uri) { mutableStateOf(1f) }
     var offsetX by remember(uri) { mutableStateOf(0f) }
@@ -231,9 +240,15 @@ private fun orientPreview(src: Bitmap, exifOrientation: Int): Bitmap {
         if (t.rotationDegrees != 0f) postRotate(t.rotationDegrees)
         if (t.flipHorizontal) postScale(-1f, 1f)
     }
-    val oriented = Bitmap.createBitmap(src, 0, 0, src.width, src.height, matrix, true)
-    if (oriented !== src) src.recycle()
-    return oriented
+    return try {
+        val oriented = Bitmap.createBitmap(src, 0, 0, src.width, src.height, matrix, true)
+        if (oriented !== src) src.recycle()
+        oriented
+    } catch (t: Throwable) {
+        // createBitmap 失败时也要回收解码出的预览，尤其是内存紧张/OOM 重试路径。
+        if (!src.isRecycled) src.recycle()
+        throw t
+    }
 }
 
 /**

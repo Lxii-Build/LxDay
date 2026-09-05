@@ -6,9 +6,6 @@
  * @author LxDay
  */
 export const WEB_LINKS = {
-  /** 官网 / 服务端 */
-  SITE: 'https://love.lxii.cc',
-
   /** 项目仓库 */
   REPO: 'https://github.com/Lxii-Build/LxDay'
 }

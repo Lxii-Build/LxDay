@@ -1,15 +1,20 @@
 <!-- 表格头部，包含表格大小、刷新、全屏、列设置、其他设置 -->
 <template>
-  <div class="flex-cb max-md:!block" id="art-table-header">
+  <div class="flex-cb max-md:!block" data-art-table-header>
     <div class="flex-wrap">
       <slot name="left"></slot>
     </div>
 
-    <div class="flex-c md:justify-end max-md:mt-3 max-sm:!hidden">
+    <div class="flex-c md:justify-end max-md:mt-3 max-sm:flex-wrap">
       <div
         v-if="showSearchBar != null"
         class="button"
         @click="search"
+        role="button"
+        tabindex="0"
+        :aria-label="t('table.search')"
+        @keydown.enter.prevent="search"
+        @keydown.space.prevent="search"
         :class="showSearchBar ? 'active !bg-theme hover:!bg-theme/80' : ''"
       >
         <ArtSvgIcon icon="ri:search-line" :class="showSearchBar ? 'text-white' : 'text-g-700'" />
@@ -18,6 +23,11 @@
         v-if="shouldShow('refresh')"
         class="button"
         @click="refresh"
+        role="button"
+        tabindex="0"
+        :aria-label="t('common.refresh')"
+        @keydown.enter.prevent="refresh"
+        @keydown.space.prevent="refresh"
         :class="{ loading: loading && isManualRefresh }"
       >
         <ArtSvgIcon
@@ -27,7 +37,15 @@
       </div>
 
       <ElDropdown v-if="shouldShow('size')" @command="handleTableSizeChange">
-        <div class="button">
+        <div
+          class="button"
+          role="button"
+          tabindex="0"
+          aria-haspopup="menu"
+          :aria-label="t('table.size')"
+          @keydown.enter.prevent="activateReference"
+          @keydown.space.prevent="activateReference"
+        >
           <ArtSvgIcon icon="ri:arrow-up-down-fill" />
         </div>
         <template #dropdown>
@@ -49,14 +67,31 @@
         </template>
       </ElDropdown>
 
-      <div v-if="shouldShow('fullscreen')" class="button" @click="toggleFullScreen">
+      <div
+        v-if="shouldShow('fullscreen')"
+        class="button"
+        @click="toggleFullScreen"
+        role="button"
+        tabindex="0"
+        :aria-label="isFullScreen ? t('table.exitFullscreen') : t('table.fullscreen')"
+        @keydown.enter.prevent="toggleFullScreen"
+        @keydown.space.prevent="toggleFullScreen"
+      >
         <ArtSvgIcon :icon="isFullScreen ? 'ri:fullscreen-exit-line' : 'ri:fullscreen-line'" />
       </div>
 
       <!-- 列设置 -->
       <ElPopover v-if="shouldShow('columns')" placement="bottom" trigger="click">
         <template #reference>
-          <div class="button">
+          <div
+            class="button"
+            role="button"
+            tabindex="0"
+            aria-haspopup="dialog"
+            :aria-label="t('table.columns')"
+            @keydown.enter.prevent="activateReference"
+            @keydown.space.prevent="activateReference"
+          >
             <ArtSvgIcon icon="ri:align-right" />
           </div>
         </template>
@@ -101,7 +136,15 @@
       <!-- 其他设置 -->
       <ElPopover v-if="shouldShow('settings')" placement="bottom" trigger="click">
         <template #reference>
-          <div class="button">
+          <div
+            class="button"
+            role="button"
+            tabindex="0"
+            aria-haspopup="dialog"
+            :aria-label="t('table.settings')"
+            @keydown.enter.prevent="activateReference"
+            @keydown.space.prevent="activateReference"
+          >
             <ArtSvgIcon icon="ri:settings-line" />
           </div>
         </template>
@@ -192,6 +235,11 @@
     const boolValue = !!value
     col.checked = boolValue
     col.visible = boolValue
+  }
+
+  const activateReference = (event: KeyboardEvent): void => {
+    const target = event.currentTarget as HTMLElement | null
+    target?.click()
   }
 
   /** 表格大小选项配置 */
@@ -323,7 +371,7 @@
 
   .button {
     @apply ml-2 
-    size-8 
+    min-h-10 min-w-10
     flex 
     items-center 
     justify-center 
@@ -335,5 +383,23 @@
     hover:bg-g-300 
     md:ml-0 
     md:mr-2.5;
+    transition-property: background-color, color, transform, box-shadow;
+    transition-duration: 150ms;
+    transition-timing-function: ease-out;
+
+    &:focus-visible {
+      outline: 2px solid var(--el-color-primary);
+      outline-offset: 2px;
+    }
+
+    &:active {
+      transform: scale(0.96);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .button {
+      transition: none;
+    }
   }
 </style>

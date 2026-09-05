@@ -16,15 +16,31 @@
     >
       <div class="flex-c flex-1 min-w-0 leading-15" style="display: flex">
         <!-- 系统信息  -->
-        <div class="flex-c c-p" @click="toHome" v-if="isTopMenu">
+        <div
+          v-if="isTopMenu"
+          class="flex-c border-0 bg-transparent p-0 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-theme"
+          role="button"
+          tabindex="0"
+          :aria-label="$t('topBar.actions.home')"
+          @click="toHome"
+          @keydown.enter="toHome"
+          @keydown.space.prevent="toHome"
+        >
           <ArtLogo class="pl-4.5" />
           <p v-if="width >= 1400" class="my-0 mx-2 ml-2 text-lg">{{ siteName }}</p>
         </div>
 
-        <ArtLogo
-          class="!hidden pl-3.5 overflow-hidden align-[-0.15em] fill-current"
+        <div
+          class="!hidden border-0 bg-transparent p-0 pl-3.5 align-[-0.15em] fill-current focus-visible:outline focus-visible:outline-2 focus-visible:outline-theme"
+          role="button"
+          tabindex="0"
+          :aria-label="$t('topBar.actions.home')"
           @click="toHome"
-        />
+          @keydown.enter="toHome"
+          @keydown.space.prevent="toHome"
+        >
+          <ArtLogo class="overflow-hidden" />
+        </div>
 
         <!-- 菜单按钮 -->
         <ArtIconButton

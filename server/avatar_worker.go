@@ -9,7 +9,6 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
-	"time"
 
 	// HEIC/AVIF 纯 Go 解码（wasm + wazero，无 CGO）。管理员 Q9=C：服务端要真支持这两种格式。
 	// 一加 15 开「高效格式」直出就是 HEIC，客户端虽会转 JPEG，但转换失败/别的客户端直传时
@@ -32,19 +31,16 @@ var errImageDecode = errors.New("image decode failed")
 // 旧实现 fork vipsheader/vipsthumbnail 在生产必然失败（返回 500）。
 // 纯 Go 实现与「单容器 + 纯 Go SQLite」的架构一致，无外部依赖、无子进程。
 //
-// 代价：不支持 HEIF/AVIF 解码（Go 无纯实现），动图只取首帧转静态 PNG。
-// 客户端会在上传前把 HEIC 转成 JPEG，故实际影响仅限「直接把 HEIC 文件喂给接口」。
+// 支持 JPEG/PNG/GIF/WebP/BMP 与 HEIF/AVIF；动图只取首帧转静态 PNG。
 type GoImageWorker struct {
-	WorkDir    string        // 输出目录
-	Timeout    time.Duration // 单作业墙钟预算（仅用于超大图的兜底判断）
-	MaxPixels  int           // 解码前的像素上限，防解压炸弹
+	WorkDir    string // 输出目录
+	MaxPixels  int    // 解码前的像素上限，防解压炸弹
 	Interpolat draw.Interpolator
 }
 
 func newImageWorker(workDir string) GoImageWorker {
 	return GoImageWorker{
 		WorkDir: workDir,
-		Timeout: 20 * time.Second,
 		// 像素上限读后台配置（album.photo_max_megapixels，默认 12M ≈ 4000×3000）。
 		//
 		// 这是**内存安全**闸门而不是业务规则：解码内存与像素数成正比

@@ -30,7 +30,6 @@
       height: sizeValue
     }
   })
-
 </script>
 
 <style lang="scss" scoped>

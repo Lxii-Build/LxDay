@@ -127,7 +127,9 @@ fun KernelScreen(
                 PullToRefresh(
                     isRefreshing = isRefreshing,
                     pullToRefreshState = pullState,
-                    onRefresh = onRefresh,
+                    // 首屏请求尚未结束时不再启动第二条请求；否则页面虽然只显示一个
+                    // 指示器，旧请求仍可能先结束并把下拉状态提前收掉，造成“转圈被覆盖”。
+                    onRefresh = { if (!loading && !isRefreshing) onRefresh() },
                     refreshTexts = listOf("下拉刷新", "松开刷新", "正在刷新…", "刷新成功"),
                     // 刷新指示器必须让开悬浮的毛玻璃 TopAppBar，否则下拉时被顶栏完全盖住看不见。
                     // miuix 的 RefreshHeader 靠 contentPadding.calculateTopPadding() 下移自己；

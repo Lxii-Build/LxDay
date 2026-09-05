@@ -126,7 +126,8 @@ export function handleError(error: AxiosError<ErrorResponse>): never {
   }
 
   const statusCode = error.response?.status
-  const errorMessage = error.response?.data?.msg || error.message
+  const errorMessage =
+    typeof error.response?.data?.msg === 'string' ? error.response.data.msg.trim() : ''
   const requestConfig = error.config
 
   // 处理网络错误
@@ -138,9 +139,10 @@ export function handleError(error: AxiosError<ErrorResponse>): never {
   }
 
   // 处理 HTTP 状态码错误
-  const message = statusCode
-    ? getErrorMessage(statusCode)
-    : errorMessage || $t('httpMsg.requestFailed')
+  // 后端业务错误（例如校验失败、频率限制）通常比通用状态码更能告诉用户如何处理。
+  // 没有可展示的业务文案时才退回本地化状态码提示。
+  const message =
+    errorMessage || (statusCode ? getErrorMessage(statusCode) : $t('httpMsg.requestFailed'))
   throw new HttpError(message, statusCode || ApiStatus.error, {
     data: error.response.data,
     url: requestConfig?.url,

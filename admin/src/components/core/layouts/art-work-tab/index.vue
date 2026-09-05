@@ -19,7 +19,7 @@
         }"
       >
         <li
-          class="art-card-xs inline-flex flex-cc h-8 mr-1.5 text-xs c-p hover:text-theme group"
+          class="art-card-xs inline-flex min-h-11 flex-cc mr-1.5 text-xs c-p hover:text-theme group"
           :class="[
             item.path === activeTab ? 'activ-tab !text-theme' : 'text-g-600 dark:text-g-800',
             tabStyle === 'tab-google' ? 'google-tab relative !h-8 !leading-8 !border-none' : ''
@@ -36,6 +36,11 @@
           :ref="item.path"
           :id="`scroll-li-${index}`"
           @click="clickTab(item)"
+          role="tab"
+          tabindex="0"
+          :aria-selected="item.path === activeTab"
+          @keydown.enter.prevent="clickTab(item)"
+          @keydown.space.prevent="clickTab(item)"
           @contextmenu.prevent="(e: MouseEvent) => showMenu(e, item.path)"
         >
           <ArtSvgIcon
@@ -47,7 +52,7 @@
           {{ item.customTitle || formatMenuTitle(item.title) }}
           <span
             v-if="list.length > 1 && !item.fixedTab"
-            class="inline-flex flex-cc relative ml-0.5 p-1 rounded-full tad-200 hover:bg-g-200"
+            class="inline-flex min-h-8 min-w-8 flex-cc relative ml-0.5 p-1 rounded-full tad-200 hover:bg-g-200"
             @click.stop="closeWorktab('current', item.path)"
           >
             <ArtSvgIcon icon="ri:close-large-fill" class="text-[10px] text-g-600" />
@@ -61,8 +66,10 @@
     </div>
 
     <div class="flex">
-      <div
-        class="flex-cc art-card-xs relative top-0 size-8 leading-8 text-center c-p tad-200 hover:!bg-hover-color"
+      <button
+        type="button"
+        class="flex min-h-11 min-w-11 items-center justify-center art-card-xs relative top-0 leading-8 text-center c-p tad-200 hover:!bg-hover-color border-0"
+        :aria-label="t('common.more')"
         :style="{
           borderRadius: 'calc(var(--custom-radius) / 2.5 + 0px)',
           marginTop: tabStyle === 'tab-google' ? '-2px' : ''
@@ -70,7 +77,7 @@
         @click="(e: MouseEvent) => showMenu(e, activeTab)"
       >
         <ArtSvgIcon icon="iconamoon:arrow-down-2-thin" class="text-2xl text-g-700" />
-      </div>
+      </button>
     </div>
 
     <ArtMenuRight

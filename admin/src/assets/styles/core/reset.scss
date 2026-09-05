@@ -16,8 +16,8 @@
 ::-webkit-scrollbar-thumb {
   border-radius: 5px;
   background-color: #cccccc !important;
-  transition: all 0.2s;
-  -webkit-transition: all 0.2s;
+  transition: background-color 0.2s;
+  -webkit-transition: background-color 0.2s;
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -28,6 +28,17 @@
 ::-webkit-scrollbar-button {
   height: 0px;
   width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 .dark {

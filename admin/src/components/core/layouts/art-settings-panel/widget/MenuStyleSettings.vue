@@ -6,6 +6,11 @@
       v-for="item in menuThemeList"
       :key="item.theme"
       @click="switchMenuStyles(item.theme)"
+      role="button"
+      tabindex="0"
+      :aria-label="$t('setting.menu.title')"
+      @keydown.enter.prevent="switchMenuStyles(item.theme)"
+      @keydown.space.prevent="switchMenuStyles(item.theme)"
     >
       <div
         class="box"
@@ -14,7 +19,7 @@
           cursor: disabled ? 'no-drop' : 'pointer'
         }"
       >
-        <img :src="item.img" />
+        <img :src="item.img" alt="" />
       </div>
     </div>
   </div>

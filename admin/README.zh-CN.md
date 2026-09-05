@@ -1,104 +1,38 @@
-<img  src="https://www.qiniu.lingchen.kim/github-cover-light6.webp" />
+# LxDay 运营后台
 
-<br />
-<h1 align="center">Art Design Pro</h1>
-<p align="center">一款兼具设计美学与高效开发的后台系统模版，助你快速构建专业级应用</p>
-<div align="center">简体中文 | <a href="./README.md">English</a></div>
+本目录是林曦日记的 Vue 3 运营后台，不是通用模板。业务页面由 Go 服务端接口驱动，包含数据看板、用户、关系绑定、相册、APP 版本、通知、存储、运行参数、活动的一起听房间、审计日志和网络日志。
 
-<br />
-<div align="center">
-
-[![license](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE) [![github stars](https://img.shields.io/github/stars/Daymychen/art-design-pro)](https://github.com/Daymychen/art-design-pro/stargazers) [![github forks](https://img.shields.io/github/forks/Daymychen/art-design-pro)](https://github.com/Daymychen/art-design-pro/network/members)
-
-</div>
-<br />
-
-## 这个项目有什么特别的呢？
-
-**界面设计**：现代化 UI 设计，流畅交互，以用户体验与视觉设计为核心
-
-**极速上手**：简洁架构 + 完整文档，后端开发者也能轻松使用
-
-**丰富组件**：内置数据展示、表单等多种高质量组件，满足不同业务场景的需求
-
-**丝滑交互**：按钮点击、主题切换、页面过渡、图表动画，体验媲美商业产品
-
-**高效开发**：内置 useTable、ArtForm 等实用 API，显著提升开发效率
-
-**精简脚本**：内置一键清理脚本，可快速清理演示数据，立即得到可开发的基础项目
+生产镜像会先构建本后台，再将 `dist` 嵌入服务端二进制。`dist` 是构建产物，禁止提交。
 
 ## 技术栈
 
-开发框架：Vue3、TypeScript、Vite、Element-Plus、Tailwind CSS
+- Vue 3 + TypeScript + Vite
+- Element Plus + Tailwind CSS
+- Pinia + 持久化插件
+- ESLint、Prettier、Stylelint、`vue-tsc`
 
-代码规范：Eslint、Prettier、Stylelint、Husky、Lint-staged、cz-git
+## 环境要求
 
-## 预览
+- Node.js >= 20.19
+- npm（仓库提交的 `package-lock.json` 是唯一依赖锁文件）
 
-<kbd><img src="https://www.qiniu.lingchen.kim/github-c1.webp" alt="浅色主题"/></kbd>
-
-<kbd><img src="https://www.qiniu.lingchen.kim/github-c2.webp" alt="浅色主题"/></kbd>
-
-<kbd><img src="https://www.qiniu.lingchen.kim/github-c4.webp" alt="暗黑主题"/></kbd>
-
-<kbd><img src="https://www.qiniu.lingchen.kim/github-c5.webp" alt="暗黑主题"/></kbd>
-
-## 快速访问
-
-[演示地址](https://www.artd.pro) | [官方文档](https://www.artd.pro/docs) | [更新日志](./CHANGELOG.md)
-
-## 安装运行
+## 常用命令
 
 ```bash
-# 安装依赖
-pnpm install
-
-# 如果 pnpm install 安装失败，尝试使用下面的命令安装依赖
-pnpm install --ignore-scripts
-
-# 本地开发环境启动
-pnpm dev
-
-# 生产环境打包
-pnpm build
+npm ci                 # 严格按 package-lock.json 安装
+npm run dev            # 本地开发
+npm run build          # 类型检查并构建生产产物
+npm run lint           # ESLint
 ```
 
-## 精简版本
+开发环境的 API 地址由 Vite 环境配置决定；生产环境中后台、API 和 WebSocket 使用同一来源，服务端负责托管内嵌 SPA。
 
-项目内置精简脚本，可快速移除项目中的演示数据，让开发者获得一个可快速开发的基础项目
+## 安全约束
 
-```bash
-pnpm clean:dev
-```
+- 后台访问令牌放在 `sessionStorage`，浏览器会话结束后自动清除。
+- 路由守卫只负责导航体验，真正的认证、权限、数据归属和危险操作校验必须由服务端完成。
+- 删除、解绑、清理等操作使用统一确认组件，并显示明确后果；组件不能替代服务端权限校验。
+- 业务页使用轻量拟态表面；移动端编辑、删除和确认按钮保持可见、可触达，不依赖悬停状态。
+- 禁止把 `JWT_SECRET`、SMTP/存储凭据、`APP_KEY`、访问令牌或签名文件写进源码、提交的 `.env`、截图或文档。
 
-## 技术支持
-
-QQ群：<a href="https://qm.qq.com/cgi-bin/qm/qr?k=Gg6yzZLFaNgmRhK0T5Qcjf7-XcAFWWXm&jump_from=webapi&authKey=YpRKVJQyFKYbGTiKw0GJ/YQXnNF+GdXNZC5beQQqnGZTvuLlXoMO7nw5fNXvmVhA">1038930070</a>（点击链接加入群聊）
-
-## 兼容性
-
-支持 Chrome、Safari、Firefox 等现代主流浏览器。
-
-## 贡献
-
-我们真诚欢迎并感谢每一位贡献者的支持！无论您有新想法、功能建议还是代码优化，都可以通过以下方式参与：
-
-提交 Pull Request：分享您的代码，助力项目成长。
-
-创建 GitHub Issue：提出 bug 反馈或新功能建议，让我们一起完善。
-
-您的每一点贡献都让这个项目更进一步！快来加入我们的开源社区吧！
-
-## 持续优化与扩展
-
-项目保持活跃更新，支持最新前端技术栈，兼容主流框架，确保长期稳定性和扩展性。社区驱动的反馈机制，让你的需求快速融入项目迭代。
-
-## 捐赠
-
-如果你觉得这个项目为你减少了开发成本、化解了工作 / 生活里的难题，可以通过以下方式支持一下～
-
-<img src="https://www.qiniu.lingchen.kim/%E7%BB%84%202%402x%202.png" alt="捐赠二维码"/>
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=Daymychen/art-design-pro&type=Date)](https://www.star-history.com/#Daymychen/art-design-pro&Date)
+完整的开发和发行检查见 [../docs/DEVELOPMENT.md](../docs/DEVELOPMENT.md) 与 [../AGENTS.md](../AGENTS.md)。

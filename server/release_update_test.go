@@ -22,14 +22,16 @@ func TestReleaseVersionCode(t *testing.T) {
 	}
 }
 
-func TestReleaseChannelNeverTreatsPrereleaseAsStable(t *testing.T) {
+func TestReleaseChannelIncludesStableAndPrerelease(t *testing.T) {
 	stable := githubRelease{TagName: "v1.0.8", Prerelease: false}
 	testingRelease := githubRelease{TagName: "v1.0.9", Prerelease: true}
-	if !releaseMatchesChannel(stable, "stable") || releaseMatchesChannel(testingRelease, "stable") {
-		t.Fatal("stable channel selected a prerelease")
+	for _, channel := range []string{"", "stable", "testing", "all", "legacy-value"} {
+		if !releaseMatchesChannel(stable, channel) || !releaseMatchesChannel(testingRelease, channel) {
+			t.Fatalf("channel %q did not include both stable and prerelease releases", channel)
+		}
 	}
-	if !releaseMatchesChannel(testingRelease, "testing") {
-		t.Fatal("testing channel did not select prerelease")
+	if releaseMatchesChannel(githubRelease{TagName: "", Prerelease: false}, "all") {
+		t.Fatal("release without a tag must not be visible")
 	}
 }
 

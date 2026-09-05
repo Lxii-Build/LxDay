@@ -41,9 +41,14 @@ func handleClientConfig(c *gin.Context) {
 		},
 		// ---- 功能开关：入口按此隐藏 ----
 		"features": gin.H{
-			"album":        s.AlbumEnabled,
-			"photo_social": s.PhotoSocialEnabled,
-			"on_this_day":  s.OnThisDayEnabled,
+			"album":           s.AlbumEnabled,
+			"photo_social":    s.PhotoSocialEnabled,
+			"on_this_day":     s.OnThisDayEnabled,
+			"listen_together": s.ListenTogetherEnabled,
+		},
+		"listen_together": gin.H{
+			"allow_member_control":        s.ListenAllowMemberControl,
+			"auto_pause_on_member_change": s.ListenAutoPauseOnMemberChange,
 		},
 		// ---- 文本长度上限：与服务端校验保持一致，避免"客户端放过、服务端拒绝" ----
 		"limits": gin.H{

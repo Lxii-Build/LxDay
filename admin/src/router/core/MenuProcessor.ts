@@ -178,18 +178,14 @@ export class MenuProcessor {
   private isNavigableRoute(route: AppRouteRecord): boolean {
     return Boolean(
       route.path &&
-        route.path !== '/' &&
-        !route.meta?.link &&
-        route.meta?.isIframe !== true &&
-        route.component &&
-        route.component !== ''
+      route.path !== '/' &&
+      !route.meta?.link &&
+      route.meta?.isIframe !== true &&
+      route.component &&
+      route.component !== ''
     )
   }
 
-  /**
-   * 验证菜单路径配置
-   * 检测非一级菜单是否错误使用了 / 开头的路径
-   */
   /**
    * 验证菜单路径配置
    * 检测非一级菜单是否错误使用了 / 开头的路径

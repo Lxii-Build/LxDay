@@ -23,6 +23,12 @@ android/.idea/
 *.apk
 *.aab
 dist/
+# JVM/Gradle 崩溃诊断只用于本机排障，不进入版本库。
+android/hs_err_pid*.log
+android/replay_pid*.log
+
+# Android Lint 的临时导出报告。
+.tmp-lint-report/
 
 # 凭据与本地配置
 *.pem
@@ -48,3 +54,6 @@ Thumbs.db
 
 # 后台移动端审计的截图产物（scripts/mobile-audit.mjs 生成）
 admin/mobile-audit/
+
+# 本机视觉/验收工具导出的报告，不属于可复现源码
+output/

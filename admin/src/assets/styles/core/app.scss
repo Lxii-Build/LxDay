@@ -1,4 +1,71 @@
 // 全局样式
+// 林曦后台的拟态基础色：所有页面和移动端共享同一套凸起/按下阴影。
+:root {
+  --lx-neo-light: rgba(255, 255, 255, 0.86);
+  --lx-neo-dark: rgba(163, 177, 198, 0.28);
+  --lx-neo-radius: 16px;
+}
+
+html.dark {
+  --lx-neo-light: rgba(255, 255, 255, 0.045);
+  --lx-neo-dark: rgba(0, 0, 0, 0.42);
+}
+
+// 拟态表面只使用在交互容器上，输入与按钮按下时转成内阴影，避免“看起来能点”
+// 却没有触觉反馈。保留 Element Plus 的语义色和焦点描边。
+.el-card,
+.page-content,
+.art-table-card,
+.art-card,
+.art-card-sm,
+.art-card-xs {
+  border: 0 !important;
+  box-shadow:
+    -8px -8px 18px var(--lx-neo-light),
+    8px 8px 18px var(--lx-neo-dark) !important;
+}
+
+.el-button:not(.is-link):not(.is-text) {
+  border: 0 !important;
+  box-shadow:
+    -4px -4px 9px var(--lx-neo-light),
+    4px 4px 9px var(--lx-neo-dark);
+
+  &:active:not(:disabled) {
+    box-shadow:
+      inset 3px 3px 7px var(--lx-neo-dark),
+      inset -3px -3px 7px var(--lx-neo-light);
+  }
+}
+
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper,
+.el-date-editor.el-input__wrapper {
+  border: 0 !important;
+  box-shadow:
+    inset 3px 3px 7px var(--lx-neo-dark),
+    inset -3px -3px 7px var(--lx-neo-light) !important;
+}
+
+@media (max-width: 640px) {
+  .el-card,
+  .page-content,
+  .art-table-card,
+  .art-card,
+  .art-card-sm,
+  .art-card-xs {
+    border-radius: var(--lx-neo-radius) !important;
+    box-shadow:
+      -5px -5px 12px var(--lx-neo-light),
+      5px 5px 12px var(--lx-neo-dark) !important;
+  }
+
+  .el-button:not(.is-link):not(.is-text) {
+    min-height: 44px;
+  }
+}
+
 // 顶部进度条颜色
 #nprogress .bar {
   z-index: 2400;

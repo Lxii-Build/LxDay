@@ -17,7 +17,16 @@
  * @author LxDay
  */
 
-import { ref, reactive, computed, onMounted, onUnmounted, nextTick, readonly } from 'vue'
+import {
+  ref,
+  shallowRef,
+  reactive,
+  computed,
+  onMounted,
+  onUnmounted,
+  nextTick,
+  readonly
+} from 'vue'
 import { useWindowSize } from '@vueuse/core'
 import { useTableColumns } from './useTableColumns'
 import type { ColumnOption } from '@/types/component'
@@ -40,10 +49,14 @@ import { tableConfig } from '../../utils/table/tableConfig'
 type InferApiParams<T> = T extends (params: infer P) => any ? P : never
 type InferApiResponse<T> = T extends (params: any) => Promise<infer R> ? R : never
 type InferRecordType<T> = T extends Api.Common.PaginatedResponse<infer U> ? U : never
+type TableRequestOptions = { signal?: AbortSignal }
 
 // 优化的配置接口 - 支持自动类型推导
 export interface UseTableConfig<
-  TApiFn extends (params: any) => Promise<any> = (params: any) => Promise<any>,
+  TApiFn extends (params: any, options?: TableRequestOptions) => Promise<any> = (
+    params: any,
+    options?: TableRequestOptions
+  ) => Promise<any>,
   TRecord = InferRecordType<InferApiResponse<TApiFn>>,
   TParams = InferApiParams<TApiFn>,
   TResponse = InferApiResponse<TApiFn>
@@ -112,9 +125,9 @@ export interface UseTableConfig<
   }
 }
 
-export function useTable<TApiFn extends (params: any) => Promise<any>>(
-  config: UseTableConfig<TApiFn>
-) {
+export function useTable<
+  TApiFn extends (params: any, options?: TableRequestOptions) => Promise<any>
+>(config: UseTableConfig<TApiFn>) {
   return useTableImpl(config)
 }
 
@@ -129,7 +142,7 @@ export function useTable<TApiFn extends (params: any) => Promise<any>>(
  * - 错误处理
  * - 列配置管理
  */
-function useTableImpl<TApiFn extends (params: any) => Promise<any>>(
+function useTableImpl<TApiFn extends (params: any, options?: TableRequestOptions) => Promise<any>>(
   config: UseTableConfig<TApiFn>
 ) {
   type TRecord = InferRecordType<InferApiResponse<TApiFn>>
@@ -192,7 +205,9 @@ function useTableImpl<TApiFn extends (params: any) => Promise<any>>(
   const error = ref<TableError | null>(null)
 
   // 表格数据
-  const data = ref<TRecord[]>([])
+  // 表格记录可能包含 Date/Map 等对象；shallowRef 避免 Vue 的深层 unwrap
+  // 把泛型记录类型改写成 UnwrapRefSimple<TRecord>，导致赋值与返回值失配。
+  const data = shallowRef<TRecord[]>([])
 
   // 请求取消控制器
   let abortController: AbortController | null = null
@@ -342,11 +357,18 @@ function useTableImpl<TApiFn extends (params: any) => Promise<any>>(
         }
       }
 
-      const response = await apiFn(requestParams)
+      // 让 API 层接收同一个 signal；只在这里 abort() 是无效的，旧请求仍会
+      // 占用连接并可能在新请求之后覆盖 loading/data。
+      const response = await apiFn(requestParams, { signal: currentController.signal })
 
       // 检查请求是否被取消
-      if (currentController.signal.aborted) {
-        throw new Error('请求已取消')
+      if (currentController.signal.aborted || abortController !== currentController) {
+        return {
+          records: data.value,
+          total: pagination.total,
+          current: pagination.current,
+          size: pagination.size
+        }
       }
 
       // 使用响应适配器转换为标准格式
@@ -391,10 +413,15 @@ function useTableImpl<TApiFn extends (params: any) => Promise<any>>(
 
       return standardResponse
     } catch (err) {
-      if (err instanceof Error && err.message === '请求已取消') {
-        // 请求被取消，回到 idle 状态
-        loadingState.value = 'idle'
-        return { records: [], total: 0, current: 1, size: 10 }
+      if (currentController.signal.aborted || abortController !== currentController) {
+        // 旧请求被新请求取代时，绝不能清空新请求的 loading/data。
+        if (abortController === currentController) loadingState.value = 'idle'
+        return {
+          records: data.value,
+          total: pagination.total,
+          current: pagination.current,
+          size: pagination.size
+        }
       }
 
       // 状态机：请求失败，进入 error 状态

@@ -3,7 +3,7 @@
 # 不要把真实密钥写进本文件并提交仓库。留空时下方环境变量优先。
 app:
   port: 7740
-  jwt_secret: ""                # 由环境变量 JWT_SECRET 注入（.env）；留空且无环境变量将启动失败
+  jwt_secret: ""                # 由环境变量 JWT_SECRET 注入（.env）；至少 32 字节，留空/过短将启动失败
   token_ttl_hours: 720
   ring_cooldown_seconds: 600
   ring_cooldown_limit: 3

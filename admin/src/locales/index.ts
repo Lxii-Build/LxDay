@@ -25,16 +25,11 @@ import { createI18n } from 'vue-i18n'
 import type { I18n, I18nOptions } from 'vue-i18n'
 import { LanguageEnum } from '@/enums/appEnum'
 import { getSystemStorage } from '@/utils/storage'
-import { StorageKeyManager } from '@/utils/storage/storage-key-manager'
+import { StorageConfig } from '@/utils/storage/storage-config'
 
 // 同步导入语言文件
 import enMessages from './langs/en.json'
 import zhMessages from './langs/zh.json'
-
-/**
- * 存储键管理器实例
- */
-const storageKeyManager = new StorageKeyManager()
 
 /**
  * 语言消息对象
@@ -60,8 +55,10 @@ export const languageOptions = [
 const getDefaultLanguage = (): LanguageEnum => {
   // 尝试从版本化的存储中获取语言设置
   try {
-    const storageKey = storageKeyManager.getStorageKey('user')
-    const userStore = localStorage.getItem(storageKey)
+    // 用户 store 含有认证令牌，只从会话存储读取，避免启动 i18n 时触碰
+    // 旧版本可能遗留在 localStorage 中的凭据。
+    const storageKey = StorageConfig.generateStorageKey('user')
+    const userStore = sessionStorage.getItem(storageKey)
 
     if (userStore) {
       const { language } = JSON.parse(userStore)

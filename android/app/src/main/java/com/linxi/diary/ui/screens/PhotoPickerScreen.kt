@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
@@ -37,6 +38,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -45,6 +50,8 @@ import com.linxi.diary.data.AppImageLoader
 import com.linxi.diary.data.ImageBucket
 import com.linxi.diary.data.LocalImage
 import com.linxi.diary.data.MediaStoreImages
+import com.linxi.diary.data.PhotoSelectionPolicy
+import com.linxi.diary.data.SelectionToggleResult
 import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.components.LoadingRow
 import com.linxi.diary.ui.components.LxButton
@@ -99,10 +106,12 @@ fun PhotoPickerScreen(
 
     var buckets by remember { mutableStateOf<List<ImageBucket>>(emptyList()) }
     var currentBucket by remember { mutableStateOf(MediaStoreImages.BUCKET_ALL) }
-    var images by remember { mutableStateOf<List<LocalImage>>(emptyList()) }
+    var library by remember { mutableStateOf<List<LocalImage>>(emptyList()) }
+    var visibleCount by remember { mutableIntStateOf(MediaStoreImages.PAGE_SIZE) }
     var loading by remember { mutableStateOf(true) }
-    var loadingMore by remember { mutableStateOf(false) }
-    var reachedEnd by remember { mutableStateOf(false) }
+    var indexing by remember { mutableStateOf(false) }
+    var loadError by remember { mutableStateOf<String?>(null) }
+    var selectionNotice by remember { mutableStateOf<String?>(null) }
     var granted by remember { mutableStateOf(hasImagePermission(context)) }
     val selected = remember { mutableStateListOf<Uri>() }
     // 预览大图（角标点击）
@@ -133,17 +142,37 @@ fun PhotoPickerScreen(
         if (multiple) multiPicker.launch(request) else singlePicker.launch(request)
     }
 
-    suspend fun loadBucket(bucket: String) {
-        loading = true
-        reachedEnd = false
-        images = MediaStoreImages.queryPage(context, bucket, 0)
-        if (images.size < MediaStoreImages.PAGE_SIZE) reachedEnd = true
-        loading = false
-    }
-
     suspend fun loadAll() {
-        buckets = MediaStoreImages.queryBuckets(context)
-        loadBucket(currentBucket)
+        loading = true
+        indexing = false
+        loadError = null
+        val preview = runCatching {
+            MediaStoreImages.queryLibrary(context, limitPerVolume = MediaStoreImages.PAGE_SIZE)
+        }
+        preview
+            .onSuccess { snapshot ->
+                library = snapshot
+                buckets = MediaStoreImages.bucketsFrom(snapshot)
+                currentBucket = MediaStoreImages.BUCKET_ALL
+                visibleCount = MediaStoreImages.PAGE_SIZE
+            }
+            .onFailure {
+                library = emptyList()
+                buckets = emptyList()
+                loadError = mediaPickerFriendlyError(it)
+            }
+        loading = false
+        if (loadError == null) {
+            // 先展示每个存储卷的最新一页，完整索引在后台补齐，避免进入选择器先卡住数秒。
+            indexing = true
+            runCatching { MediaStoreImages.queryLibrary(context) }
+                .onSuccess { snapshot ->
+                    library = snapshot
+                    buckets = MediaStoreImages.bucketsFrom(snapshot)
+                    visibleCount = visibleCount.coerceAtMost(snapshot.size).coerceAtLeast(MediaStoreImages.PAGE_SIZE)
+                }
+            indexing = false
+        }
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -161,14 +190,18 @@ fun PhotoPickerScreen(
         if (granted) loadAll() else permissionLauncher.launch(imagePermissions())
     }
 
-    fun loadMore() {
-        if (loadingMore || reachedEnd || loading) return
-        scope.launch {
-            loadingMore = true
-            val more = MediaStoreImages.queryPage(context, currentBucket, images.size)
-            if (more.size < MediaStoreImages.PAGE_SIZE) reachedEnd = true
-            if (more.isNotEmpty()) images = images + more
-            loadingMore = false
+    val bucketImages = remember(library, currentBucket) {
+        MediaStoreImages.imagesInBucket(library, currentBucket)
+    }
+    val images = remember(bucketImages, visibleCount) { bucketImages.take(visibleCount) }
+    val reachedEnd = images.size >= bucketImages.size
+
+    fun toggleSelection(uri: Uri) {
+        selectionNotice = when (
+            PhotoSelectionPolicy.toggle(selected, uri, multiple, MAX_SELECT)
+        ) {
+            SelectionToggleResult.LimitReached -> "最多选择 $MAX_SELECT 张照片"
+            else -> null
         }
     }
 
@@ -176,7 +209,7 @@ fun PhotoPickerScreen(
         PhotoPickPreviewDialog(
             image = img,
             selected = selected.contains(img.uri),
-            onToggle = { toggle(selected, img.uri, multiple) },
+            onToggle = { toggleSelection(img.uri) },
             onDismiss = { previewImage = null },
         )
     }
@@ -215,10 +248,11 @@ fun PhotoPickerScreen(
                                     if (isCurrent) BrandBlue
                                     else MiuixTheme.colorScheme.onBackground.copy(alpha = 0.06f)
                                 )
+                                .defaultMinSize(minHeight = 48.dp)
                                 .clickable {
                                     if (!isCurrent) {
                                         currentBucket = b.name
-                                        scope.launch { loadBucket(b.name) }
+                                        visibleCount = MediaStoreImages.PAGE_SIZE
                                     }
                                 }
                                 .padding(horizontal = 12.dp, vertical = 7.dp),
@@ -253,6 +287,23 @@ fun PhotoPickerScreen(
                         )
                     }
                 }
+            } else if (loadError != null) {
+                Card(Modifier.fillMaxWidth().padding(12.dp)) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("读取相册失败", style = MiuixTheme.textStyles.headline1)
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            loadError!!,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        LxButton(
+                            text = "重试",
+                            onClick = { scope.launch { loadAll() } },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
             } else if (images.isEmpty()) {
                 Card(Modifier.fillMaxWidth().padding(12.dp)) {
                     Column(Modifier.padding(16.dp)) {
@@ -265,6 +316,13 @@ fun PhotoPickerScreen(
                     }
                 }
             } else {
+                if (indexing) {
+                    Text(
+                        "正在整理全部照片…",
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    )
+                }
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(3),
                     modifier = Modifier.weight(1f).overScrollVertical(),
@@ -277,36 +335,44 @@ fun PhotoPickerScreen(
                         PickerCell(
                             image = img,
                             isSelected = isSelected,
-                            onToggle = { toggle(selected, img.uri, multiple) },
+                            onToggle = { toggleSelection(img.uri) },
                             onPreview = { previewImage = img },
                         )
                     }
                     if (!reachedEnd) {
                         item {
-                            LaunchedEffect(images.size) { loadMore() }
+                            LaunchedEffect(images.size, currentBucket) {
+                                visibleCount += MediaStoreImages.PAGE_SIZE
+                            }
                             Box(Modifier.aspectRatio(1f), contentAlignment = Alignment.Center) {
                                 LoadingRow()
                             }
                         }
                     }
                 }
-                Row(
-                    Modifier.fillMaxWidth().padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        if (multiple) "已选 ${selected.size} / $MAX_SELECT"
-                        else if (selected.isEmpty()) "点一张照片选中" else "已选 1 张",
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        modifier = Modifier.weight(1f),
-                    )
-                    LxButton(
-                        text = "完成",
-                        onClick = { onPicked(selected.toList()) },
-                        enabled = selected.isNotEmpty(),
-                        variant = LxButtonVariant.Positive,
-                        cornerRadius = 12,
-                    )
+                Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                    selectionNotice?.let {
+                        Text(it, color = MiuixTheme.colorScheme.error)
+                        Spacer(Modifier.height(6.dp))
+                    }
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            if (multiple) "已选 ${selected.size} / $MAX_SELECT"
+                            else if (selected.isEmpty()) "点一张照片选中" else "已选 1 张",
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.weight(1f),
+                        )
+                        LxButton(
+                            text = "完成",
+                            onClick = { onPicked(selected.toList()) },
+                            enabled = selected.isNotEmpty(),
+                            variant = LxButtonVariant.Positive,
+                            cornerRadius = 12,
+                        )
+                    }
                 }
             }
         }
@@ -332,9 +398,15 @@ private fun PickerCell(
         AsyncImage(
             model = image.uri,
             imageLoader = AppImageLoader.get(context),
-            contentDescription = null,
+            contentDescription = "选择${image.monthLabel}的照片",
             contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize().clickable { onToggle() },
+            modifier = Modifier
+                .fillMaxSize()
+                .semantics {
+                    role = Role.Checkbox
+                    stateDescription = if (isSelected) "已选中" else "未选中"
+                }
+                .clickable(role = Role.Checkbox) { onToggle() },
         )
         if (isSelected) {
             Box(Modifier.fillMaxSize().background(BrandBlue.copy(alpha = 0.24f)))
@@ -352,19 +424,25 @@ private fun PickerCell(
             )
         }
         // 放大角标：单独的点击区，避免"想看大图却选中了"。
-        Icon(
-            imageVector = MiuixIcons.ZoomOut,
-            contentDescription = "预览",
-            tint = Color.White,
+        Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(4.dp)
-                .size(24.dp)
-                .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.42f))
+                .size(48.dp)
                 .clickable { onPreview() }
-                .padding(5.dp),
-        )
+                .padding(8.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = MiuixIcons.ZoomOut,
+                contentDescription = "预览",
+                tint = Color.White,
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.42f))
+                    .padding(6.dp),
+            )
+        }
     }
 }
 
@@ -418,19 +496,6 @@ private fun PhotoPickPreviewDialog(
     }
 }
 
-private fun toggle(selected: MutableList<Uri>, uri: Uri, multiple: Boolean) {
-    if (selected.contains(uri)) {
-        selected.remove(uri)
-        return
-    }
-    if (!multiple) {
-        selected.clear()
-        selected.add(uri)
-        return
-    }
-    if (selected.size < MAX_SELECT) selected.add(uri)
-}
-
 /**
  * 需要申请的读取权限。
  * Android 14+ 必须同时申请 READ_MEDIA_VISUAL_USER_SELECTED，
@@ -450,3 +515,9 @@ private fun hasImagePermission(context: Context): Boolean =
     imagePermissions().any {
         ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
     }
+
+private fun mediaPickerFriendlyError(t: Throwable): String = when (t) {
+    is SecurityException -> "相册权限已变化，请重新授权，或使用右上角“系统相册”选择。"
+    else -> t.message?.takeIf { it.isNotBlank() }
+        ?: "暂时无法读取照片，请稍后重试，或使用右上角“系统相册”选择。"
+}

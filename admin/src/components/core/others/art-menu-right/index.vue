@@ -3,8 +3,10 @@
   <div class="menu-right">
     <Transition name="context-menu" @before-enter="onBeforeEnter" @after-leave="onAfterLeave">
       <div
+        ref="menuRoot"
         v-show="visible"
         :style="menuStyle"
+        role="menu"
         class="context-menu art-card-xs !shadow-xl min-w-[var(--menu-width)] w-[var(--menu-width)]"
       >
         <ul class="menu-list m-0 list-none" :style="menuListStyle">
@@ -15,7 +17,12 @@
               class="menu-item relative flex-c c-p select-none rounded text-xs transition-colors duration-150 hover:bg-g-200"
               :class="{ 'is-disabled': item.disabled, 'has-line': item.showLine }"
               :style="menuItemStyle"
+              role="menuitem"
+              :tabindex="item.disabled ? -1 : 0"
+              :aria-disabled="item.disabled ? 'true' : undefined"
               @click="handleMenuClick(item)"
+              @keydown.enter.prevent="handleMenuKeydown($event, item)"
+              @keydown.space.prevent="handleMenuKeydown($event, item)"
             >
               <ArtSvgIcon
                 v-if="item.icon"
@@ -33,6 +40,9 @@
               v-else
               class="menu-item submenu relative flex-c c-p select-none rounded text-xs transition-colors duration-150 hover:bg-g-200"
               :style="menuItemStyle"
+              role="menuitem"
+              tabindex="0"
+              aria-haspopup="menu"
             >
               <div class="submenu-title flex-c w-full">
                 <ArtSvgIcon
@@ -59,7 +69,12 @@
                   class="menu-item relative mx-1.5 flex-c c-p select-none rounded text-xs transition-colors duration-150 hover:bg-g-200"
                   :class="{ 'is-disabled': child.disabled, 'has-line': child.showLine }"
                   :style="menuItemStyle"
+                  role="menuitem"
+                  :tabindex="child.disabled ? -1 : 0"
+                  :aria-disabled="child.disabled ? 'true' : undefined"
                   @click="handleMenuClick(child)"
+                  @keydown.enter.prevent="handleMenuKeydown($event, child)"
+                  @keydown.space.prevent="handleMenuKeydown($event, child)"
                 >
                   <ArtSvgIcon
                     v-if="child.icon"
@@ -124,7 +139,7 @@
   const props = withDefaults(defineProps<Props>(), {
     menuWidth: 120,
     submenuWidth: 150,
-    itemHeight: 32,
+    itemHeight: 40,
     boundaryDistance: 10,
     menuPadding: 5,
     itemPaddingX: 6,
@@ -139,6 +154,7 @@
   }>()
 
   const visible = ref(false)
+  const menuRoot = ref<HTMLElement | null>(null)
   const position = ref({ x: 0, y: 0 })
 
   // 用于清理定时器和事件监听器
@@ -146,40 +162,32 @@
   let eventListenersAdded = false
 
   // 计算菜单样式
-  const menuStyle = computed(
-    (): CSSProperties => ({
-      position: 'fixed' as const,
-      left: `${position.value.x}px`,
-      top: `${position.value.y}px`,
-      zIndex: 2000,
-      width: `${props.menuWidth}px`
-    })
-  )
+  const menuStyle = computed((): CSSProperties => ({
+    position: 'fixed' as const,
+    left: `${position.value.x}px`,
+    top: `${position.value.y}px`,
+    zIndex: 2000,
+    width: `${props.menuWidth}px`
+  }))
 
   // 计算菜单列表样式
-  const menuListStyle = computed(
-    (): CSSProperties => ({
-      padding: `${props.menuPadding}px`
-    })
-  )
+  const menuListStyle = computed((): CSSProperties => ({
+    padding: `${props.menuPadding}px`
+  }))
 
   // 计算菜单项样式
-  const menuItemStyle = computed(
-    (): CSSProperties => ({
-      height: `${props.itemHeight}px`,
-      padding: `0 ${props.itemPaddingX}px`,
-      borderRadius: '4px'
-    })
-  )
+  const menuItemStyle = computed((): CSSProperties => ({
+    height: `${props.itemHeight}px`,
+    padding: `0 ${props.itemPaddingX}px`,
+    borderRadius: '4px'
+  }))
 
   // 计算子菜单列表样式
-  const submenuListStyle = computed(
-    (): CSSProperties => ({
-      minWidth: `${props.submenuWidth}px`,
-      padding: `${props.menuPadding}px 0`,
-      borderRadius: `${props.borderRadius}px`
-    })
-  )
+  const submenuListStyle = computed((): CSSProperties => ({
+    minWidth: `${props.submenuWidth}px`,
+    padding: `${props.menuPadding}px 0`,
+    borderRadius: `${props.borderRadius}px`
+  }))
 
   // 计算菜单高度（用于边界检测）
   const calculateMenuHeight = (): number => {
@@ -251,8 +259,7 @@
   const handleDocumentClick = (e: Event) => {
     // 检查点击是否在菜单内部
     const target = e.target as Element
-    const menuElement = document.querySelector('.context-menu')
-    if (menuElement && menuElement.contains(target)) {
+    if (menuRoot.value?.contains(target)) {
       return
     }
     hide()
@@ -317,6 +324,12 @@
     hide()
   }
 
+  const handleMenuKeydown = (event: KeyboardEvent, item: MenuItemType): void => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      handleMenuClick(item)
+    }
+  }
+
   // 动画钩子函数
   const onBeforeEnter = (el: Element) => {
     const element = el as HTMLElement
@@ -378,6 +391,11 @@
     background-color: transparent !important;
   }
 
+  .menu-item:focus-visible {
+    outline: 2px solid var(--el-color-primary);
+    outline-offset: -2px;
+  }
+
   .menu-item.is-disabled i:not(.submenu-arrow),
   .menu-item.is-disabled :deep(.art-svg-icon) {
     color: var(--el-text-color-disabled) !important;
@@ -398,7 +416,9 @@
   /* 动画样式 */
   .context-menu-enter-active,
   .context-menu-leave-active {
-    transition: all v-bind('props.animationDuration + "ms"') ease-out;
+    transition:
+      opacity v-bind('props.animationDuration + "ms"') ease-out,
+      transform v-bind('props.animationDuration + "ms"') ease-out;
   }
 
   .context-menu-enter-from,

@@ -76,14 +76,16 @@ export class StorageConfig {
    * @param storeId 存储ID
    */
   static createKeyPattern(storeId: string): RegExp {
-    return new RegExp(`^${this.STORAGE_PREFIX}[^-]+-${storeId}$`)
+    const escapedStoreId = storeId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return new RegExp(`^${this.STORAGE_PREFIX}.+-${escapedStoreId}$`)
   }
 
   /**
    * 创建当前版本存储键匹配的正则表达式
    */
   static createCurrentVersionPattern(): RegExp {
-    return new RegExp(`^${this.STORAGE_PREFIX}${this.CURRENT_VERSION}-`)
+    const escapedVersion = this.CURRENT_VERSION.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return new RegExp(`^${this.STORAGE_PREFIX}${escapedVersion}-`)
   }
 
   /**
@@ -97,7 +99,7 @@ export class StorageConfig {
    * 检查是否为当前版本的键
    */
   static isCurrentVersionKey(key: string): boolean {
-    return key.startsWith(`${this.STORAGE_PREFIX}${this.CURRENT_VERSION}`)
+    return key.startsWith(`${this.STORAGE_PREFIX}${this.CURRENT_VERSION}-`)
   }
 
   /**
@@ -111,7 +113,7 @@ export class StorageConfig {
    * 从存储键中提取版本号
    */
   static extractVersionFromKey(key: string): string | null {
-    const match = key.match(new RegExp(`^${this.STORAGE_PREFIX}([^-]+)`))
+    const match = key.match(new RegExp(`^${this.STORAGE_PREFIX}(.+)-[^-]+$`))
     return match ? match[1] : null
   }
 
@@ -119,7 +121,7 @@ export class StorageConfig {
    * 从存储键中提取存储ID
    */
   static extractStoreIdFromKey(key: string): string | null {
-    const match = key.match(new RegExp(`^${this.STORAGE_PREFIX}[^-]+-(.+)$`))
+    const match = key.match(new RegExp(`^${this.STORAGE_PREFIX}.+-([^-]+)$`))
     return match ? match[1] : null
   }
 }

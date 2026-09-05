@@ -2,10 +2,11 @@
   <div>
     <SectionTitle :title="$t('setting.box.title')" class="mt-10" />
     <div class="box-border flex-cb p-1 mt-5 rounded-lg bg-g-200">
-      <div
+      <button
         v-for="option in boxStyleOptions"
         :key="option.value"
-        class="w-[calc(50%-3px)] h-8.5 leading-8.5 text-sm text-center c-p select-none rounded-md transition-all duration-200"
+        type="button"
+        class="w-[calc(50%-3px)] min-h-11 text-sm text-center c-p select-none rounded-md border-0 transition-colors duration-200"
         :class="
           isActive(option.type)
             ? 'text-g-800 bg-[var(--default-box-color)] dark:!text-white dark:bg-g-300'
@@ -14,7 +15,7 @@
         @click="boxStyleHandlers.setBoxMode(option.type)"
       >
         {{ option.label }}
-      </div>
+      </button>
     </div>
   </div>
 </template>

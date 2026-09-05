@@ -1,6 +1,7 @@
 # 林曦日记 服务端镜像（多阶段构建；内嵌 SQLite，纯 Go 无需 CGO）
-# HEIC/AVIF 解码器声明 go >= 1.25；分离部署镜像也必须与根 Dockerfile/CI 保持一致。
-FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build
+# golang.org/x/crypto v0.56.0 修复公开 SSH DoS 漏洞；分离部署镜像也必须
+# 与根 Dockerfile/CI 保持一致（HEIC/AVIF 仍要求 go >= 1.25）。
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
 WORKDIR /src
 ENV GOPROXY=https://goproxy.cn,direct
 ARG TARGETOS

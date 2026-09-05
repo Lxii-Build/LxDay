@@ -6,8 +6,8 @@ import (
 )
 
 // ================= 推送网关适配层 =================
-// 生产接入个推/极光：安装官方 SDK 后，将 Send 的实现替换为 SDK 调用。
-// 当前给出接口 + 日志占位，方便先行开发联调。
+// 当前项目使用 WebSocket 与本地通知完成实时互动；此适配层保留厂商推送的
+// provider 边界，待配置真实厂商时只替换 provider 分支，不改变业务调用方。
 
 type PushGateway struct {
 	provider string
@@ -52,7 +52,7 @@ func (p *PushGateway) Send(uid int64, eventType string, data interface{}) {
 
 	title, body := eventContent(eventType, data)
 
-	// 2. 调用推送厂商（此处为占位，接入 SDK 后替换）
+	// 2. 调用已配置的推送 provider。厂商 SDK 接入前仅记录事件，不伪造发送成功。
 	switch p.provider {
 	case "getui":
 		// getui 官方 Go SDK: https://docs.getui.com/getui/server/apiv2/push/
@@ -68,9 +68,8 @@ func (p *PushGateway) Send(uid int64, eventType string, data interface{}) {
 	}
 }
 
-// Cancel gives a real push provider a cancellation hook. The current
-// provider is intentionally a placeholder, but queue removal still ensures a
-// cancelled request is never replayed after reconnect.
+// Cancel gives a real push provider a cancellation hook. Queue removal still
+// ensures a cancelled request is never replayed after reconnect.
 func (p *PushGateway) Cancel(uid int64, eventType, interactionID string) {
 	if p == nil || interactionID == "" {
 		return

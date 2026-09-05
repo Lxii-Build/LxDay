@@ -73,7 +73,7 @@
           width: 150,
           formatter: (row) => targetText(row.target)
         },
-        { prop: 'sent_count', label: t('notify.records.table.sentCount'), width: 100 },
+        { prop: 'queued_count', label: t('notify.records.table.queuedCount'), width: 100 },
         {
           prop: 'created_at',
           label: t('notify.records.table.createdAt'),

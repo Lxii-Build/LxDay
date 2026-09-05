@@ -34,11 +34,16 @@ object NotificationChannels {
      */
     const val CHANNEL_QUIET = "status_quiet"
 
+    /** 本机音乐播放胶囊：媒体通知样式，默认静默且不计角标。 */
+    const val CHANNEL_MUSIC = "music_playback"
+
     /** 常驻状态卡通知 id。 */
     const val NOTIFY_ID_CARD = 10001
 
     /** 伴侣动态静默通知 id：固定值，同类事件覆盖更新而非堆叠一屏。 */
     const val NOTIFY_ID_QUIET = 10003
+
+    const val NOTIFY_ID_MUSIC = 10004
 
     /** 待办提醒通知 id：按待办 id 派生，便于覆盖与精确撤销。 */
     fun todoNotifyId(todoId: Long): Int = (20_000 + (todoId % 10_000)).toInt()
@@ -88,6 +93,15 @@ object NotificationChannels {
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL_QUIET, "伴侣动态（静默）", NotificationManager.IMPORTANCE_LOW).apply {
                 description = "对方息屏/亮屏、上线/下线等动态。只在通知栏显示，不弹出、不响铃、不振动"
+                setShowBadge(false)
+                setSound(null, null)
+                enableVibration(false)
+                enableLights(false)
+            }
+        )
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_MUSIC, "音乐播放", NotificationManager.IMPORTANCE_LOW).apply {
+                description = "本机网易云播放状态与播放胶囊"
                 setShowBadge(false)
                 setSound(null, null)
                 enableVibration(false)

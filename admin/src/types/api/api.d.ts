@@ -233,6 +233,28 @@ declare namespace Api {
 
     type SettingsResponse = RuntimeSettingsResp
 
+    interface ListenRoom {
+      room_id: string
+      pair_id: number
+      host_user_id: number
+      members: number
+      created_at: string
+      updated_at: string
+      state: {
+        title: string
+        artist: string
+        source?: string
+        song_id?: number
+        album?: string
+        cover_url?: string
+        duration_ms: number
+        position_ms: number
+        playing: boolean
+        mode: string
+        updated_at: number
+      }
+    }
+
     /**
      * 相册照片列表项（后台审核用）
      *
@@ -318,7 +340,9 @@ declare namespace Api {
       title: string
       body: string
       target: string
-      sent_count: number
+      queued_count: number
+      /** 旧客户端兼容字段；表示入队数量，不代表设备已接收。 */
+      sent_count?: number
       created_at: string
     }
     type NotifyRecordList = Api.Common.PaginatedResponse<NotifyRecord>

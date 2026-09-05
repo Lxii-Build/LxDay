@@ -9,6 +9,14 @@
       :title="$t('systemSettings.runtime.superOnly')"
       class="mb-4"
     />
+    <ElAlert v-if="isSuper && templateError" type="error" show-icon :closable="false" class="mb-4">
+      <template #default>
+        <span>{{ templateError }}</span>
+        <ElButton link type="primary" class="ml-2" @click="loadTemplates">
+          {{ $t('common.retry') }}
+        </ElButton>
+      </template>
+    </ElAlert>
     <ElForm
       v-if="isSuper"
       ref="formRef"
@@ -21,6 +29,7 @@
         <ElSelect
           v-model="templateCode"
           :placeholder="$t('notify.send.templatePlaceholder')"
+          :loading="templatesLoading"
           clearable
           style="width: 100%"
           @change="applyTemplate"
@@ -92,6 +101,8 @@
   )
   const formRef = ref<FormInstance>()
   const sending = ref(false)
+  const templatesLoading = ref(false)
+  const templateError = ref<string | null>(null)
 
   /** 目标模式：all 全站广播 / uid 指定用户 */
   const targetMode = ref<'all' | 'uid'>('all')
@@ -158,7 +169,7 @@
         target: buildTarget(),
         template_code: templateCode.value || undefined
       })
-      ElMessage.success(t('notify.send.success', { count: res?.sent ?? 0 }))
+      ElMessage.success(t('notify.send.queued', { count: res?.queued ?? res?.sent ?? 0 }))
       formData.title = ''
       formData.body = ''
       formData.uids = ''
@@ -170,7 +181,17 @@
     }
   }
 
-  onMounted(async () => {
-    templates.value = await fetchNotifyTemplates()
-  })
+  const loadTemplates = async () => {
+    templatesLoading.value = true
+    templateError.value = null
+    try {
+      templates.value = await fetchNotifyTemplates()
+    } catch {
+      templateError.value = t('notify.send.templateLoadFailed')
+    } finally {
+      templatesLoading.value = false
+    }
+  }
+
+  onMounted(loadTemplates)
 </script>

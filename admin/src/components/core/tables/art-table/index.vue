@@ -3,7 +3,12 @@
 <!-- 扩展功能：分页组件、渲染自定义列、loading、表格全局边框、斑马纹、表格尺寸、表头背景配置 -->
 <!-- 获取 ref：默认暴露了 elTableRef 外部通过 ref.value.elTableRef 可以调用 el-table 方法 -->
 <template>
-  <div class="art-table" :class="{ 'is-empty': isEmpty }" :style="containerHeight">
+  <div
+    ref="tableRootRef"
+    class="art-table"
+    :class="{ 'is-empty': isEmpty }"
+    :style="containerHeight"
+  >
     <!--
       窄屏卡片化（管理员 Q44=B）。
 
@@ -20,7 +25,11 @@
     -->
     <div v-if="isMobileLayout && canRenderCards" v-loading="!!loading" class="art-table__cards">
       <ElEmpty v-if="isEmpty && !loading" :description="emptyText" :image-size="100" />
-      <div v-for="(row, rowIndex) in mobileRows" :key="rowIndex" class="art-table__card">
+      <div
+        v-for="(row, rowIndex) in mobileRows"
+        :key="mobileRowKey(row, rowIndex)"
+        class="art-table__card"
+      >
         <div v-for="col in mobileFieldColumns" :key="col.prop || col.label" class="art-table__cell">
           <span class="art-table__cell-label">{{ col.label }}</span>
           <span class="art-table__cell-value">
@@ -35,7 +44,7 @@
                 value: row[col.prop]
               }"
             />
-            <template v-else>{{ formatCellText(row, col) }}</template>
+            <template v-else>{{ formatCellText(row, col, rowIndex) }}</template>
           </span>
         </div>
         <!-- 操作列单独放卡底：手机上按钮要足够大、位置固定，不该混在字段里 -->
@@ -150,6 +159,7 @@
   const elTableRef = ref<InstanceType<typeof ElTable> | null>(null)
   const paginationRef = ref<HTMLElement>()
   const tableHeaderRef = ref<HTMLElement>()
+  const tableRootRef = ref<HTMLElement>()
   const tableStore = useTableStore()
   const { isBorder, isZebra, tableSize, isFullScreen, isHeaderBackground } = storeToRefs(tableStore)
 
@@ -252,16 +262,20 @@
     return Array.isArray(data) ? data : []
   })
 
+  /** 优先使用业务主键，避免排序/翻页后移动卡片复用成另一条记录。 */
+  const mobileRowKey = (row: Record<string, any>, index: number): string | number =>
+    row.id ?? row.uid ?? row.photo_id ?? row.pair_id ?? row.key ?? `row-${index}`
+
   /**
    * 卡片里要展示的字段列。
    *
    * 排除掉在卡片语境下没有意义或会造成困扰的列：
-   *  - selection / expand / index：卡片没有表头，勾选与展开无处安放
+   *  - selection / expand / index：卡片没有表头，勾选与展开无处安放；globalIndex 保留以免手机端丢序号
    *  - 操作列：单独渲染到卡底（见 mobileActionColumns）
    */
   const mobileFieldColumns = computed(() =>
     (props.columns || []).filter((col) => {
-      if (col.type && ['selection', 'expand', 'index', 'globalIndex'].includes(col.type)) return false
+      if (col.type && ['selection', 'expand', 'index'].includes(col.type)) return false
       if (isActionColumn(col)) return false
       return !!(col.prop || col.label)
     })
@@ -288,7 +302,8 @@
    * 优先用列自带的 formatter（各页用它做时间格式化、枚举翻译），
    * 否则直接取值；空值统一显示 "-" 而不是空白，避免看起来像渲染失败。
    */
-  function formatCellText(row: Record<string, any>, col: ColumnOption): string {
+  function formatCellText(row: Record<string, any>, col: ColumnOption, rowIndex = 0): string {
+    if (col.type === 'globalIndex') return String(getGlobalIndex(rowIndex))
     if (typeof col.formatter === 'function' && col.prop) {
       const out = (col.formatter as any)(row, col, row[col.prop], 0)
       // formatter 可能返回 VNode（那种列一般也配了 useSlot），此处只接受可直接显示的值
@@ -463,9 +478,13 @@
       return
     }
 
-    const tableHeader = document.getElementById('art-table-header')
+    const previousSibling = tableRootRef.value?.previousElementSibling
+    const tableHeader = previousSibling?.matches('[data-art-table-header]')
+      ? previousSibling
+      : previousSibling?.querySelector('[data-art-table-header]') ||
+        tableRootRef.value?.parentElement?.querySelector(':scope > [data-art-table-header]')
     if (tableHeader) {
-      tableHeaderRef.value = tableHeader
+      tableHeaderRef.value = tableHeader as HTMLElement
     } else {
       // 如果找不到表格头部，设置为 undefined，useElementSize 会返回 0
       tableHeaderRef.value = undefined

@@ -35,10 +35,12 @@
 
 Tab 业务映射：主页 → `NowScreen`、待办 → `TodoScreen`、发现 → `DiscoverScreen`、我的 → `SettingsScreen`。
 
-## 阶段 1 页面行为
+## 页面行为
 
 - 知情同意使用根级 Miuix `OverlayDialog`；首次授权不可返回或点击外部跳过，勾选后才能继续。
 - “我的”提供“伴侣状态历史”入口；历史页返回后恢复“我的”Tab。
+- 所有页面状态由 `ui/navigation/LinxiApp.kt` 的全局转场承载：进入子页从右侧滑入，返回父页从左侧回退，并配合短淡入淡出；具体页面不再各自实现返回动画。
+- 二级页必须实现 `BackHandler` 和 `BackAction`，返回动作只改变统一导航状态，不直接退出 Activity。
 - 页面和卡片读取 `LocalLinxiDarkTheme`，只有主题根节点读取系统暗色状态。
 
 ## 页面骨架

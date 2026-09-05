@@ -9,7 +9,13 @@
         </div>
       </template>
 
-      <ElForm ref="formRef" :model="formData" :rules="rules" label-width="96px" @keyup.enter="handleSubmit">
+      <ElForm
+        ref="formRef"
+        :model="formData"
+        :rules="rules"
+        label-width="96px"
+        @keyup.enter="handleSubmit"
+      >
         <ElFormItem :label="$t('changeCredentials.oldPassword')" prop="old_password">
           <ElInput
             v-model.trim="formData.old_password"

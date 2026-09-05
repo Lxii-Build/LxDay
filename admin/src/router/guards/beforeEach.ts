@@ -70,6 +70,16 @@ let routeInitFailed = false
 // 路由初始化进行中标记，防止并发请求
 let routeInitInProgress = false
 
+// 其它导航不能在初始化期间调用 next(false)，否则用户的点击会被静默吞掉。
+// 等待当前初始化完成后再用原目标地址重新导航。
+let routeInitWaiters: Array<() => void> = []
+
+function resolveRouteInitWaiters(): void {
+  const waiters = routeInitWaiters
+  routeInitWaiters = []
+  waiters.forEach((resolve) => resolve())
+}
+
 /**
  * 获取 pendingLoading 状态
  */
@@ -173,8 +183,18 @@ async function handleRouteGuard(
   if (!routeRegistry?.isRegistered() && userStore.isLogin) {
     // 防止并发请求（快速连续导航场景）
     if (routeInitInProgress) {
-      // 正在初始化中，等待完成后重新导航
-      next(false)
+      // 正在初始化中，等待完成后重新导航，避免快速点击时导航被吞掉。
+      await new Promise<void>((resolve) => routeInitWaiters.push(resolve))
+      if (routeInitFailed) {
+        next({ name: 'Exception500', replace: true })
+        return
+      }
+      next({
+        path: to.path,
+        query: to.query,
+        hash: to.hash,
+        replace: true
+      })
       return
     }
     await handleDynamicRoutes(to, next, router)
@@ -359,6 +379,8 @@ async function handleDynamicRoutes(
 
     // 跳转到 500 页面，使用 replace 避免产生历史记录
     next({ name: 'Exception500', replace: true })
+  } finally {
+    resolveRouteInitWaiters()
   }
 }
 

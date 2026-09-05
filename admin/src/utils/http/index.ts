@@ -24,7 +24,7 @@ import { BaseResponse } from '@/types'
 /** 请求配置常量 */
 const REQUEST_TIMEOUT = 15000
 const LOGOUT_DELAY = 500
-const MAX_RETRIES = 0
+const MAX_RETRIES = 2
 const RETRY_DELAY = 1000
 const UNAUTHORIZED_DEBOUNCE_TIME = 3000
 
@@ -148,6 +148,10 @@ function shouldRetry(statusCode: number) {
   ].includes(statusCode)
 }
 
+function isRetryableMethod(method?: string): boolean {
+  return ['GET', 'HEAD', 'OPTIONS'].includes(method?.toUpperCase() || '')
+}
+
 /** 请求重试逻辑 */
 async function retryRequest<T>(
   config: ExtendedAxiosRequestConfig,
@@ -156,7 +160,13 @@ async function retryRequest<T>(
   try {
     return await request<T>(config)
   } catch (error) {
-    if (retries > 0 && error instanceof HttpError && shouldRetry(error.code)) {
+    if (
+      retries > 0 &&
+      isRetryableMethod(config.method) &&
+      !config.signal?.aborted &&
+      error instanceof HttpError &&
+      shouldRetry(error.code)
+    ) {
       await delay(RETRY_DELAY)
       return retryRequest<T>(config, retries - 1)
     }
@@ -191,6 +201,11 @@ async function request<T = any>(config: ExtendedAxiosRequestConfig): Promise<T> 
 
     return res.data.data as T
   } catch (error) {
+    // AbortController 是页面级请求生命周期的一部分。取消旧请求时不应弹出
+    // 全局“请求失败”提示，否则快速搜索/翻页会把用户淹没在过期错误里。
+    if (axios.isCancel(error) || config.signal?.aborted) {
+      return Promise.reject(error)
+    }
     if (error instanceof HttpError && error.code !== ApiStatus.unauthorized) {
       const showMsg = config.showErrorMessage !== false
       showError(error, showMsg)

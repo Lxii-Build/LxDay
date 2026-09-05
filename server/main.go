@@ -40,6 +40,17 @@ type Config struct {
 	} `yaml:"storage"`
 }
 
+const minJWTSecretBytes = 32
+
+// validJWTSecret keeps the startup guard testable without invoking log.Fatal.
+// JWT signing keys are bearer credentials: a short or placeholder value makes
+// offline forgery practical even when the rest of the authentication code is
+// correct.
+func validJWTSecret(secret string) bool {
+	trimmed := strings.TrimSpace(secret)
+	return len([]byte(trimmed)) >= minJWTSecretBytes && !strings.Contains(strings.ToLower(trimmed), "change")
+}
+
 func loadConfig() *Config {
 	path := "config.yaml"
 	if len(os.Args) > 1 {
@@ -69,8 +80,8 @@ func loadConfig() *Config {
 		c.App.Port = v
 	}
 	// JWT 密钥必须显式设置（不允许空/占位），否则令牌可被伪造。
-	if c.App.JWTSecret == "" || strings.Contains(strings.ToLower(c.App.JWTSecret), "change") {
-		log.Fatalf("jwt_secret 未设置：请通过环境变量 JWT_SECRET 或配置文件设置一个长随机串")
+	if !validJWTSecret(c.App.JWTSecret) {
+		log.Fatalf("jwt_secret 无效：请通过环境变量 JWT_SECRET 或配置文件设置至少 32 字节的长随机串")
 	}
 	if c.DB.Path == "" {
 		c.DB.Path = "data/lxday.db"
@@ -84,10 +95,11 @@ func loadConfig() *Config {
 // ================= 全局依赖 =================
 
 var (
-	cfg  *Config
-	st   *Store
-	hub  *Hub
-	push *PushGateway
+	cfg       *Config
+	st        *Store
+	hub       *Hub
+	listenHub *ListenHub
+	push      *PushGateway
 )
 
 func main() {
@@ -110,6 +122,7 @@ func main() {
 	}
 	push = NewPushGateway(cfg.Push.Provider, st)
 	hub = NewHub(st, push)
+	listenHub = NewListenHub(st)
 	// 先载入后台可配的运行参数（相册配额/保留期/限流/互动冷却），
 	// 再起清理任务——后者要读保留天数。未配置的键一律回退代码里的默认常量。
 	reloadRuntimeSettings()
@@ -256,11 +269,21 @@ func main() {
 		// 反向代理、负载均衡器和浏览器历史记录。
 		uid, err := authUserByToken(bearerToken(c.GetHeader("Authorization")))
 		if err != nil {
-			c.JSON(401, gin.H{"code": 1003, "message": "登录已失效"})
+			fail(c, http.StatusUnauthorized, 1003, "登录已失效")
 			return
 		}
 		hub.ServeWS(c.Writer, c.Request, uid)
 	})
+	// 一起听使用独立的房间会话 token，原生客户端通过 X-Lx-Listen-Token 请求头发送；
+	// 服务端保留 query token 兼容旧客户端，但仍要求同一请求带有效 JWT。
+	listen := auth.Group("/listen")
+	listen.POST("/rooms", listenHub.createRoom)
+	listen.POST("/rooms/join", listenHub.joinCurrentRoom)
+	listen.POST("/rooms/:roomID/join", listenHub.joinRoom)
+	listen.GET("/rooms/:roomID/state", listenHub.getState)
+	listen.POST("/rooms/:roomID/control", listenHub.control)
+	listen.POST("/rooms/:roomID/leave", listenHub.leave)
+	api.GET("/listen/rooms/:roomID/ws", listenHub.serveWS)
 
 	// 待办到点提醒定时扫描
 	startDueTodoScanner(workerCtx, &workerWG)

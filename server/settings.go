@@ -59,6 +59,11 @@ type RuntimeSettings struct {
 	RingCooldownSec        int
 	RingCooldownLimit      int
 	InteractionCooldownSec int
+
+	// ---- 一起听 ----
+	ListenTogetherEnabled         bool
+	ListenAllowMemberControl      bool
+	ListenAutoPauseOnMemberChange bool
 }
 
 // defaultRuntimeSettings 是全部默认值的唯一来源。
@@ -102,6 +107,10 @@ func defaultRuntimeSettings() RuntimeSettings {
 		RingCooldownSec:        600,
 		RingCooldownLimit:      3,
 		InteractionCooldownSec: 7,
+
+		ListenTogetherEnabled:         true,
+		ListenAllowMemberControl:      true,
+		ListenAutoPauseOnMemberChange: true,
 	}
 }
 
@@ -134,6 +143,7 @@ const (
 	groupRetention = "retention"
 	groupSecurity  = "security"
 	groupInteract  = "interaction"
+	groupListen    = "listen_together"
 )
 
 // runtimeSettingSpecs 是「配置项 → 字段」的全量映射表。
@@ -231,6 +241,18 @@ var runtimeSettingSpecs = []settingSpec{
 	{Key: "interaction.light_cooldown_sec", Group: groupInteract, Kind: "int", Min: 0, Max: 3600, Label: "安抚/冷静冷却(秒)",
 		get: func(s *RuntimeSettings) string { return strconv.Itoa(s.InteractionCooldownSec) },
 		set: func(s *RuntimeSettings, v int64, _ bool) { s.InteractionCooldownSec = int(v) }},
+
+	// 一起听。音频本身仍由手机上的播放器负责，服务端只同步房间状态；
+	// 第三方播放地址永远不落库，也不通过配置开关放行。
+	{Key: "listen_together.enabled", Group: groupListen, Kind: "bool", Label: "一起听功能",
+		get: func(s *RuntimeSettings) string { return boolStr(s.ListenTogetherEnabled) },
+		set: func(s *RuntimeSettings, _ int64, b bool) { s.ListenTogetherEnabled = b }},
+	{Key: "listen_together.allow_member_control", Group: groupListen, Kind: "bool", Label: "允许成员控制播放",
+		get: func(s *RuntimeSettings) string { return boolStr(s.ListenAllowMemberControl) },
+		set: func(s *RuntimeSettings, _ int64, b bool) { s.ListenAllowMemberControl = b }},
+	{Key: "listen_together.auto_pause_on_member_change", Group: groupListen, Kind: "bool", Label: "成员变化时自动暂停",
+		get: func(s *RuntimeSettings) string { return boolStr(s.ListenAutoPauseOnMemberChange) },
+		set: func(s *RuntimeSettings, _ int64, b bool) { s.ListenAutoPauseOnMemberChange = b }},
 }
 
 func boolStr(b bool) string {

@@ -71,25 +71,23 @@ func signAdminTokenFor(a *AdminUser) (string, error) {
 // parseAdminToken 只做签名与结构校验，返回 aid 与 claims 中的 token_ver。
 // **role / must_change 不再从 token 返回**——它们必须实时读库，见 AdminAuth。
 func parseAdminToken(token string) (int64, int64, error) {
-	t, err := jwt.Parse(token, func(t *jwt.Token) (interface{}, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, errors.New("unexpected signing method")
-		}
-		return []byte(cfg.App.JWTSecret), nil
-	})
-	if err != nil || !t.Valid {
+	t, err := parseSignedToken(token)
+	if err != nil || t == nil || !t.Valid {
 		return 0, 0, errors.New("invalid token")
 	}
 	claims, ok := t.Claims.(jwt.MapClaims)
 	if !ok || claims["scope"] != "admin" {
 		return 0, 0, errors.New("bad claims")
 	}
-	aidF, ok := claims["aid"].(float64)
-	if !ok {
+	aid, err := tokenClaimInt64(claims, "aid", true, true)
+	if err != nil {
 		return 0, 0, errors.New("bad claims")
 	}
-	tvF, _ := claims["tv"].(float64)
-	return int64(aidF), int64(tvF), nil
+	tv, err := tokenClaimInt64(claims, "tv", false, false)
+	if err != nil {
+		return 0, 0, errors.New("bad claims")
+	}
+	return aid, tv, nil
 }
 
 func AdminAuth() gin.HandlerFunc {
@@ -161,8 +159,6 @@ func requireSuper() gin.HandlerFunc {
 		c.Next()
 	}
 }
-
-// APPEND-ADMIN-1
 
 type AdminUser struct {
 	ID         int64   `json:"id"`
@@ -454,8 +450,6 @@ func adminSettingValue(key string) (string, error) {
 	return v, err
 }
 
-// APPEND-ADMIN-2
-
 // ---------- 登录 / 当前管理员 / 首登改凭据 ----------
 
 func handleAdminLogin(c *gin.Context) {
@@ -594,8 +588,6 @@ func handleAdminChangeCredentials(c *gin.Context) {
 	}
 	aok(c, gin.H{"ok": true, "token": newToken, "refreshToken": newToken})
 }
-
-// APPEND-ADMIN-3
 
 func pageParams(c *gin.Context) (limit, offset, current, size int) {
 	current, _ = strconv.Atoi(c.DefaultQuery("current", "1"))
@@ -958,8 +950,6 @@ func handleAdminDeleteUser(c *gin.Context) {
 	aok(c, gin.H{"ok": true, "deleted": id})
 }
 
-// APPEND-ADMIN-4
-
 // ---------- 绑定关系管理 ----------
 
 func (s *Store) ListPairs(keyword string, limit, offset int) ([]gin.H, int, error) {
@@ -1122,6 +1112,9 @@ func handleAdminUnbindPair(c *gin.Context) {
 		afail(c, 500, 500, "操作失败")
 		return
 	}
+	if listenHub != nil {
+		listenHub.closePairRooms(id)
+	}
 	// Notify both sessions. The admin action must take effect in both Apps,
 	// not only in the database; MsgUnbound is transient and therefore is not
 	// replayed later to an offline session.
@@ -1174,8 +1167,6 @@ func handleAdminCancelPendingInvite(c *gin.Context) {
 		"pair="+strconv.FormatInt(id, 10), c.ClientIP())
 	aok(c, gin.H{"ok": true})
 }
-
-// APPEND-ADMIN-5
 
 // ---------- 内容审核（待办 / 相册照片） ----------
 
@@ -1437,8 +1428,6 @@ func handleAdminUpdatePhoto(c *gin.Context) {
 		"photo="+strconv.FormatInt(id, 10), c.ClientIP())
 	aok(c, gin.H{"ok": true})
 }
-
-// APPEND-ADMIN-6
 
 // ---------- 系统日志 / 审计 ----------
 
@@ -1800,8 +1789,6 @@ func handleAdminUpdateSettings(c *gin.Context) {
 	aok(c, gin.H{"ok": true, "changed": len(changes)})
 }
 
-// APPEND-ADMIN-8
-
 // ---------- 通知模板与下发记录 ----------
 
 func (s *Store) ListNotifyTemplates() ([]gin.H, error) {
@@ -1885,7 +1872,7 @@ func (s *Store) ListNotifyRecords(limit, offset int) ([]gin.H, int, error) {
 			continue
 		}
 		out = append(out, gin.H{"id": id, "template_code": code, "title": title, "body": body,
-			"target": target, "sent_count": sent, "created_at": created})
+			"target": target, "queued_count": sent, "sent_count": sent, "created_at": created})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, 0, err
@@ -2029,8 +2016,10 @@ func handleAdminSendNotify(c *gin.Context) {
 	sent := len(ids)
 	st.AddNotifyRecord(templateCode, title, body, target, sent)
 	st.AddAudit(c.GetInt64("aid"), c.GetString("admin_name"), "send_notify",
-		fmt.Sprintf("target=%s sent=%d title=%s", target, sent, title), c.ClientIP())
-	aok(c, gin.H{"sent": sent})
+		fmt.Sprintf("target=%s queued=%d title=%s", target, sent, title), c.ClientIP())
+	// route() 只负责写入 WS 或离线队列，请求返回时无法宣称厂商推送/设备已接收。
+	// 保留 sent 兼容旧客户端，但新增 queued 字段让后台显示准确语义。
+	aok(c, gin.H{"queued": sent, "sent": sent})
 }
 
 // resolveNotifyTargets 解析投递目标。
@@ -2281,7 +2270,8 @@ func handleAdminSmtpTest(c *gin.Context) {
 		return
 	}
 	to := strings.TrimSpace(req.To)
-	if !strings.Contains(to, "@") || strings.HasPrefix(to, "@") || strings.HasSuffix(to, "@") {
+	to = strings.ToLower(to)
+	if len([]byte(to)) > maxEmailBytes || !reEmail.MatchString(to) {
 		afail(c, 400, 400, "收件邮箱格式不正确")
 		return
 	}
@@ -2319,6 +2309,9 @@ func registerAdminRoutes(r *gin.Engine) {
 	auth.GET("/network-logs", handleAdminListNetworkLogs)
 	auth.GET("/notify-templates", handleAdminListTemplates)
 	auth.GET("/notify-records", handleAdminListRecords)
+	if listenHub != nil {
+		auth.GET("/listen-rooms", listenHub.listRooms)
+	}
 	// 站点展示信息：所有已登录管理员可读（含首登改密期间），不含任何密钥。
 	auth.GET("/site-info", handleAdminSiteInfo)
 
@@ -2372,4 +2365,7 @@ func registerAdminRoutes(r *gin.Engine) {
 	sup.PUT("/notify-templates", handleAdminUpsertTemplate)
 	sup.DELETE("/notify-templates/:id", handleAdminDeleteTemplate)
 	sup.POST("/notify", handleAdminSendNotify)
+	if listenHub != nil {
+		sup.DELETE("/listen-rooms/:roomID", listenHub.closeRoom)
+	}
 }

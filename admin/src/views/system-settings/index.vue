@@ -66,7 +66,7 @@
           />
         </ElFormItem>
         <ElFormItem :label="$t('systemSettings.site.url')" prop="site.url">
-          <ElInput v-model.trim="form['site.url']" placeholder="https://love.lxii.cc" />
+          <ElInput v-model.trim="form['site.url']" placeholder="https://example.com" />
           <div class="settings-hint">{{ $t('systemSettings.site.urlHint') }}</div>
         </ElFormItem>
         <ElFormItem :label="$t('systemSettings.site.logo')" prop="site.logo">
@@ -228,7 +228,8 @@
       album: t('systemSettings.runtime.groups.album'),
       retention: t('systemSettings.runtime.groups.retention'),
       security: t('systemSettings.runtime.groups.security'),
-      interaction: t('systemSettings.runtime.groups.interaction')
+      interaction: t('systemSettings.runtime.groups.interaction'),
+      listen_together: t('systemSettings.runtime.groups.listenTogether')
     }
     return titles[group] || group
   }

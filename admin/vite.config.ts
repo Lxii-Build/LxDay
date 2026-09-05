@@ -3,13 +3,11 @@ import vue from '@vitejs/plugin-vue'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import vueDevTools from 'vite-plugin-vue-devtools'
-import viteCompression from 'vite-plugin-compression'
 import Components from 'unplugin-vue-components/vite'
 import AutoImport from 'unplugin-auto-import/vite'
 import ElementPlus from 'unplugin-element-plus/vite'
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import tailwindcss from '@tailwindcss/vite'
-// import { visualizer } from 'rollup-plugin-visualizer'
 
 export default ({ mode }: { mode: string }) => {
   const root = process.cwd()
@@ -50,13 +48,21 @@ export default ({ mode }: { mode: string }) => {
       target: 'es2015',
       outDir: 'dist',
       chunkSizeWarningLimit: 2000,
-      minify: 'terser',
-      terserOptions: {
-        compress: {
-          // 生产环境去除 console
-          drop_console: true,
-          // 生产环境去除 debugger
-          drop_debugger: true
+      // 使用 Vite 内置 esbuild，避免 terser 在大后台构建时创建过高的峰值内存。
+      // 生产包仍移除调试输出；不额外引入一个只用于压缩的构建依赖。
+      minify: 'esbuild',
+      esbuild: {
+        drop: ['console', 'debugger']
+      },
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return undefined
+            if (id.includes('echarts')) return 'vendor-echarts'
+            if (id.includes('element-plus')) return 'vendor-element-plus'
+            if (id.includes('vue') || id.includes('pinia')) return 'vendor-vue'
+            return undefined
+          }
         }
       },
       dynamicImportVarsOptions: {
@@ -88,24 +94,8 @@ export default ({ mode }: { mode: string }) => {
       ElementPlus({
         useSource: true
       }),
-      // 压缩
-      viteCompression({
-        verbose: false, // 是否在控制台输出压缩结果
-        disable: false, // 是否禁用
-        algorithm: 'gzip', // 压缩算法
-        ext: '.gz', // 压缩后的文件名后缀
-        threshold: 10240, // 只有大小大于该值的资源会被处理 10240B = 10KB
-        deleteOriginFile: false // 压缩后是否删除原文件
-      }),
       // 开发调试工具：仅开发环境注入，避免进入生产产物
       ...(mode === 'development' ? [vueDevTools()] : [])
-      // 打包分析
-      // visualizer({
-      //   open: true,
-      //   gzipSize: true,
-      //   brotliSize: true,
-      //   filename: 'dist/stats.html' // 分析图生成的文件名及路径
-      // }),
     ],
     // 依赖预构建：避免运行时重复请求与转换，提升首次加载速度
     optimizeDeps: {
@@ -114,7 +104,6 @@ export default ({ mode }: { mode: string }) => {
         'echarts/charts',
         'echarts/components',
         'echarts/renderers',
-        'crypto-js',
         'element-plus/es',
         'element-plus/es/components/*/style/css',
         'element-plus/es/components/*/style/index'

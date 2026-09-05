@@ -2,11 +2,17 @@
 <template>
   <div class="relative box-border flex-c w-full overflow-hidden">
     <!-- 左侧滚动按钮 -->
-    <div v-show="showLeftArrow" class="button-arrow" @click="scroll('left')">
+    <button
+      v-show="showLeftArrow"
+      type="button"
+      class="button-arrow"
+      :aria-label="$t('common.previous')"
+      @click="scroll('left')"
+    >
       <ElIcon>
         <ArrowLeft />
       </ElIcon>
-    </div>
+    </button>
 
     <!-- 滚动容器 -->
     <ElScrollbar
@@ -18,9 +24,10 @@
     >
       <div class="box-border flex-c flex-shrink-0 flex-nowrap h-15 whitespace-nowrap">
         <template v-for="item in processedMenuList" :key="item.meta.title">
-          <div
+          <button
             v-if="!item.meta.isHide"
-            class="menu-item relative flex-shrink-0 h-10 px-3 text-sm flex-c c-p hover:text-theme"
+            type="button"
+            class="menu-item relative flex-shrink-0 min-h-11 h-10 px-3 text-sm flex-c c-p hover:text-theme border-0 bg-transparent"
             :class="{
               'menu-item-active text-theme': item.isActive
             }"
@@ -38,17 +45,23 @@
               {{ item.formattedTitle }}
             </span>
             <div v-if="item.meta.showBadge" class="art-badge art-badge-mixed" />
-          </div>
+          </button>
         </template>
       </div>
     </ElScrollbar>
 
     <!-- 右侧滚动按钮 -->
-    <div v-show="showRightArrow" class="button-arrow right-2" @click="scroll('right')">
+    <button
+      v-show="showRightArrow"
+      type="button"
+      class="button-arrow right-2"
+      :aria-label="$t('common.next')"
+      @click="scroll('right')"
+    >
       <ElIcon>
         <ArrowRight />
       </ElIcon>
-    </div>
+    </button>
   </div>
 </template>
 
@@ -238,7 +251,7 @@
     text-g-600 
     cursor-pointer
     rounded 
-    transition-all
+    transition-colors
     duration-300
     -translate-y-1/2 
     hover:text-g-900 

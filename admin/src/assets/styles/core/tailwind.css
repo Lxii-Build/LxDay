@@ -151,11 +151,21 @@
 
   /* Transition Utilities */
   .tad-200 {
-    @apply transition-all duration-200;
+    transition:
+      color 200ms,
+      background-color 200ms,
+      border-color 200ms,
+      opacity 200ms,
+      transform 200ms;
   }
 
   .tad-300 {
-    @apply transition-all duration-300;
+    transition:
+      color 300ms,
+      background-color 300ms,
+      border-color 300ms,
+      opacity 300ms,
+      transform 300ms;
   }
 
   /* Border Utilities */

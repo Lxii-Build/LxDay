@@ -11,6 +11,8 @@ import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -40,6 +42,15 @@ object ApiClient {
             .readTimeout(5, TimeUnit.MINUTES)
             .writeTimeout(5, TimeUnit.MINUTES)
             .callTimeout(5, TimeUnit.MINUTES)
+            .build()
+    }
+
+    // WebSocket 不是一次性 HTTP 请求，不能继承 REST 的 30 秒 read timeout；
+    // 心跳负责发现断线，连接本身允许长期保持。
+    private val webSocketClient by lazy {
+        client.newBuilder()
+            .readTimeout(0, TimeUnit.MILLISECONDS)
+            .pingInterval(20, TimeUnit.SECONDS)
             .build()
     }
 
@@ -201,11 +212,61 @@ object ApiClient {
             put("password", password)
         })
 
-    /** 检查 GitHub Releases，channel=stable 只看正式版，testing 同时看预发行版。 */
-    suspend fun checkUpdate(versionCode: Int, channel: String = "stable"): JSONObject =
-        get("/app/latest?platform=android&version_code=$versionCode&channel=$channel")
+    /** 检查统一更新流：正式版与测试版由同一接口返回。 */
+    suspend fun checkUpdate(versionCode: Int): JSONObject =
+        get("/app/latest?platform=android&version_code=$versionCode")
 
     suspend fun pairStatus(): JSONObject = get("/pair/status")
+
+    // ============ 一起听 ============
+
+    suspend fun createListenRoom(): JSONObject = postJson("/listen/rooms", JSONObject())
+
+    /** 已绑定情侣直接进入双方唯一活动房间，不再要求手填房间号和口令。 */
+    suspend fun joinCurrentListenRoom(): JSONObject = postJson("/listen/rooms/join", JSONObject())
+
+    suspend fun joinListenRoom(roomId: String, joinSecret: String): JSONObject =
+        postJson("/listen/rooms/${roomId.trim().uppercase()}/join", JSONObject().put("join_secret", joinSecret.trim()))
+
+    suspend fun listenRoomState(roomId: String): JSONObject =
+        get("/listen/rooms/${roomId.trim().uppercase()}/state")
+
+    suspend fun controlListenRoom(roomId: String, action: JSONObject): JSONObject =
+        postJson("/listen/rooms/${roomId.trim().uppercase()}/control", action)
+
+    suspend fun leaveListenRoom(roomId: String): JSONObject =
+        postJson("/listen/rooms/${roomId.trim().uppercase()}/leave", JSONObject())
+
+    /**
+     * 房间 WS 的 token 是内存 session token，不把 JWT 放进 query；JWT 仍通过 header
+     * 发送给服务端，便于在房间 token 泄露时再次校验账号状态；房间 token 走自定义
+     * header，不放在 URL 查询串里，避免进入代理访问日志。
+     */
+    fun openListenSocket(roomId: String, sessionToken: String, listener: WebSocketListener): WebSocket {
+        // 与状态同步共用构建期 WS_URL；未配置时才从 BASE_URL 取 origin。
+        // 不能简单对 BASE_URL 做字符串替换：自定义反代路径或大小写变化会把房间
+        // WS 拼到错误的 host/path，表现为 REST 正常、一起听永远连不上。
+        val configured = BuildConfig.WS_URL.trimEnd('/')
+        val base = if (configured.isNotBlank()) configured.removeSuffix("/ws") else {
+            val origin = MediaUrlPolicy.originOf(BASE)
+            val wsOrigin = when {
+                origin.startsWith("https://", ignoreCase = true) -> "wss://${origin.substringAfter("://")}"
+                origin.startsWith("http://", ignoreCase = true) -> "ws://${origin.substringAfter("://")}"
+                else -> origin
+            }
+            "$wsOrigin/api/v1"
+        }
+        val scheme = base.substringBefore("://", "")
+        if (!BuildConfig.DEBUG && !scheme.equals("wss", ignoreCase = true)) {
+            throw ApiException(-2, "当前版本要求使用安全 WebSocket 连接")
+        }
+        val url = "$base/listen/rooms/${roomId.trim().uppercase()}/ws"
+        val request = Request.Builder().url(url).apply {
+            UserPrefs.token?.let { header("Authorization", "Bearer $it") }
+            header("X-Lx-Listen-Token", sessionToken)
+        }.build()
+        return webSocketClient.newWebSocket(request, listener)
+    }
 
     /** 获取本人资料（/profile/me） */
     suspend fun getMyProfile(): JSONObject = get("/profile/me")
@@ -315,11 +376,19 @@ object ApiClient {
      * 返回 (照片列表, keepDays)；keepDays<=0 表示永久保留。
      * 每张照片带 recycleRemainingDays，供 UI 显示「还剩 N 天自动删除」。
      */
-    suspend fun recycledPhotosFull(): Pair<List<PhotoItem>, Int> {
-        val obj = get("/photos/recycled")
+    suspend fun recycledPhotosFull(page: Int = 1, size: Int = 30): RecycleBinPage {
+        val safePage = page.coerceAtLeast(1)
+        val safeSize = size.coerceIn(1, 100)
+        val obj = get("/photos/recycled?page=$safePage&size=$safeSize")
         val arr = obj.optJSONArray("list") ?: org.json.JSONArray()
         val list = (0 until arr.length()).map { PhotoItem.fromJson(arr.getJSONObject(it)) }
-        return list to obj.optInt("keep_days", -1)
+        return RecycleBinPage(
+            photos = list,
+            total = obj.optInt("total", list.size),
+            keepDays = obj.optInt("keep_days", -1),
+            page = obj.optInt("page", safePage),
+            size = obj.optInt("size", safeSize),
+        )
     }
 
     suspend fun restorePhoto(photoId: Long): JSONObject =

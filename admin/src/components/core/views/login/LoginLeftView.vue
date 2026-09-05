@@ -34,11 +34,15 @@
       <div class="geo-element bg-bubble animate-scale-in" style="animation-delay: 0.5"></div>
 
       <!-- 太阳/月亮 -->
-      <div
-        class="geo-element circle-top-right animate-fade-in-down"
+      <button
+        type="button"
+        class="geo-element circle-top-right animate-fade-in-down border-0 bg-transparent p-0"
+        :aria-label="$t('topBar.actions.themeToggle')"
         style="animation-delay: 0.5"
         @click="themeAnimation"
-      ></div>
+        @keydown.enter="themeAnimation"
+        @keydown.space.prevent="themeAnimation"
+      ></button>
 
       <!-- 装饰点 -->
       <div class="geo-element dot dot-top-left animate-bounce-in" style="animation-delay: 0s"></div>
@@ -353,7 +357,10 @@
         cursor: pointer;
         background: $bg-mix-light-7;
         border-radius: 50%;
-        transition: all 0.3s;
+        transition:
+          background-color 0.3s,
+          box-shadow 0.3s,
+          transform 0.3s;
 
         &::after {
           position: absolute;
@@ -365,7 +372,9 @@
           background: linear-gradient(to right, #fcbb04, #fffc00);
           border-radius: 50%;
           opacity: 0;
-          transition: all 0.5s;
+          transition:
+            opacity 0.5s,
+            transform 0.5s;
           transform: translate(-50%, -50%);
         }
 
@@ -524,7 +533,10 @@
       .circle-top-right {
         background-color: $bg-mix-light-8;
         box-shadow: 0 0 25px #333 inset;
-        transition: all 0.3s ease-in-out 0.1s;
+        transition:
+          background-color 0.3s ease-in-out 0.1s,
+          box-shadow 0.3s ease-in-out 0.1s,
+          transform 0.3s ease-in-out 0.1s;
         rotate: -48deg;
 
         &::before {
@@ -536,7 +548,10 @@
           content: '';
           background-color: $bg-mix-light-9;
           border-radius: 50%;
-          transition: all 0.3s ease-in-out;
+          transition:
+            background-color 0.3s ease-in-out,
+            left 0.3s ease-in-out,
+            opacity 0.3s ease-in-out;
         }
 
         &:hover {

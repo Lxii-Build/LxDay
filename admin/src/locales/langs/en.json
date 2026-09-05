@@ -16,12 +16,15 @@
   },
   "topBar": {
     "actions": {
+      "home": "Go to home",
       "toggleMenu": "Expand or collapse menu",
       "refresh": "Refresh current page",
       "quickAccess": "Open quick access",
       "enterFullscreen": "Enter fullscreen",
       "exitFullscreen": "Exit fullscreen",
       "language": "Change language",
+      "themeColor": "Choose theme color",
+      "themeToggle": "Toggle light and dark theme",
       "settings": "Open appearance settings",
       "useLightTheme": "Switch to light theme",
       "useDarkTheme": "Switch to dark theme",
@@ -30,7 +33,8 @@
     "user": {
       "userCenter": "Change Credentials",
       "repo": "Repository",
-      "logout": "Log out"
+      "logout": "Log out",
+      "menu": "Open user menu"
     },
     "guide": {
       "title": "Click here to view",
@@ -43,6 +47,8 @@
     "tips": "Prompt",
     "cancel": "Cancel",
     "close": "Close",
+    "previous": "Scroll left",
+    "next": "Scroll right",
     "confirm": "Confirm",
     "confirmDelete": "Delete",
     "logOutTips": "Do you want to log out?",
@@ -60,7 +66,8 @@
     "saveSuccess": "Saved",
     "deleteSuccess": "Deleted",
     "enableSuccess": "Enabled",
-    "disableSuccess": "Disabled"
+    "disableSuccess": "Disabled",
+    "more": "More tab actions"
   },
   "setting": {
     "menuType": {
@@ -75,7 +82,8 @@
       "title": "Menu Style"
     },
     "color": {
-      "title": "Theme Color"
+      "title": "Theme Color",
+      "choose": "Choose theme color {color}"
     },
     "box": {
       "title": "Box Style",
@@ -215,6 +223,9 @@
     },
     "storageStats": {
       "title": "Storage"
+    },
+    "listenTogether": {
+      "title": "Listen Together"
     }
   },
   "table": {
@@ -231,6 +242,12 @@
       "searchSelectPlaceholder": "Please select"
     },
     "selection": "Select",
+    "search": "Search",
+    "size": "Adjust table density",
+    "fullscreen": "Full screen",
+    "exitFullscreen": "Exit full screen",
+    "columns": "Column settings",
+    "settings": "Table settings",
     "sizeOptions": {
       "small": "Compact",
       "default": "Default",
@@ -366,6 +383,26 @@
       "members": "Members",
       "anniversary": "Anniversary"
     }
+  },
+  "listenTogether": {
+    "eyebrow": "LISTEN TOGETHER",
+    "title": "Listen Together rooms",
+    "description": "Inspect active sync rooms. Closing a room immediately stops synchronization on both phones.",
+    "roomsTitle": "Active rooms",
+    "playing": "Playing",
+    "paused": "Paused",
+    "noTrack": "No track synchronized",
+    "pair": "Pair #{id}",
+    "host": "Host #{id}",
+    "members": "{count} online",
+    "close": "Close room",
+    "closeTitle": "Close listen-together room",
+    "closeConfirm": "Close room {room}? Both phones will stop synchronizing, but local music playback is not affected.",
+    "closeSuccess": "Room closed",
+    "empty": "No active rooms",
+    "loading": "Loading rooms…",
+    "loadFailed": "Could not load rooms. Check the connection and try again.",
+    "retry": "Try again"
   },
   "contentAudit": {
     "tabs": {
@@ -506,6 +543,7 @@
     "send": {
       "template": "Template",
       "templatePlaceholder": "Optional — picking one fills in the title and body",
+      "templateLoadFailed": "Could not load notification templates",
       "title": "Title",
       "titlePlaceholder": "Notification title",
       "body": "Body",
@@ -516,7 +554,8 @@
       "uids": "User IDs",
       "uidsPlaceholder": "Comma-separated, e.g. 1,2,3",
       "submit": "Send notification",
-      "success": "Sent to {count} user(s)"
+      "success": "Queued for {count} user(s)",
+      "queued": "Queued for {count} user(s); delivery depends on device connectivity"
     },
     "templates": {
       "create": "New template",
@@ -543,7 +582,7 @@
         "body": "Body",
         "template": "Template",
         "target": "Audience",
-        "sentCount": "Delivered",
+        "queuedCount": "Queued",
         "createdAt": "Sent at"
       }
     },
@@ -554,6 +593,41 @@
       "uidsRequired": "Enter at least one user ID",
       "uidsInvalid": "User IDs must be positive integers, separated by commas"
     }
+  },
+  "storageStats": {
+    "retention": {
+      "title": "Data retention",
+      "goSettings": "Adjust in settings",
+      "recycleBin": "Recycle bin retention",
+      "statusHistory": "Status history retention",
+      "networkLog": "Network log retention",
+      "forever": "Keep forever",
+      "days": "{days} days"
+    },
+    "pairsTitle": "Storage by couple (largest first)",
+    "table": {
+      "pairId": "Couple ID",
+      "couple": "Couple",
+      "photoCount": "Photos",
+      "storage": "Storage",
+      "recycleBin": "Recycle bin"
+    },
+    "summary": {
+      "photoCount": "Total photos",
+      "originalStorage": "Original storage",
+      "dbOriginal": "Original bytes recorded in the database",
+      "diskUsage": "Actual disk usage",
+      "diskHint": "{count} files, including thumbnails and previews",
+      "recycled": "Recycle bin usage",
+      "pending": "{count} photos pending cleanup"
+    },
+    "units": { "photos": "photos" },
+    "purge": "Empty recycle bin",
+    "purgeTitle": "Empty recycle bin",
+    "purgeConfirm": "Permanently delete {count} photos from {couple}'s recycle bin ({size})? Files on the server will also be removed and cannot be recovered.",
+    "purgeConfirmButton": "Delete permanently",
+    "purgeSuccess": "Removed {count} photos and freed {size}",
+    "empty": "No photos yet"
   },
   "systemSettings": {
     "save": "Save settings",
@@ -573,7 +647,8 @@
         "album": "Albums & uploads",
         "retention": "Data retention",
         "security": "Security & rate limits",
-        "interaction": "Interaction cooldowns"
+        "interaction": "Interaction cooldowns",
+        "listenTogether": "Listen together"
       }
     },
     "site": {

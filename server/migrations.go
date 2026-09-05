@@ -13,8 +13,8 @@ import (
 var baseSchemaSQL string
 
 // schemaBaselineVersion 是当前已知迁移的最高版本。迁移 1 负责“建表 + 补列 + 建索引”，
-// 迁移 2 负责移除旧版 APP 版本表；历史数据库升级后会记账，之后不再重复执行。
-const schemaBaselineVersion = 2
+// 迁移 2 负责移除旧版 APP 版本表，迁移 3 增加一起听房间表，迁移 4 收敛每对情侣的活动房间。
+const schemaBaselineVersion = 4
 
 // migrationExecutor 是 sql.DB 与 sql.Tx 的共同子集，让建表、补列、建索引能在同一
 // 事务内完成。迁移失败时不会留下“只建了一半索引却已标记成功”的状态。
@@ -69,6 +69,16 @@ func runMigrations(db *sql.DB) error {
 			return err
 		}
 	}
+	if current.Int64 < 3 {
+		if err := applyMigration(db, 3, applyListenTogetherTables); err != nil {
+			return err
+		}
+	}
+	if current.Int64 < 4 {
+		if err := applyMigration(db, 4, applyListenTogetherActiveRoomConstraint); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -96,6 +106,52 @@ func applyMigration(db *sql.DB, version int, apply func(migrationExecutor) error
 func retireAppVersionTable(db migrationExecutor) error {
 	if _, err := db.Exec(`DROP TABLE IF EXISTS app_version`); err != nil {
 		return fmt.Errorf("remove legacy app version table failed: %w", err)
+	}
+	return nil
+}
+
+// applyListenTogetherTables 是独立迁移而不是把新表偷偷塞回基线，
+// 确保已经运行到 schema 2 的生产库可以安全升级。
+func applyListenTogetherTables(db migrationExecutor) error {
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS listen_room (
+		id TEXT PRIMARY KEY,
+		pair_id INTEGER NOT NULL,
+		host_user_id INTEGER NOT NULL,
+		join_secret_hash TEXT NOT NULL,
+		allow_member_control INTEGER NOT NULL DEFAULT 1,
+		auto_pause_on_member_change INTEGER NOT NULL DEFAULT 1,
+		-- Deprecated compatibility column; server never exposes third-party URLs.
+		share_audio_links INTEGER NOT NULL DEFAULT 0,
+		state_json TEXT NOT NULL DEFAULT '{}',
+		status INTEGER NOT NULL DEFAULT 1,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		return fmt.Errorf("create listen_room table failed: %w", err)
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_listen_room_pair_status ON listen_room(pair_id, status)`); err != nil {
+		return fmt.Errorf("create listen_room index failed: %w", err)
+	}
+	return nil
+}
+
+// applyListenTogetherActiveRoomConstraint 在唯一索引建立前收敛历史脏数据，
+// 确保同一对情侣最多保留最近更新的一间活动房间。之后由 SQLite 在并发创建时兜底，
+// 应用层的“先关闭再创建”仍负责正常流程与通知旧连接。
+func applyListenTogetherActiveRoomConstraint(db migrationExecutor) error {
+	if _, err := db.Exec(`UPDATE listen_room
+		SET status=0,updated_at=datetime('now')
+		WHERE status=1 AND EXISTS (
+			SELECT 1 FROM listen_room newer
+			WHERE newer.status=1 AND newer.pair_id=listen_room.pair_id
+				AND (newer.updated_at > listen_room.updated_at OR
+					(newer.updated_at = listen_room.updated_at AND newer.id > listen_room.id))
+		)`); err != nil {
+		return fmt.Errorf("coalesce active listen rooms failed: %w", err)
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uk_listen_room_pair_active
+		ON listen_room(pair_id) WHERE status=1`); err != nil {
+		return fmt.Errorf("create active listen room constraint failed: %w", err)
 	}
 	return nil
 }

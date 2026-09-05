@@ -11,8 +11,8 @@ miuix = "0.9.3"
 okhttp = "4.12.0"
 coil = "3.0.4"
 exifinterface = "1.3.7"
-backdrop = "2.0.0"
-shapes = "1.2.0"
+media3 = "1.10.1"
+zxing = "3.5.3"
 
 [plugins]
 agp-app = { id = "com.android.application", version.ref = "agp" }
@@ -37,6 +37,10 @@ okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhtt
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
 coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil" }
 androidx-exifinterface = { group = "androidx.exifinterface", name = "exifinterface", version.ref = "exifinterface" }
+androidx-media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = "media3" }
+androidx-media3-datasource = { module = "androidx.media3:media3-datasource", version.ref = "media3" }
+androidx-media3-session = { module = "androidx.media3:media3-session", version.ref = "media3" }
+zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 
 miuix-ui = { module = "top.yukonga.miuix.kmp:miuix-ui-android", version.ref = "miuix" }
 miuix-icons = { module = "top.yukonga.miuix.kmp:miuix-icons-android", version.ref = "miuix" }
@@ -45,5 +49,3 @@ miuix-squircle = { module = "top.yukonga.miuix.kmp:miuix-squircle-android", vers
 miuix-blur = { module = "top.yukonga.miuix.kmp:miuix-blur-android", version.ref = "miuix" }
 
 material-kolor = { module = "com.materialkolor:material-kolor", version.ref = "materialKolor" }
-backdrop = { module = "io.github.kyant0:backdrop", version.ref = "backdrop" }
-shapes = { module = "io.github.kyant0:shapes", version.ref = "shapes" }

@@ -1,39 +1,43 @@
-# 功能实现索引
+# Android 功能索引
 
-| 功能 | UI/入口 | 核心实现 | 权限或协议 |
-|---|---|---|---|
-| 绑定 | `screens/BindScreen.kt` | `data/ApiClient.kt` | REST `/pair/create-invite`、`/pair/bind` |
-| 知情授权 | 根级 Miuix `OverlayDialog` / `screens/PrivacyConsentScreen.kt` | `UserPrefs.privacyConsented`、`sync/SharingRuntimePolicy.kt` | 同意后才开启真实共享 |
-| 主页 | `screens/NowScreen.kt` | `core/DeviceStatusHolder.kt`、`sync/StatusFreshness.kt` | 状态同步 WS；数据时效分 Fresh/Stale/Offline 三档 |
-| 待办 | `screens/TodoScreen.kt` / 主层 FAB | `core/TodoAlarmReceiver.kt` | REST + WS + AlarmManager |
-| 相册列表 | 发现页 → `Screen.DiscoverAlbum` / `screens/AlbumListScreen.kt` | `data/ApiClient.kt` | REST `/albums`、`/albums/summary`；见 [ALBUM.md](ALBUM.md) |
-| 相册详情（网格） | `screens/AlbumDetailScreen.kt` | Coil 3 加载 `/media/<id>/thumb`；长按进多选 | REST `/albums/:id/photos`、批量删/移 |
-| 大图查看 | `screens/PhotoViewerScreen.kt` | Pager + 双指缩放；先 `/preview` 再 `/media/<id>`；`data/LocalPhotoIndex.kt` 优先读本机原图 | REST `/photos/:id`、点赞/评论接口 |
-| 回收站 | 相册列表 → `screens/RecycleBinScreen.kt` | `data/ApiClient.kt` | REST `/photos/recycled`、`restore`、`purge`、`purge-all` |
-| 「这一天」 | `screens/OnThisDayScreen.kt` | `data/ApiClient.kt` | REST `/photos/on-this-day` |
-| 图片选择器 | `screens/PhotoPickerScreen.kt` | `data/MediaStoreImages.kt`、`data/MediaSortPolicy`；顶栏兜底系统 Photo Picker | READ_MEDIA_IMAGES + READ_MEDIA_VISUAL_USER_SELECTED（Photo Picker 免权限） |
-| 照片上传 | 选择器 → 上传 | `data/ImagePrep.kt`、`data/ImagePrepPolicy.kt`、`data/PhotoUploader.kt` | EXIF 旋正 + 解码期缩到 2048 + HEIC→JPEG；REST `POST /media`；失败逐张给原因 |
-| 头像 | 我的 → 编辑资料 → 点头像 | 同一个选图器 → `screens/AvatarCropScreen.kt` + `data/AvatarCropper.kt` | 圆形裁剪后 `POST /me/avatar` |
-| 图片地址补全 | 无独立页面 | `data/MediaUrlPolicy.kt`，收口在 `data/AppImageLoader.kt` 的 Coil mapper | 服务端 `site.url` 未配置时返回相对路径，客户端补 origin |
-| 同步自检 | 我的 → `screens/KeepAliveCheckScreen.kt` | 逐项探测保活权限 | 每项写明「不开会怎样」 |
-| 伴侣状态历史 | 我的 → `screens/HistoryScreen.kt` | `data/ApiClient.kt` | REST `/status/history?who=me\|partner`、`/status/battery-curve` |
-| 状态采集 | 无独立页面 | `core/StatusCollector.kt` | Usage Access、定位、通知使用权 |
-| 实时同步 | 无独立页面 | `sync/StatusSyncManager.kt` | WSS `/ws` + `Authorization: Bearer JWT` |
-| 常驻通知 | 我的页开关/前台服务 | `service/StatusForegroundService.kt` | 前台服务、通知权限 |
-| 强制响铃 | 此刻页/通知 Action | `core/RingHelper.kt` | 闹钟音频、震动、全屏通知 |
-| 主题 | 我的页主题模式 | `ui/theme/Theme.kt` | SYSTEM/LIGHT/DARK |
-| 悬浮玻璃 | 主界面固定开启 | `ui/liquid/miuix/` | Miuix blur/Backdrop |
-| 诊断日志 | 我的 → 导出诊断日志 | `util/Logs.kt`、`DiagnosticExporter.kt` | FileProvider Sharesheet |
+这里列出当前入口和实现文件，新增或移动功能后应同步更新。服务端接口的完整约束见 [ALBUM.md](ALBUM.md) 和 [server/README.md](../server/README.md)。
+
+| 功能 | 页面/入口 | 主要实现 | 服务端或系统能力 |
+| --- | --- | --- | --- |
+| 登录/注册 | `screens/LoginScreen.kt`、`RegisterScreen.kt` | `data/ApiClient.kt` | `/auth/*` |
+| 绑定与授权 | `screens/BindScreen.kt`、`PrivacyConsentScreen.kt` | `sync/SharingRuntimePolicy.kt`、`util/Utils.kt` | `/pair/*`；双方知情授权 |
+| 此刻 | `screens/NowScreen.kt` | `core/DeviceStatus.kt`、`sync/StatusFreshness.kt` | 状态 REST + WSS |
+| 待办 | `screens/TodoScreen.kt` | `core/TodoAlarmReceiver.kt`、`core/TodoRepeatPolicy.kt` | `/todos*` + AlarmManager |
+| 发现 | `screens/DiscoverScreen.kt` | `ui/navigation/LinxiApp.kt` | 相册、这一天、回收站入口 |
+| 相册列表/详情 | `screens/AlbumListScreen.kt`、`AlbumDetailScreen.kt` | `data/AlbumModels.kt`、`PhotoUploader.kt` | `/albums*`、`/media` |
+| 多图查看 | `screens/PhotoViewerScreen.kt` | `data/AppImageLoader.kt`、`LocalPhotoIndex.kt` | Pager、预览图和鉴权原图 |
+| 回收站/这一天 | `screens/RecycleBinScreen.kt`、`OnThisDayScreen.kt` | `data/ApiClient.kt` | `/photos/recycled`、`/photos/on-this-day` |
+| 图片选择与上传 | `screens/PhotoPickerScreen.kt` | `MediaStoreImages.kt`、`ImagePrep.kt`、`ImagePrepPolicy.kt` | Photo Picker、像素/帧/内存预算 |
+| 资料/头像 | `screens/ProfileEditScreen.kt`、`AvatarCropScreen.kt` | `data/AvatarCropper.kt` | `/profile*` |
+| 状态历史 | `screens/HistoryScreen.kt` | `core/DeviceStatus.kt`、`data/ApiClient.kt` | `/status/history*` |
+| 设置/自检 | `screens/SettingsScreen.kt`、`KeepAliveCheckScreen.kt` | `core/PermissionHelper.kt` | 系统权限和保活检查 |
+| 音乐库/收藏 | `screens/MusicHomeScreen.kt`、`MusicSettingsScreen.kt` | `data/NeteaseClient.kt`、`NeteaseAccountStore.kt`、`NeteasePlaybackManager.kt` | 网易云搜索、喜欢状态、播放队列和设备端 Cookie |
+| 歌词/歌词搜索 | `screens/LyricsScreen.kt` | `data/NeteaseMusicModels.kt`、`NeteaseClient.kt` | LRC/YRC 解析、翻译行、点击跳转和候选搜索 |
+| 一起听 | `screens/ListenTogetherScreen.kt` | `data/NeteaseClient.kt`、`data/NeteasePlaybackManager.kt`、`data/NeteaseAccountStore.kt`、`data/ApiClient.kt` | 网易云官方登录 + 本机解析/Media3 播放；`/listen/rooms*` + 房间 WSS 只同步 song ID 与时间轴 |
+| 更新日志/检查更新 | `screens/AboutScreen.kt` | `data/ApiClient.kt`、`ChangelogFormatter.kt`、`BuildConfig.COMMIT_SHORT_HASH` | `/app/latest`、GitHub Release、构建提交定位 |
+| 实时同步 | 无独立页面 | `sync/StatusSyncManager.kt`、`WsEventRouter.kt` | WSS `/ws` + Bearer JWT |
+| 常驻通知 | 系统通知栏 | `service/StatusForegroundService.kt`、`NotificationCardState.kt` | 前台服务、RemoteViews |
+| 互动/响铃 | 此刻页和通知 Action | `sync/InteractionEvents.kt`、`core/RingHelper.kt` | `/interactions/*`、震动和闹钟音频 |
+| 诊断导出 | 设置页 | `util/Logs.kt`、`DiagnosticExporter.kt` | 私有目录 + FileProvider |
+
+## 共享约束
+
+- 所有二级页面接入系统返回和统一导航动画。
+- 列表页使用 `KernelScreen`；按钮使用 `LxButton`；确认/表单弹窗使用 `LxDialog.kt` 的统一组件。
+- 图片位必须有底色和失败占位；图片 URL 统一经 `AppImageLoader` 补全和鉴权。
+- 状态共享关闭、令牌失效或关系解除时，采集、同步和本地缓存都必须停止或清理。
+- 客户端隐藏入口不构成权限控制，服务端必须再次校验账号、pair 和功能开关。
 
 ## 日志标签
 
 - `Linxi/App`：Application 初始化
 - `Linxi/Main`：Activity、权限、主题启动
-- `Linxi/Nav`：页面与底栏装配
+- `Linxi/Nav`：页面与底栏
 - `Linxi/Service`：前台服务和状态刷新
-- `Linxi/Sync`：WebSocket 连接、消息和推送
-- `Linxi/Diagnostics`：日志导出
-
-## 修改规则
-
-涉及 UI、通知或日志行为时，必须同步更新 `android-ui.md`、`foreground-notification.md` 或 `diagnostics.md`；新增功能入口更新本索引。文档中的路径与代码入口必须通过 CI 前静态核查。
+- `Linxi/Sync`：WebSocket、消息和互动
+- `Linxi/Diagnostics`：诊断日志导出

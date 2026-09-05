@@ -49,6 +49,11 @@ import com.linxi.diary.ui.components.LxConfirmDialog
 import com.linxi.diary.ui.theme.BrandBlue
 import com.linxi.diary.util.Logs
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Scaffold
@@ -193,13 +198,20 @@ fun AlbumDetailScreen(
         uploadDone = 0
         uploadFailures.clear()
         try {
-            for ((index, uri) in pickedUris.withIndex()) {
-                val outcome = PhotoUploader.uploadOne(context, uri, albumId)
-                if (outcome == null) {
-                    uploadDone++
-                } else {
-                    uploadFailures += UploadFailure(index + 1, outcome)
-                }
+            val gate = Semaphore(3)
+            val results = coroutineScope {
+                pickedUris.mapIndexed { index, uri ->
+                    async {
+                        val outcome = gate.withPermit {
+                            PhotoUploader.uploadOne(context, uri, albumId)
+                        }
+                        index to outcome
+                    }
+                }.awaitAll()
+            }
+            results.sortedBy { it.first }.forEach { (index, outcome) ->
+                if (outcome == null) uploadDone++
+                else uploadFailures += UploadFailure(index + 1, outcome)
             }
         } finally {
             onPickedConsumed()
@@ -342,9 +354,20 @@ fun AlbumDetailScreen(
                                 uploadTotal = retryItems.size
                                 uploadDone = 0
                                 uploadFailures.clear()
-                                for ((i, item) in retryItems.withIndex()) {
-                                    val o = PhotoUploader.uploadOne(context, item.first, albumId, item.second)
-                                    if (o == null) uploadDone++ else uploadFailures += UploadFailure(i + 1, o)
+                                val gate = Semaphore(3)
+                                val results = coroutineScope {
+                                    retryItems.mapIndexed { index, item ->
+                                        async {
+                                            val outcome = gate.withPermit {
+                                                PhotoUploader.uploadOne(context, item.first, albumId, item.second)
+                                            }
+                                            index to outcome
+                                        }
+                                    }.awaitAll()
+                                }
+                                results.sortedBy { it.first }.forEach { (index, outcome) ->
+                                    if (outcome == null) uploadDone++
+                                    else uploadFailures += UploadFailure(index + 1, outcome)
                                 }
                                 loadFirst()
                             }

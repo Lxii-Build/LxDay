@@ -111,7 +111,21 @@ class StorageCompatibilityManager {
   private performSystemLogout(): void {
     setTimeout(() => {
       try {
-        localStorage.clear()
+        // 只清理本后台的键。后台可能与其他应用共用 origin，调用
+        // localStorage.clear() 会无条件删除同源应用的数据。
+        const appKeys = new Set([
+          StorageConfig.VERSION_KEY,
+          StorageConfig.THEME_KEY,
+          StorageConfig.LAST_USER_ID_KEY,
+          StorageConfig.RESPONSIVE_MENU_TYPE_KEY,
+          'user'
+        ])
+        for (const key of Object.keys(localStorage)) {
+          if (key.startsWith(StorageConfig.STORAGE_PREFIX) || appKeys.has(key)) {
+            localStorage.removeItem(key)
+          }
+        }
+        sessionStorage.removeItem('iframeRoutes')
         useUserStore().logOut()
         router.push({ name: 'Login' })
         console.info('[Storage] 已执行系统登出')

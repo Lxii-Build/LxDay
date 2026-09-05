@@ -1,145 +1,97 @@
-# 开发环境与验证流程
+# 开发与验证
 
-规范见仓库根 `AGENTS.md`。本文只讲"怎么跑"。
+硬性仓库约束见根目录 [AGENTS.md](../AGENTS.md)。本文只记录可重复的开发入口和验证顺序。
 
----
+## 工具链
 
-## 一、工具链
+| 部分 | 要求 |
+| --- | --- |
+| Server | Go 1.26+，`CGO_ENABLED=0` |
+| Admin | Node.js 20.19+、npm |
+| Android | JDK 21、Android SDK 37、Gradle 9.7 |
 
-| 工具 | 版本 | 说明 |
-|---|---|---|
-| Go | **1.25+** | 纯 Go（`CGO_ENABLED=0`），SQLite 用 `modernc.org/sqlite`。1.25 是 HEIC/AVIF 解码器（底层 wazero）声明的最低版本，`go.mod` / `Dockerfile` / CI 三处必须一致 |
-| JDK | Temurin 21 | Android 构建要求 |
-| Android SDK | platform 37 + build-tools 37 | minSdk 33 / targetSdk 37，见 `android/build.gradle.kts` 的 `extra[...]` |
-| Gradle | 9.7.0 | |
-| Node | ≥20.19 | 后台前端（Vite 7 + Vue 3.5） |
+依赖版本以 `server/go.mod`、`admin/package-lock.json` 和 `android/gradle/libs.versions.toml` 为准。新增 Go 依赖前先确认其最低 Go 版本，并同步 Dockerfile 与 CI。
 
-`android/local.properties` 需要（该文件在 `.gitignore` 内，不提交）：
+## 日常验证
 
-```properties
-sdk.dir=C\:\\Users\\<你>\\AppData\\Local\\Android\\Sdk
-```
-
-冒号与反斜杠都要转义，写错会报「文件名、目录名或卷标语法不正确」。
-
----
-
-## 二、日常命令
-
-### 服务端
+### Server
 
 ```bash
 cd server
-export CGO_ENABLED=0            # 纯 Go，不需要 C 工具链
-export GOPROXY=https://goproxy.cn,direct
-
-gofmt -l .                      # 输出为空才算通过；gofmt -w . 自动修
+gofmt -l .
 go vet ./...
-go test -timeout 400s ./...     # 必须带 timeout，否则死锁会等 10 分钟
-go build -o /tmp/lxday.exe .
+go test -timeout 400s ./...
+CGO_ENABLED=0 go build -trimpath -o linxi-server .
 ```
 
-**AVIF 编码极慢（约 195s/张），解码正常（约 400ms/张）。**
-服务端只解不编，所以生产无影响；但**不要在测试里编码 AVIF**，会拖垮 CI。
+`gofmt -l .` 必须没有输出。测试要覆盖旧 SQLite 库升级、NULL 列、分页去重、上传图片预算、清理任务和并发限流；不要只用全新数据库测试迁移。
 
-### 客户端
+### Admin
+
+```bash
+cd admin
+npm ci
+npm run build
+npm run lint
+```
+
+`npm run build` 包含 `vue-tsc --noEmit`。前端改动后应使用 `node scripts/mobile-audit.mjs <server-url>` 逐页检查登录、首登改密、用户、关系、相册、版本、设置、审计和网络日志页面，而不是只打开登录页。
+
+### Android
 
 ```bash
 cd android
-gradle :app:compileDebugKotlin --no-daemon    # 首次约 11 分钟，之后快
+gradle :app:compileDebugKotlin --no-daemon
 gradle :app:testDebugUnitTest --no-daemon
 ```
 
-### 后台
+真机还要验证状态共享默认开启、权限降级、WebSocket 重连、互动撤回、待办闹钟、相册多图滑动、图片失败占位、返回动画和更新弹窗。真机行为不能由 JVM 单测代替。
 
-```bash
+## 本地运行完整服务
+
+后台构建产物只用于本地嵌入测试，不要提交：
+
+```powershell
 cd admin
-npm run build                   # 含 vue-tsc --noEmit 类型检查
+npm run build
+cd ../server
+Remove-Item -Recurse -Force webdist -ErrorAction SilentlyContinue
+New-Item -ItemType Directory webdist | Out-Null
+Copy-Item ../admin/dist/* webdist -Recurse
+go build -o linxi-server .
 ```
 
----
+用独立数据目录启动，避免污染真实数据库：
 
-## 三、本地起完整服务（后台真机效果验证）
+```powershell
+$env:JWT_SECRET = (openssl rand -hex 32) # 仅本机测试；生产环境请使用独立随机密钥
+./linxi-server ./config.example.yaml
+```
 
-后台前端是 `go:embed` 进服务端二进制的，所以要先把产物拷进 `server/webdist/`：
+配置中的数据库和上传路径应改到临时目录；服务会在数据目录写入初始管理员口令文件。测试结束删除整个临时运行目录，保留仓库中的 `webdist/index.html` 占位文件。
+
+## 数据库与迁移
+
+- `server/sql/schema.sql` 是新库基线；`server/migrations.go` 负责老库补列和索引。
+- 迁移严格按“建表 → 补列 → 建索引”执行。
+- 新增列必须有“旧表结构 → 运行迁移”的测试；不能只测试新库。
+- `MaxOpenConns(1)` 下，rows 遍历期间禁止发起额外查询；配置需显式预热或使用进程缓存。
+- 功能下线不在启动时静默删表或删文件；不可逆清理必须有独立迁移、备份和审计。
+
+## 安全检查
+
+```powershell
+rg -n --hidden --glob '!.git/**' --glob '!.tmp-lint-report/**' -i 'ghp_|github_pat_|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|JWT_SECRET\s*[:=]\s*[^$<{[:space:]]|APP_KEY\s*[:=]\s*[^$<{[:space:]]' .
+```
+
+命令不应匹配真实凭据。配置、签名文件、APK 和访问令牌只通过环境变量或 CI Secret 提供。客户端可以被逆向，不能把共享通讯密钥当作安全边界。
+
+## 前端真机审计
+
+服务启动后运行：
 
 ```bash
-cd admin && npm run build
-cd .. && rm -rf server/webdist && mkdir -p server/webdist
-cp -r admin/dist/* server/webdist/
-
-cd server && CGO_ENABLED=0 go build -o /tmp/lxday.exe .
-
-mkdir -p /tmp/lxrun/data && cd /tmp/lxrun
-cat > config.yaml <<'EOF'
-server:
-  port: 7799
-db:
-  path: ./data/lx.db
-storage:
-  upload_dir: ./uploads
-app:
-  token_ttl_hours: 720
-EOF
-JWT_SECRET=dev /tmp/lxday.exe config.yaml
+node admin/scripts/mobile-audit.mjs http://127.0.0.1:7740
 ```
 
-- 初始超管口令写在 `<数据目录>/initial-admin-password.txt`
-- **必须走完 登录 → 首登改密 → 主界面** 才算测到位。只测登录页会漏掉主界面的问题
-- **收尾务必清掉 `server/webdist/`**，它不该进提交
-
-### ⚠️ 本机代理会造成假 502
-
-如果 shell 里有 `ALL_PROXY` / `HTTP_PROXY`，大 body 请求会被代理桥打断，
-表现为 502 或 `write ECONNRESET`——**这不是服务端的问题**。测本地服务时：
-
-```bash
-curl --noproxy '*' ...
-# Python: urllib.request.build_opener(urllib.request.ProxyHandler({}))
-```
-
-排查 0821 那个"生产 502"时就在这上面浪费过时间：本地复现的 502 是代理假象，
-绕过代理后 8.7MB 上传直接 200 成功；而生产的 502 是真的（根因见 `AGENTS.md` 2.3）。
-
----
-
-## 四、后台移动端验证
-
-```bash
-cd admin
-node scripts/mobile-audit.mjs http://127.0.0.1:7799
-```
-
-四档视口（一加 15 `412×915` / 最窄 `360×640` / iPhone `390×844` / 平板 `768×1024`）
-逐页断言：无横向溢出、无控制台 error、无 4xx/5xx、非白屏。
-截图落在 `admin/mobile-audit/`。
-
-卡片化断点是 **768px**：窄屏走卡片列表，平板及以上仍是 el-table。
-
----
-
-## 五、CI 查询（无 gh CLI 时）
-
-用 GitHub REST API + `Authorization: Bearer <token>`。
-
-**拉 job 日志要手动处理 302**：日志实际在 Azure 存储，重定向时不能带
-`Authorization` 头，否则 401。做法是禁用自动重定向
-（自定义 `HTTPRedirectHandler.redirect_request` 返回 None），
-捕获 `HTTPError` 后从 `e.headers["Location"]` 再取。
-
-手动触发工作流：`POST /actions/workflows/<file>/dispatches`，
-body `{"ref":"main","inputs":{...}}`，返回 204 即成功。
-
----
-
-## 六、数据库
-
-- schema 唯一真源是 `server/sql/schema.sql`；首次升级会在事务内执行基线并写入
-  `schema_migrations`，以后新增迁移必须追加版本，不能把回填或删数据塞进既有基线
-- 老库补列走 `migrations.go` 的 `schemaAddedColumns`
-  （SQLite 的 `ALTER TABLE ADD COLUMN` 不支持 `IF NOT EXISTS`，
-  所以要先查 `PRAGMA table_info`）
-- 功能下线不在启动时自动删表；当前迁移只负责兼容性建表与补列。若将来确需清理
-  退役数据，必须先备份并新增独立、可审计的迁移，不能依赖已删除的后台导出或清理接口
-- `MaxOpenConns(1)`：热路径不要重复查库，配置类读取一律走
-  `settings.go` 的进程内缓存（0820 踩过自锁死锁）
+脚本覆盖窄屏、手机和平板视口，重点检查横向溢出、白屏、控制台错误和 API 失败。若前端更新后线上仍是旧页面，检查运行镜像：后台通过 `go:embed` 进入服务端二进制，重新构建前端文件本身不会改变已运行的容器。

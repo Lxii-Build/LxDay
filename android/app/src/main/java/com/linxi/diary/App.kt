@@ -8,6 +8,8 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import com.linxi.diary.core.DeviceStatusHolder
 import com.linxi.diary.core.SyncHeartbeat
 import com.linxi.diary.data.ProfileRuntime
+import com.linxi.diary.data.NeteaseAccountStore
+import com.linxi.diary.data.NeteasePlaybackManager
 import com.linxi.diary.service.StatusForegroundService
 import com.linxi.diary.sync.AppForegroundState
 import com.linxi.diary.sync.StatusSyncManager
@@ -54,6 +56,14 @@ class App : Application() {
             Logs.i("App", "UserPrefs 已初始化")
         } catch (t: Throwable) {
             Logs.e("App", "UserPrefs.init 失败", t)
+        }
+        try {
+            NeteaseAccountStore.init(this)
+            NeteasePlaybackManager.init(this)
+            Logs.i("App", "网易云账号与播放器已初始化")
+        } catch (t: Throwable) {
+            // 播放器初始化失败不应阻断相册/待办等核心功能；进入一起听时会显示可重试错误。
+            Logs.e("App", "网易云账号/播放器初始化失败", t)
         }
         try {
             ProfileRuntime.init()

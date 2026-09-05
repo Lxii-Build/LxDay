@@ -20,11 +20,21 @@ val propWsUrl = (project.findProperty("WS_URL") as String?) ?: ""
 val propVersionName = (project.findProperty("VERSION_NAME") as String?)?.takeIf { it.isNotBlank() }
     ?: "1.0.0"
 val propVersionCode = (project.findProperty("VERSION_CODE") as String?)?.toIntOrNull() ?: 1
-val propUpdateChannel = (project.findProperty("UPDATE_CHANNEL") as String?)
+val propCommitHash = (project.findProperty("COMMIT_HASH") as String?)
     ?.trim()
-    ?.lowercase()
-    ?.takeIf { it == "testing" }
-    ?: "stable"
+    ?.takeIf { it.isNotBlank() }
+    ?: System.getenv("GITHUB_SHA")?.trim()?.takeIf { it.isNotBlank() }
+    ?: runCatching {
+        ProcessBuilder("git", "rev-parse", "--short=7", "HEAD")
+            .directory(rootProject.file(".."))
+            .start()
+            .inputStream
+            .bufferedReader()
+            .readText()
+            .trim()
+    }.getOrDefault("unknown")
+        .ifBlank { "unknown" }
+        .take(7)
 
 // ---- 正式签名（PKCS#12）----
 // 每次构建的 APK 签名必须完全一致，否则装不上/覆盖不了已有版本。
@@ -105,13 +115,12 @@ android {
         versionCode = propVersionCode
         versionName = propVersionName
 
-        // 安全模式：true = 启动极简 UI（跳过主题/backdrop/miuix），用于闪退二分定位
         // 构建期注入的服务端地址 / WS 地址。
         // 旧编排仍可传入 APP_KEY，但本模块不读取也不编译它：APK 可被解包，
         // 任何共享通讯密钥都不能作为客户端可信凭据。
         buildConfigField("String", "BASE_URL", "\"$propBaseUrl\"")
         buildConfigField("String", "WS_URL", "\"$propWsUrl\"")
-        buildConfigField("String", "UPDATE_CHANNEL", "\"$propUpdateChannel\"")
+        buildConfigField("String", "COMMIT_SHORT_HASH", "\"$propCommitHash\"")
     }
 
     lint {
@@ -164,6 +173,12 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
     implementation(libs.androidx.exifinterface)
+
+    // 网易云一起听：每台设备用自己的账号解析播放地址，再由 Media3 在本机播放。
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.datasource)
+    implementation(libs.androidx.media3.session)
+    implementation(libs.zxing.core)
 
     // miuix（小米 HyperOS 风格组件）
     implementation(libs.miuix.ui)

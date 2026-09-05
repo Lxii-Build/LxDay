@@ -56,7 +56,8 @@ fun SettingsScreen(
     onOpenHistory: () -> Unit = {},
     onOpenAppearance: () -> Unit = {},
     onOpenProfileEdit: () -> Unit = {},
-    onOpenAbout: () -> Unit = {}
+    onOpenAbout: () -> Unit = {},
+    onOpenMusicSettings: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -68,7 +69,6 @@ fun SettingsScreen(
     val bound = UserPrefs.pairId > 0
     val demo = UserPrefs.demoMode
     var showLogSheet by remember { mutableStateOf(false) }
-
     val saveLogLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/zip")
     ) { uri ->
@@ -113,24 +113,41 @@ fun SettingsScreen(
     }
 
     KernelScreen(title = "我的") {
-        // 分组1：共享与绑定
+        // 顶部只保留两个最常用入口，避免“编辑资料”和“伴侣”被埋在长列表里。
         item {
             Card(Modifier.padding(top = 12.dp).fillMaxWidth()) {
                 ArrowPreference(
-                    title = "编辑资料",
+                    title = "我的资料",
                     summary = "头像、名称、性别、简介与生日",
-                    startAction = { PrefIcon(MiuixIcons.ContactsCircle, "编辑资料") },
-                    onClick = onOpenProfileEdit
+                    startAction = { PrefIcon(MiuixIcons.ContactsCircle, "我的资料") },
+                    onClick = onOpenProfileEdit,
                 )
                 ArrowPreference(
-                    title = "伴侣",
-                    summary = if (bound) partnerName else "未绑定",
+                    title = if (bound) "已绑定 · $partnerName" else "绑定伴侣",
+                    summary = if (bound) "共同相册、状态和待办已连接" else "绑定后才能同步状态与共同内容",
                     startAction = { PrefIcon(MiuixIcons.Contacts, "伴侣") },
-                    onClick = { if (!bound) onOpenBind() }
+                    onClick = { if (!bound) onOpenBind() },
                 )
+            }
+        }
+
+        item {
+            Card(Modifier.padding(top = 12.dp).fillMaxWidth()) {
+                ArrowPreference(
+                    title = "音乐设置",
+                    summary = "网易云账号、收藏、播放行为、歌词与灵动岛",
+                    startAction = { PrefIcon(MiuixIcons.Messages, "音乐设置") },
+                    onClick = onOpenMusicSettings,
+                )
+            }
+        }
+
+        // 隐私与共享：把原先分散在三张卡里的状态、常驻卡片和静默通知放到一个语义组。
+        item {
+            Card(Modifier.padding(top = 12.dp).fillMaxWidth()) {
                 SwitchPreference(
                     title = "状态共享",
-                    summary = if (demo) "调试模式不采集、不上传真实状态" else "关闭后立即停止采集并清除本机数据",
+                    summary = if (demo) "调试模式不采集、不上传真实状态" else "总开关：状态、常驻卡片和动态通知",
                     startAction = { PrefIcon(MiuixIcons.FavoritesFill, "状态共享") },
                     checked = sharing,
                     enabled = !demo && UserPrefs.privacyConsented,
@@ -144,122 +161,69 @@ fun SettingsScreen(
                             DeviceStatusHolder_local.clear()
                             StatusForegroundService.stop(context)
                         }
-                    }
+                    },
+                )
+                SwitchPreference(
+                    title = "状态卡片与静默提醒",
+                    summary = when {
+                        !sharing -> "先开启状态共享"
+                        cardEnabled && quietNotify -> "常驻卡片、上下线提醒均已开启"
+                        cardEnabled -> "常驻卡片已开启，动态提醒已关闭"
+                        quietNotify -> "动态提醒已开启，常驻卡片已关闭"
+                        else -> "关闭常驻卡片与上下线提醒"
+                    },
+                    startAction = { PrefIcon(MiuixIcons.Messages, "状态卡片与静默提醒") },
+                    checked = cardEnabled || quietNotify,
+                    enabled = !demo && UserPrefs.privacyConsented && sharing,
+                    onCheckedChange = { on ->
+                        cardEnabled = on
+                        quietNotify = on
+                        UserPrefs.statusCardEnabled = on
+                        UserPrefs.quietNotifyEnabled = on
+                        if (on) StatusForegroundService.start(context)
+                        else StatusForegroundService.stop(context)
+                    },
                 )
                 ArrowPreference(
-                    title = "知情同意",
-                    summary = if (UserPrefs.privacyConsented) "已完成授权" else "需先完成知情授权",
-                    startAction = { PrefIcon(MiuixIcons.Ok, "知情同意") },
-                    onClick = onOpenConsent
-                )
-                ArrowPreference(
-                    title = "伴侣状态历史",
-                    summary = if (demo) "调试模式不读取服务端历史" else "查看状态时间线与电量曲线",
-                    startAction = { PrefIcon(MiuixIcons.Recent, "伴侣状态历史") },
-                    onClick = if (demo) null else onOpenHistory
+                    title = "知情同意与状态历史",
+                    summary = if (!UserPrefs.privacyConsented) "需先完成知情授权" else if (demo) "调试模式不读取服务端历史" else "查看状态时间线与电量曲线",
+                    startAction = { PrefIcon(MiuixIcons.Ok, "知情同意与状态历史") },
+                    onClick = if (!UserPrefs.privacyConsented) onOpenConsent else if (demo) null else onOpenHistory,
                 )
             }
         }
 
-        // 分组2：外观
+        // 连接与保活：单独入口打开完整自检，避免六个跳转项占满“我的”页。
         item {
             Card(Modifier.padding(top = 12.dp).fillMaxWidth()) {
+                ArrowPreference(
+                    title = "连接与后台运行",
+                    summary = if (keepAliveFailed > 0) "$keepAliveFailed 项权限待处理 · 点击查看详情" else "权限和后台保活均已就绪",
+                    startAction = { PrefIcon(MiuixIcons.Lock, "连接与后台运行") },
+                    onClick = onOpenKeepAliveCheck,
+                )
                 ArrowPreference(
                     title = "主题与界面",
                     summary = "配色、壁纸、动态取色与界面开关",
                     startAction = { PrefIcon(MiuixIcons.Settings, "主题与界面") },
-                    onClick = onOpenAppearance
-                )
-                SwitchPreference(
-                    title = "常驻状态卡片",
-                    summary = "通知栏常驻展示对方状态",
-                    startAction = { PrefIcon(MiuixIcons.Messages, "常驻状态卡片") },
-                    checked = cardEnabled,
-                    enabled = !demo && UserPrefs.privacyConsented && sharing,
-                    onCheckedChange = { on ->
-                        cardEnabled = on
-                        UserPrefs.statusCardEnabled = on
-                        if (on) StatusForegroundService.start(context)
-                        else StatusForegroundService.stop(context)
-                    }
-                )
-                // 静默通知：对方息屏/亮屏、上线/下线时在通知栏留一条，
-                // 不弹横幅、不响铃、不振动（走 status_quiet 渠道，IMPORTANCE_LOW + setSound(null)）。
-                SwitchPreference(
-                    title = "伴侣动态静默通知",
-                    summary = "对方息屏/亮屏、上下线时通知栏提示，不响铃不弹窗",
-                    startAction = { PrefIcon(MiuixIcons.Messages, "伴侣动态静默通知") },
-                    checked = quietNotify,
-                    enabled = !demo && UserPrefs.privacyConsented && sharing,
-                    onCheckedChange = { on ->
-                        quietNotify = on
-                        UserPrefs.quietNotifyEnabled = on
-                    }
+                    onClick = onOpenAppearance,
                 )
             }
         }
 
-        // 分组3：权限与保活
-        item {
-            Card(Modifier.padding(top = 12.dp).fillMaxWidth()) {
-                // 自检入口放最前：一次看清所有保活项的状态，并写明"不开会怎样"。
-                // 此前这一组全是"没有状态反馈的跳转按钮"，用户点完也不知道开没开。
-                ArrowPreference(
-                    title = "同步自检",
-                    summary = if (keepAliveFailed > 0) "有 $keepAliveFailed 项待开启" else "全部就绪",
-                    startAction = { PrefIcon(MiuixIcons.Ok, "同步自检") },
-                    onClick = onOpenKeepAliveCheck,
-                )
-                ArrowPreference(
-                    title = "使用情况访问",
-                    summary = if (usageOk) "已开启" else "识别前台 APP 与用量统计",
-                    startAction = { PrefIcon(MiuixIcons.ContactsCircle, "使用情况访问") },
-                    onClick = { PermissionHelper.toUsageAccess(context) }
-                )
-                ArrowPreference(
-                    title = "通知使用权",
-                    summary = if (notifOk) "已开启" else "识别音乐 + 卡片兜底",
-                    startAction = { PrefIcon(MiuixIcons.Lock, "通知使用权") },
-                    onClick = { PermissionHelper.toNotificationListener(context) }
-                )
-                ArrowPreference(
-                    title = "勿扰访问",
-                    summary = if (policyOk) "已开启" else "强制响铃可绕过勿扰",
-                    startAction = { PrefIcon(MiuixIcons.Messages, "勿扰访问") },
-                    onClick = { PermissionHelper.toNotificationPolicy(context) }
-                )
-                // 电池优化白名单：PermissionHelper 里早就写好了 hasIgnoreBattery/toBatteryOptimization，
-                // 但全项目零引用 —— 国产 ROM 上前台服务被省电策略杀掉是"状态不同步"的最大单一原因，
-                // 缺这个入口等于把最有效的保活手段藏起来了。
-                ArrowPreference(
-                    title = "电池优化白名单",
-                    summary = if (batteryOk) "已加入白名单" else "允许后台运行，避免状态同步中断",
-                    startAction = { PrefIcon(MiuixIcons.Messages, "电池优化白名单") },
-                    onClick = { PermissionHelper.toBatteryOptimization(context) }
-                )
-                ArrowPreference(
-                    title = "vivo/OPPO 自启动白名单",
-                    summary = "防后台被杀，保证同步",
-                    startAction = { PrefIcon(MiuixIcons.Send, "自启动白名单") },
-                    onClick = { PermissionHelper.toVendorAutoStart(context) }
-                )
-            }
-        }
-
-        // 发送日志 + 关于（连成一张卡，仿 KernelSU）
         item {
             Card(Modifier.padding(top = 12.dp, bottom = 8.dp).fillMaxWidth()) {
+                ArrowPreference(
+                    title = "诊断与关于",
+                    summary = "发送日志、版本信息、检查更新和退出登录",
+                    startAction = { PrefIcon(MiuixIcons.Info, "诊断与关于") },
+                    onClick = onOpenAbout,
+                )
                 ArrowPreference(
                     title = "发送日志",
                     summary = "保存到设备文件或分享诊断包",
                     startAction = { PrefIcon(MiuixIcons.Send, "发送日志") },
-                    onClick = { showLogSheet = true }
-                )
-                ArrowPreference(
-                    title = "关于",
-                    summary = "版本、开源仓库、检查更新、退出登录",
-                    startAction = { PrefIcon(MiuixIcons.Info, "关于") },
-                    onClick = onOpenAbout
+                    onClick = { showLogSheet = true },
                 )
             }
         }

@@ -24,7 +24,7 @@
  *
  * ## 持久化
  *
- * - 使用 localStorage 存储
+ * - 使用 sessionStorage 存储，浏览器关闭后自动清除认证状态
  * - 存储键：sys-v{version}-user
  * - 登出时自动清理
  *
@@ -42,6 +42,33 @@ import { setPageTitle } from '@/utils/router'
 import { resetRouterState } from '@/router/guards/beforeEach'
 import { useMenuStore } from './menu'
 import { StorageConfig } from '@/utils/storage/storage-config'
+
+/**
+ * 清除旧版本留在 localStorage 中的用户状态。
+ *
+ * 认证令牌不应跨浏览器会话长期留在 localStorage；切换到
+ * sessionStorage 时也不能把旧令牌继续留在磁盘可持久化的存储中。
+ * 只匹配用户 store 的键，避免影响主题和工作台设置。
+ */
+const clearLegacyUserStorage = () => {
+  const currentUserKey = StorageConfig.generateStorageKey('user')
+  const isUserKey = (key: string) =>
+    key === 'user' || (key.startsWith(StorageConfig.STORAGE_PREFIX) && key.endsWith('-user'))
+
+  for (const key of Object.keys(localStorage)) {
+    if (isUserKey(key)) {
+      localStorage.removeItem(key)
+    }
+  }
+
+  // sessionStorage survives reloads in the same tab, so remove keys from the
+  // old unversioned format while keeping the current version for hydration.
+  for (const key of Object.keys(sessionStorage)) {
+    if (isUserKey(key) && key !== currentUserKey) {
+      sessionStorage.removeItem(key)
+    }
+  }
+}
 
 /**
  * 用户状态管理
@@ -228,8 +255,11 @@ export const useUserStore = defineStore(
   },
   {
     persist: {
+      // 全局 persisted-state 插件会统一补上 sys-v{version}- 前缀；
+      // 这里只传 store id，避免生成双前缀键并在下次 hydrate 前被清理掉。
       key: 'user',
-      storage: localStorage
+      storage: sessionStorage,
+      beforeHydrate: clearLegacyUserStorage
     }
   }
 )

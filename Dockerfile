@@ -2,7 +2,7 @@
 # ① node 构建后台前端 dist  ② go 将 dist 拷进 server/webdist 后编译（内嵌）  ③ 精简运行时
 # 构建上下文为仓库根（compose: build.context=.），故路径以 admin/ server/ 开头。
 
-# ---- 阶段①：构建后台前端（Vue art-design-pro）dist ----
+# ---- 阶段①：构建后台前端（Vue 运营后台）dist ----
 FROM --platform=$BUILDPLATFORM node:22-alpine AS web
 WORKDIR /admin
 ENV npm_config_registry=https://registry.npmmirror.com
@@ -14,10 +14,10 @@ COPY admin/ ./
 RUN npm run build
 
 # ---- 阶段②：编译 Go 服务端（内嵌前端 dist） ----
-# Go 1.25：HEIC/AVIF 解码器（gen2brain/heic|avif，底层 wazero）要求 go >= 1.25。
-# 用 1.22 会在 `go mod tidy` 阶段直接失败（0821 的 CI 就是这么红的）。
+# Go 1.26：golang.org/x/crypto v0.56.0 修复公开 SSH DoS 漏洞；HEIC/AVIF
+# 解码器仍要求 go >= 1.25。构建工具链必须与 go.mod/CI 保持一致。
 # 它们是**纯 Go wasm 实现、无需 CGO**，所以下面仍能 CGO_ENABLED=0 静态编译。
-FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
 WORKDIR /src
 ENV GOPROXY=https://goproxy.cn,direct
 ARG TARGETOS

@@ -87,7 +87,8 @@ JPEG / PNG / GIF / WebP / **BMP / HEIC / AVIF**。
 
 HEIC/AVIF 自 0821 起**服务端能真解码**：用 `gen2brain/heic|avif`（底层 wazero，
 纯 Go wasm 运行时），不必给 alpine 镜像装 libheif，也不破坏 `CGO_ENABLED=0` 静态编译。
-代价是这两个包声明 `go >= 1.25`，`go.mod` / `Dockerfile` / CI 三处版本必须同步。
+代价是解码器声明 `go >= 1.25`，而 `golang.org/x/crypto v0.56.0` 要求 Go 1.26；
+`go.mod` / `Dockerfile` / CI 三处版本必须同步。
 客户端上传前仍统一转 JPEG——本机转换比服务端解码快得多，也省上传流量；
 服务端支持是为了兜住「直接调接口传 HEIC」与将来的其它客户端。
 

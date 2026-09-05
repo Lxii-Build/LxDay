@@ -246,7 +246,7 @@ html.dark .el-card {
 // 修改el-tag样式
 .el-tag {
   font-weight: 500;
-  transition: all 0s !important;
+  transition: none !important;
 
   &.el-tag--default {
     height: 26px !important;
@@ -328,7 +328,9 @@ html.dark .el-card {
   width: 30px;
   height: 30px;
   border-radius: 5px;
-  transition: all 0.3s;
+  transition:
+    background-color 0.3s,
+    color 0.3s;
 
   &:hover {
     background-color: var(--art-hover-color) !important;

@@ -30,6 +30,15 @@ object ClientRuntimeConfig {
     var onThisDayEnabled by mutableStateOf(true)
         private set
 
+    var listenTogetherEnabled by mutableStateOf(true)
+        private set
+
+    var listenAllowMemberControl by mutableStateOf(true)
+        private set
+
+    var listenAutoPauseOnMemberChange by mutableStateOf(true)
+        private set
+
     fun apply(json: JSONObject) {
         val raw = json.optJSONObject("upload")?.optLong(
             "photo_max_bytes", ImagePrepPolicy.MAX_UPLOAD_BYTES,
@@ -40,5 +49,10 @@ object ClientRuntimeConfig {
         albumEnabled = features?.optBoolean("album", true) ?: true
         photoSocialEnabled = features?.optBoolean("photo_social", true) ?: true
         onThisDayEnabled = features?.optBoolean("on_this_day", true) ?: true
+
+        val listen = json.optJSONObject("listen_together")
+        listenTogetherEnabled = features?.optBoolean("listen_together", true) ?: true
+        listenAllowMemberControl = listen?.optBoolean("allow_member_control", true) ?: true
+        listenAutoPauseOnMemberChange = listen?.optBoolean("auto_pause_on_member_change", true) ?: true
     }
 }

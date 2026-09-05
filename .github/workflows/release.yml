@@ -21,10 +21,6 @@ on:
         description: WebSocket 地址（WS_URL，留空由 App 推导）
         required: false
         default: ''
-      app_key:
-        description: 应用密钥（APP_KEY，可选；留空则用仓库 Secret）
-        required: false
-        default: ''
       prerelease:
         description: 标记为预发布（默认是——正式版要显式关掉）
         type: boolean
@@ -41,7 +37,6 @@ jobs:
     env:
       IN_BASE_URL: ${{ inputs.server_url }}
       IN_WS_URL: ${{ inputs.ws_url }}
-      IN_APP_KEY: ${{ inputs.app_key || secrets.APP_KEY }}
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -81,11 +76,6 @@ jobs:
           CODE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
-          if [ "${{ inputs.prerelease }}" = "true" ]; then
-            echo "channel=testing" >> "$GITHUB_OUTPUT"
-          else
-            echo "channel=stable" >> "$GITHUB_OUTPUT"
-          fi
           echo "versionName=$NAME versionCode=$CODE"
 
       # ---------- 构建 Release APK ----------
@@ -124,10 +114,10 @@ jobs:
       # 发行版必须过测试。此前这条流水线从头到尾不跑任何测试，
       # 而 build-android.yml 与 build-server.yml 都跑 —— 等于日常 CI 拦得住的坏提交，
       # 恰好在产出「用户真正安装的那个包」时放过去了。
-      - name: 配置 Go 1.25
+      - name: 配置 Go 1.26
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache-dependency-path: server/go.sum
 
       - name: 服务端 gofmt / vet / 测试
@@ -141,14 +131,19 @@ jobs:
           go vet ./...
           go test -timeout 600s ./...
 
+      - name: 服务端可达包漏洞扫描
+        working-directory: server
+        env:
+          GOMAXPROCS: '2'
+        # x/crypto/openpgp 未被服务端导入且上游无修复版本；关注实际可达包。
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 -scan=package ./...
+
       - name: 安卓单元测试与 Release Lint
         working-directory: android
         run: |
           ./gradlew :app:testDebugUnitTest :app:lintRelease --no-daemon \
             -PBASE_URL="$IN_BASE_URL" \
             -PWS_URL="$IN_WS_URL" \
-            -PAPP_KEY="$IN_APP_KEY" \
-            -PUPDATE_CHANNEL="${{ steps.ver.outputs.channel }}" \
             -PVERSION_NAME="${{ steps.ver.outputs.name }}" \
             -PVERSION_CODE="${{ steps.ver.outputs.code }}"
 
@@ -164,8 +159,6 @@ jobs:
           ./gradlew :app:assemble${{ inputs.build_type }} --no-daemon \
             -PBASE_URL="$IN_BASE_URL" \
             -PWS_URL="$IN_WS_URL" \
-            -PAPP_KEY="$IN_APP_KEY" \
-            -PUPDATE_CHANNEL="${{ steps.ver.outputs.channel }}" \
             -PVERSION_NAME="$IN_VERSION_NAME" \
             -PVERSION_CODE="$IN_VERSION_CODE" \
             -PKEYSTORE_FILE="$RUNNER_TEMP/lxday-release.p12" \

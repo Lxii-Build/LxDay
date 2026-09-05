@@ -1,6 +1,8 @@
 import request, { toBearerToken } from '@/utils/http'
 import { useUserStore } from '@/store/modules/user'
 
+type ListRequestOptions = { signal?: AbortSignal }
+
 /**
  * 林曦日记运营后台 API
  * 统一前缀 /api/admin，响应信封 {code:200,msg,data}
@@ -12,8 +14,8 @@ export function fetchDashboardStats() {
 }
 
 // ---------- 用户管理 ----------
-export function fetchUserList(params: Api.Admin.UserSearchParams) {
-  return request.get<Api.Admin.UserList>({ url: '/api/admin/users', params })
+export function fetchUserList(params: Api.Admin.UserSearchParams, options?: ListRequestOptions) {
+  return request.get<Api.Admin.UserList>({ url: '/api/admin/users', params, ...options })
 }
 
 export function updateUserProfile(id: number, data: Api.Admin.UserUpdateParams) {
@@ -33,8 +35,8 @@ export function deleteUser(id: number) {
 }
 
 // ---------- 绑定关系 ----------
-export function fetchPairList(params: Api.Admin.PairSearchParams) {
-  return request.get<Api.Admin.PairList>({ url: '/api/admin/pairs', params })
+export function fetchPairList(params: Api.Admin.PairSearchParams, options?: ListRequestOptions) {
+  return request.get<Api.Admin.PairList>({ url: '/api/admin/pairs', params, ...options })
 }
 
 export function updatePair(id: number, data: Api.Admin.PairUpdateParams) {
@@ -50,8 +52,8 @@ export function cancelPendingInvite(id: number) {
 }
 
 // ---------- 内容审核 ----------
-export function fetchTodoList(params: Api.Admin.TodoSearchParams) {
-  return request.get<Api.Admin.TodoList>({ url: '/api/admin/todos', params })
+export function fetchTodoList(params: Api.Admin.TodoSearchParams, options?: ListRequestOptions) {
+  return request.get<Api.Admin.TodoList>({ url: '/api/admin/todos', params, ...options })
 }
 
 export function updateTodo(id: number, data: Api.Admin.TodoUpdateParams) {
@@ -67,8 +69,8 @@ export function deleteTodo(id: number) {
  *
  * 只回元数据，不含图片 URL；审核缩略图必须通过 fetchPhotoThumbnail 单独读取。
  */
-export function fetchPhotoList(params: Api.Admin.PhotoSearchParams) {
-  return request.get<Api.Admin.PhotoList>({ url: '/api/admin/photos', params })
+export function fetchPhotoList(params: Api.Admin.PhotoSearchParams, options?: ListRequestOptions) {
+  return request.get<Api.Admin.PhotoList>({ url: '/api/admin/photos', params, ...options })
 }
 
 /**
@@ -124,11 +126,18 @@ export function deleteNotifyTemplate(id: number) {
 }
 
 export function sendNotify(data: Api.Admin.NotifySendParams) {
-  return request.post<{ sent: number }>({ url: '/api/admin/notify', data })
+  return request.post<{ queued: number; sent?: number }>({ url: '/api/admin/notify', data })
 }
 
-export function fetchNotifyRecords(params: Api.Common.CommonSearchParams) {
-  return request.get<Api.Admin.NotifyRecordList>({ url: '/api/admin/notify-records', params })
+export function fetchNotifyRecords(
+  params: Api.Common.CommonSearchParams,
+  options?: ListRequestOptions
+) {
+  return request.get<Api.Admin.NotifyRecordList>({
+    url: '/api/admin/notify-records',
+    params,
+    ...options
+  })
 }
 
 // ---------- 系统设置 ----------
@@ -157,13 +166,23 @@ export function sendSmtpTest(to: string) {
 }
 
 // ---------- 审计日志 ----------
-export function fetchAuditLogs(params: Api.Admin.AuditLogSearchParams) {
-  return request.get<Api.Admin.AuditLogList>({ url: '/api/admin/audit-logs', params })
+export function fetchAuditLogs(
+  params: Api.Admin.AuditLogSearchParams,
+  options?: ListRequestOptions
+) {
+  return request.get<Api.Admin.AuditLogList>({ url: '/api/admin/audit-logs', params, ...options })
 }
 
 // ---------- 网络日志 ----------
-export function fetchNetworkLogs(params: Api.Admin.NetworkLogSearchParams) {
-  return request.get<Api.Admin.NetworkLogList>({ url: '/api/admin/network-logs', params })
+export function fetchNetworkLogs(
+  params: Api.Admin.NetworkLogSearchParams,
+  options?: ListRequestOptions
+) {
+  return request.get<Api.Admin.NetworkLogList>({
+    url: '/api/admin/network-logs',
+    params,
+    ...options
+  })
 }
 
 // ---------- 管理员管理 ----------
@@ -200,8 +219,8 @@ export function deleteAdmin(id: number) {
 /* ==================== 相册管理与磁盘统计（0821 新增，仅超管） ==================== */
 
 /** 相册列表（按 pair 聚合，含张数与占用空间） */
-export function fetchAlbumList(params: Api.Admin.AlbumSearchParams) {
-  return request.get<Api.Admin.AlbumList>({ url: '/api/admin/albums', params })
+export function fetchAlbumList(params: Api.Admin.AlbumSearchParams, options?: ListRequestOptions) {
+  return request.get<Api.Admin.AlbumList>({ url: '/api/admin/albums', params, ...options })
 }
 
 export function updateAlbum(id: number, data: Api.Admin.AlbumUpdateParams) {
@@ -228,4 +247,13 @@ export function purgeRecycleBin(pairId: number) {
 /** 运行参数（相册配额/保留期/限流/互动冷却）。不含密钥，普通管理员可读 */
 export function fetchRuntimeSettings() {
   return request.get<Api.Admin.RuntimeSettingsResp>({ url: '/api/admin/runtime-settings' })
+}
+
+// ---------- 一起听房间 ----------
+export function fetchListenRooms(options?: ListRequestOptions) {
+  return request.get<Api.Admin.ListenRoom[]>({ url: '/api/admin/listen-rooms', ...options })
+}
+
+export function closeListenRoom(roomId: string) {
+  return request.del<{ closed: boolean }>({ url: `/api/admin/listen-rooms/${roomId}` })
 }
