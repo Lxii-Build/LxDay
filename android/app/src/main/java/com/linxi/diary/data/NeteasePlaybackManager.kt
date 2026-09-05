@@ -41,7 +41,7 @@ data class NeteasePlaybackState(
  * 与 NeriPlayer 相同的职责边界：播放器留在设备上，房间只同步逻辑曲目和时间轴。
  * 这里不把播放 URL 放进房间状态，也不把 URL 写入持久化存储。
  */
-@OptIn(UnstableApi::class)
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 object NeteasePlaybackManager {
     private val state = MutableStateFlow(NeteasePlaybackState())
     private lateinit var player: ExoPlayer
