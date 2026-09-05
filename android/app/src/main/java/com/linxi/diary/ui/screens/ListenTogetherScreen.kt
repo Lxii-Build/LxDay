@@ -369,16 +369,18 @@ fun ListenTogetherScreen(onBack: () -> Unit) {
                     val state = room?.state
                     Text(state?.title?.ifBlank { "还没有选择歌曲" } ?: "还没有选择歌曲", fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
                     Text(state?.artist?.ifBlank { "搜索网易云歌曲开始一起听" } ?: "搜索网易云歌曲开始一起听", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                    if (state?.songId ?: 0L > 0) {
-                        Spacer(Modifier.height(4.dp))
-                        Text("网易云歌曲 · ${formatPosition(roomPlayer.positionMs, state.durationMs)}", fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                        Spacer(Modifier.height(12.dp))
-                        LxButton(
-                            text = if (state.playing) "暂停" else "继续播放",
-                            onClick = ::togglePlayback,
-                            enabled = !loading && canControl(role, room) && roomPlayer.track?.id == state.songId,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+                    state?.let { current ->
+                        if (current.songId > 0L) {
+                            Spacer(Modifier.height(4.dp))
+                            Text("网易云歌曲 · ${formatPosition(roomPlayer.positionMs, current.durationMs)}", fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                            Spacer(Modifier.height(12.dp))
+                            LxButton(
+                                text = if (current.playing) "暂停" else "继续播放",
+                                onClick = ::togglePlayback,
+                                enabled = !loading && canControl(role, room) && roomPlayer.track?.id == current.songId,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
                     if (role == "member" && room?.settings?.allowMemberControl == false) {
                         Spacer(Modifier.height(8.dp))

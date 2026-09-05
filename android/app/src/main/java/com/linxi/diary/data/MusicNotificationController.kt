@@ -46,6 +46,8 @@ object MusicNotificationController {
         }
         val lyric = if (UserPrefs.dynamicIslandShowLyrics) {
             NeteasePlaybackManager.currentLyric()
+        } else {
+            null
         }.orEmpty()
         val text = when {
             lyric.isNotBlank() && !UserPrefs.dynamicIslandCompact -> lyric
@@ -92,10 +94,9 @@ object MusicNotificationController {
                     .coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
                 state.durationMs <= 0L,
             )
-            .setStyle(
-                NotificationCompat.MediaStyle()
-                    .setShowActionsInCompactView(0),
-            )
+            // Media3 的 MediaStyle 需要额外绑定 MediaSession.Token；这条通知仍使用
+            // 标准 transport 类别与操作按钮，避免在没有 session 时构造无效样式。
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .addAction(actionIcon, actionText, toggleIntent)
         runCatching { manager.notify(NotificationChannels.NOTIFY_ID_MUSIC, builder.build()) }
     }
