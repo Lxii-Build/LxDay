@@ -6,6 +6,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.datasource.DefaultHttpDataSource
@@ -40,6 +41,7 @@ data class NeteasePlaybackState(
  * 与 NeriPlayer 相同的职责边界：播放器留在设备上，房间只同步逻辑曲目和时间轴。
  * 这里不把播放 URL 放进房间状态，也不把 URL 写入持久化存储。
  */
+@OptIn(UnstableApi::class)
 object NeteasePlaybackManager {
     private val state = MutableStateFlow(NeteasePlaybackState())
     private lateinit var player: ExoPlayer
