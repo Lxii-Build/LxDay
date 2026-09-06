@@ -106,6 +106,9 @@ func main() {
 	initLogger()
 	cfg = loadConfig()
 	initUploadDir()
+	// Derived photos must survive container recreation. The repository compose
+	// mounts this path explicitly; warn loudly if an older deployment forgot it.
+	warnIfPrivateMediaIsEphemeral()
 
 	// 初始化存储
 	store, err := initStore(cfg)

@@ -94,6 +94,9 @@ class App : Application() {
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 AppForegroundState.onEnterForeground()
+                // Android 15 resets the dataSync FGS budget when the user
+                // returns. Let a later sync start the service again.
+                StatusForegroundService.resumeAfterUserReturns()
                 // 回到前台：立刻切到最短间隔并触发一次同步，避免盯着旧数据。
                 SyncHeartbeat.schedule(
                     this@App, appVisible = true,

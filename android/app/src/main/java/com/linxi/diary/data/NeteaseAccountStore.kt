@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import com.linxi.diary.util.Logs
 import org.json.JSONObject
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
@@ -55,6 +56,20 @@ object NeteaseAccountStore {
         val payload = JSONObject().apply {
             sanitized.forEach { (key, value) -> put(key, value) }
         }.toString()
+        savePayload(payload, sanitized, allowRecovery = true)
+    }
+
+    /**
+     * A restored or vendor-invalidated Android Keystore key must never take
+     * down the caller's main thread. One clean-key retry covers the recoverable
+     * case; a second failure leaves the account logged out and lets the UI ask
+     * for a fresh login instead of entering a crash loop.
+     */
+    private fun savePayload(
+        payload: String,
+        sanitized: Map<String, String>,
+        allowRecovery: Boolean,
+    ): Boolean = runCatching {
         val cipher = Cipher.getInstance(TRANSFORMATION)
         // Android 16's AndroidKeyStore rejects a caller-supplied GCM IV for this
         // key configuration. Let Keystore generate the nonce, then persist the
@@ -67,6 +82,11 @@ object NeteaseAccountStore {
         prefs.edit().putString(PAYLOAD_KEY, encoded).apply()
         cookieCache = sanitized
         true
+    }.getOrElse { error ->
+        Logs.w("Music", "Unable to save protected NetEase login; resetting local key once", error)
+        if (!allowRecovery) return@getOrElse false
+        resetProtectedState()
+        savePayload(payload, sanitized, allowRecovery = false)
     }
 
     fun clear() = synchronized(lock) {
@@ -111,8 +131,9 @@ object NeteaseAccountStore {
                 values[key] = json.optString(key, "")
             }
             sanitize(values).takeIf { it["MUSIC_U"].orEmpty().isNotBlank() }.orEmpty()
-        }.getOrElse {
+        }.getOrElse { error ->
             // Keystore 恢复/应用数据损坏时删除不可用凭据，不降级到明文。
+            Logs.w("Music", "Unable to read protected NetEase login; clearing unavailable credential", error)
             prefs.edit().remove(PAYLOAD_KEY).apply()
             emptyMap()
         }
@@ -129,9 +150,22 @@ object NeteaseAccountStore {
             )
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                // Keep the invariant explicit: the Keystore owns GCM nonce generation.
+                .setRandomizedEncryptionRequired(true)
                 .build(),
         )
         return generator.generateKey()
+    }
+
+    private fun resetProtectedState() {
+        prefs.edit().remove(PAYLOAD_KEY).apply()
+        cookieCache = emptyMap()
+        runCatching {
+            KeyStore.getInstance("AndroidKeyStore").apply {
+                load(null)
+                if (containsAlias(KEY_ALIAS)) deleteEntry(KEY_ALIAS)
+            }
+        }.onFailure { Logs.w("Music", "Unable to reset NetEase Keystore key", it) }
     }
 
     private fun ensureInitialized() {

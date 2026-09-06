@@ -92,6 +92,14 @@ class StatusForegroundService : Service() {
             startSafe(c, ACTION_SYNC)
         }
 
+        /** Called from the process lifecycle when a user visibly returns to the app. */
+        fun resumeAfterUserReturns() {
+            if (UserPrefs.statusServiceTimedOut) {
+                UserPrefs.statusServiceTimedOut = false
+                Logs.i("Service", "Cleared dataSync timeout guard after app entered foreground")
+            }
+        }
+
         fun stop(context: Context) {
             runCatching {
                 context.stopService(Intent(context, StatusForegroundService::class.java))
@@ -104,6 +112,14 @@ class StatusForegroundService : Service() {
             action: String?,
             forceNotificationRefresh: Boolean = false,
         ) {
+            if (!ForegroundServiceTimeoutPolicy.canStart(
+                    timedOut = UserPrefs.statusServiceTimedOut,
+                    appInForeground = AppForegroundState.isForeground,
+                )
+            ) {
+                Logs.w("Service", "dataSync foreground-service budget timed out; waiting for user to reopen app")
+                return
+            }
             try {
                 val i = Intent(context, StatusForegroundService::class.java)
                 if (action != null) i.action = action
@@ -136,6 +152,15 @@ class StatusForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        if (!ForegroundServiceTimeoutPolicy.canStart(
+                timedOut = UserPrefs.statusServiceTimedOut,
+                appInForeground = AppForegroundState.isForeground,
+            )
+        ) {
+            Logs.w("Service", "Stopping stale dataSync foreground-service restart after timeout")
+            stopSelf()
+            return
+        }
         if (!SharingRuntimePolicy.canRunNow()) {
             stopSelf()
             return
@@ -197,6 +222,18 @@ class StatusForegroundService : Service() {
             else -> refreshNow()
         }
         return START_STICKY
+    }
+
+    /**
+     * Android 15 calls this before throwing ForegroundServiceDidNotStopInTime.
+     * Stop synchronously, then make heartbeat wait for a real foreground entry
+     * instead of creating a repeated service-crash cycle in the background.
+     */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        Logs.w("Service", "dataSync foreground service timed out (type=$fgsType); stopping safely")
+        UserPrefs.statusServiceTimedOut = true
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf(startId)
     }
 
     /**

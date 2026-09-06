@@ -164,6 +164,15 @@ object UserPrefs {
         set(v) { sp.edit().putBoolean("status_card", v).apply() }
 
     /**
+     * Android 15+ has stopped our dataSync foreground service for exhausting
+     * its budget. Keep heartbeat broadcasts from immediately starting the same
+     * service again; the flag is reset when the user returns to the app.
+     */
+    var statusServiceTimedOut: Boolean
+        get() = sp.getBoolean("status_service_timed_out", false)
+        set(v) { sp.edit().putBoolean("status_service_timed_out", v).apply() }
+
+    /**
      * 伴侣动态静默通知开关：对方息屏/亮屏、上线/下线时在通知栏留一条
      * （不弹横幅、不响铃、不振动）。默认开。
      */

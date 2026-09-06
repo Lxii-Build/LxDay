@@ -1,6 +1,7 @@
 package com.linxi.diary.data
 
 import com.linxi.diary.BuildConfig
+import com.linxi.diary.util.Logs
 import com.linxi.diary.util.UserPrefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -21,7 +22,12 @@ import java.util.concurrent.TimeUnit
  * 真实 OkHttp REST 客户端（替换骨架占位版）。
  * 统一响应 {"code":0,"message":"ok","data":{...}}；code!=0 抛 ApiException。
  */
-data class ApiException(val bizCode: Int, override val message: String) : Exception(message)
+data class ApiException(
+    val bizCode: Int,
+    override val message: String,
+    /** HTTP transport status, kept separate from [bizCode] for recovery decisions. */
+    val httpCode: Int? = null,
+) : Exception(message)
 
 object ApiClient {
 
@@ -65,11 +71,11 @@ object ApiClient {
         return b
     }
 
-    private fun check(text: String): org.json.JSONObject {
+    private fun check(text: String, httpCode: Int? = null): org.json.JSONObject {
         val o = JSONObject(text)
         val code = o.optInt("code", -1)
         if (code != 0) {
-            throw ApiException(code, o.optString("message", "请求失败"))
+            throw ApiException(code, o.optString("message", "请求失败"), httpCode)
         }
         return o
     }
@@ -95,7 +101,9 @@ object ApiClient {
     // HTTP 非 2xx 统一处理：401（登录失效/用户不存在）触发全局登出信号；其余抛友好中文错误。
     private fun failUnsuccessful(code: Int, text: String): Nothing {
         if (code == 401) AuthEvents.signalUnauthorized()
-        throw ApiException(code, bodyMessageOr(text, friendlyHttp(code)))
+        val failure = ApiFailurePolicy.from(code, text)
+        Logs.d("Api", "HTTP failure httpCode=${failure.httpCode} bizCode=${failure.bizCode}")
+        throw ApiException(failure.bizCode, bodyMessageOr(text, friendlyHttp(code)), failure.httpCode)
     }
 
     // 统一网络异常处理：连接失败/超时等 IO 异常转成友好中文，业务异常原样上抛。
@@ -114,7 +122,7 @@ object ApiClient {
             client.newCall(request("GET", path, null).build()).execute().use { resp ->
                 val text = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
-                check(text).optJSONObject("data") ?: JSONObject()
+                check(text, resp.code).optJSONObject("data") ?: JSONObject()
             }
         }
     }
@@ -125,7 +133,7 @@ object ApiClient {
             client.newCall(request("GET", path, null).build()).execute().use { resp ->
                 val text = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
-                check(text).optJSONArray("data") ?: org.json.JSONArray()
+                check(text, resp.code).optJSONArray("data") ?: org.json.JSONArray()
             }
         }
     }
@@ -136,7 +144,7 @@ object ApiClient {
             client.newCall(request("POST", path, reqBody).build()).execute().use { resp ->
                 val text = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
-                check(text).optJSONObject("data") ?: JSONObject()
+                check(text, resp.code).optJSONObject("data") ?: JSONObject()
             }
         }
     }
@@ -147,7 +155,7 @@ object ApiClient {
             client.newCall(request("PUT", path, reqBody).build()).execute().use { resp ->
                 val text = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
-                check(text).optJSONObject("data") ?: JSONObject()
+                check(text, resp.code).optJSONObject("data") ?: JSONObject()
             }
         }
     }
@@ -157,7 +165,7 @@ object ApiClient {
             client.newCall(request("DELETE", path, null).build()).execute().use { resp ->
                 val text = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
-                check(text).optJSONObject("data") ?: JSONObject()
+                check(text, resp.code).optJSONObject("data") ?: JSONObject()
             }
         }
     }
@@ -179,7 +187,7 @@ object ApiClient {
             uploadClient.newCall(request("POST", path, mb).build()).execute().use { resp ->
                 val text = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
-                check(text).optJSONObject("data")?.optString("url") ?: ""
+                check(text, resp.code).optJSONObject("data")?.optString("url") ?: ""
             }
         }
     }
@@ -307,7 +315,7 @@ object ApiClient {
                 // 走统一的失败处理：服务端会返回中文原因（如"暂不支持该图片格式"），
                 // 此前直接抛 "HTTP 400" 把有用信息丢掉了。
                 if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
-                check(text).optJSONObject("data") ?: JSONObject()
+                check(text, resp.code).optJSONObject("data") ?: JSONObject()
             }
         }
     }
@@ -340,7 +348,7 @@ object ApiClient {
                 uploadClient.newCall(req).execute().use { resp ->
                     val text = resp.body?.string().orEmpty()
                     if (!resp.isSuccessful) failUnsuccessful(resp.code, text)
-                    check(text).optJSONObject("data") ?: JSONObject()
+                    check(text, resp.code).optJSONObject("data") ?: JSONObject()
                 }
             }
         }

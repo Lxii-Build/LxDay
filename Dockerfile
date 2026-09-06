@@ -45,6 +45,10 @@ COPY --from=build /out/linxi-server /app/linxi-server
 # 先建目录并赋权，避免服务端以 root 运行。使用命名卷时首次挂载会沿用这些权限。
 RUN mkdir -p /app/data /app/uploads /app/uploads-private \
     && chown -R app:app /app
+# Compose binds named volumes at all three locations. Declaring the same
+# contract in the image also protects direct `docker run` users from silently
+# keeping private media only in the container writable layer.
+VOLUME ["/app/data", "/app/uploads", "/app/uploads-private"]
 COPY docker-entrypoint.sh /usr/local/bin/lxday-entrypoint
 RUN chmod 0755 /usr/local/bin/lxday-entrypoint
 # 启动时先由 root 修复历史命名卷的属主，再降权运行服务。
