@@ -16,6 +16,7 @@ import com.linxi.diary.service.NotificationChannels
  * 的实时活动/媒体通知设置自行决定是否显示胶囊、锁屏卡片或普通通知。通知只包含本机
  * 曲目元数据，不包含 Cookie、JWT 或播放地址。
  */
+@androidx.annotation.OptIn(markerClass = [androidx.media3.common.util.UnstableApi::class])
 object MusicNotificationController {
     @Volatile
     private var appContext: Context? = null
