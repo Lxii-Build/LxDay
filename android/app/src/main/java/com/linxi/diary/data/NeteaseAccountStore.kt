@@ -8,7 +8,6 @@ import android.util.Base64
 import org.json.JSONObject
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
-import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -27,7 +26,6 @@ object NeteaseAccountStore {
     private const val KEY_ALIAS = "linxi_netease_cookie_v1"
     private const val TRANSFORMATION = "AES/GCM/NoPadding"
     private const val TAG_BITS = 128
-    private const val IV_BYTES = 12
     private const val SEP = "."
     private lateinit var prefs: SharedPreferences
     private val lock = Any()
@@ -58,8 +56,11 @@ object NeteaseAccountStore {
             sanitized.forEach { (key, value) -> put(key, value) }
         }.toString()
         val cipher = Cipher.getInstance(TRANSFORMATION)
-        val iv = ByteArray(IV_BYTES).also(SecureRandom()::nextBytes)
-        cipher.init(Cipher.ENCRYPT_MODE, key(), GCMParameterSpec(TAG_BITS, iv))
+        // Android 16's AndroidKeyStore rejects a caller-supplied GCM IV for this
+        // key configuration. Let Keystore generate the nonce, then persist the
+        // generated value alongside the ciphertext for the decrypt operation.
+        cipher.init(Cipher.ENCRYPT_MODE, key())
+        val iv = requireNotNull(cipher.iv) { "Keystore did not generate a GCM IV" }
         val body = cipher.doFinal(payload.toByteArray(StandardCharsets.UTF_8))
         val encoded = Base64.encodeToString(iv, Base64.NO_WRAP) + SEP +
             Base64.encodeToString(body, Base64.NO_WRAP)

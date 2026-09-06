@@ -17,7 +17,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.linxi.diary.data.NeteaseAccountStore
 import com.linxi.diary.data.NeteasePlaybackManager
-import com.linxi.diary.data.MusicNotificationController
 import com.linxi.diary.data.NeteaseRepeatMode
 import com.linxi.diary.ui.NeteaseQrLoginActivity
 import com.linxi.diary.ui.NeteaseWebLoginActivity
@@ -37,7 +36,7 @@ import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 
 /**
- * 音乐设置独立页：登录、播放行为、歌词和灵动岛都集中在“我的 → 音乐设置”。
+ * 音乐设置独立页：登录、播放行为和歌词都集中在“我的 → 音乐设置”。
  * 所有设置仅保存在本机；网易云 Cookie 使用 Keystore 加密，房间服务端不可见。
  */
 @Composable
@@ -52,9 +51,6 @@ fun MusicSettingsScreen(onBack: () -> Unit, onOpenMusic: () -> Unit) {
     var showLyrics by remember { mutableStateOf(UserPrefs.musicShowLyrics) }
     var translation by remember { mutableStateOf(UserPrefs.musicTranslation) }
     var searchHistory by remember { mutableStateOf(UserPrefs.musicSearchHistory) }
-    var dynamicIsland by remember { mutableStateOf(UserPrefs.dynamicIslandEnabled) }
-    var islandLyrics by remember { mutableStateOf(UserPrefs.dynamicIslandShowLyrics) }
-    var compactIsland by remember { mutableStateOf(UserPrefs.dynamicIslandCompact) }
     val loginLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
@@ -193,46 +189,6 @@ fun MusicSettingsScreen(onBack: () -> Unit, onOpenMusic: () -> Unit) {
             }
         }
 
-        item {
-            SmallTitle("灵动岛 / 悬浮歌词")
-            Card(Modifier.padding(top = 6.dp, bottom = 8.dp).fillMaxWidth()) {
-                SwitchPreference(
-                    title = "显示播放胶囊",
-                    summary = "使用系统媒体通知展示歌曲和播放状态；不支持灵动岛的设备显示为常驻通知",
-                    checked = dynamicIsland,
-                    onCheckedChange = {
-                        dynamicIsland = it
-                        UserPrefs.dynamicIslandEnabled = it
-                        MusicNotificationController.refresh(NeteasePlaybackManager.stateFlow.value)
-                    },
-                    startAction = { MusicSettingIcon(MiuixIcons.Music, "播放胶囊") },
-                )
-                SwitchPreference(
-                    title = "胶囊显示当前歌词",
-                    summary = "仅显示当前一行，不会把完整歌词上传或共享",
-                    checked = islandLyrics,
-                    enabled = dynamicIsland,
-                    onCheckedChange = {
-                        islandLyrics = it
-                        UserPrefs.dynamicIslandShowLyrics = it
-                        MusicNotificationController.refresh(NeteasePlaybackManager.stateFlow.value)
-                    },
-                    startAction = { MusicSettingIcon(MiuixIcons.Messages, "胶囊歌词") },
-                )
-                SwitchPreference(
-                    title = "紧凑胶囊",
-                    summary = "隐藏歌手与次要按钮，适合小尺寸挖孔区域",
-                    checked = compactIsland,
-                    enabled = dynamicIsland,
-                    onCheckedChange = {
-                        compactIsland = it
-                        UserPrefs.dynamicIslandCompact = it
-                        MusicNotificationController.refresh(NeteasePlaybackManager.stateFlow.value)
-                    },
-                    startAction = { MusicSettingIcon(MiuixIcons.Tune, "紧凑胶囊") },
-                )
-            }
-        }
     }
 }
 

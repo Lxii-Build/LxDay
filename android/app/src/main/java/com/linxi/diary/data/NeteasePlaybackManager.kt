@@ -10,6 +10,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.session.MediaSession
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -45,6 +46,7 @@ data class NeteasePlaybackState(
 object NeteasePlaybackManager {
     private val state = MutableStateFlow(NeteasePlaybackState())
     private lateinit var player: ExoPlayer
+    private lateinit var mediaSession: MediaSession
     private var initialized = false
     private var currentUrl: String? = null
     private var progressJob: Job? = null
@@ -101,7 +103,10 @@ object NeteasePlaybackManager {
                 }
             })
         }
-        MusicNotificationController.init(context)
+        // Use the platform media session so Android, not app-specific “island”
+        // settings, owns playback controls and real-time media presentation.
+        mediaSession = MediaSession.Builder(context.applicationContext, player).build()
+        MusicNotificationController.init(context, mediaSession)
         playbackScope.launch {
             state.collect { MusicNotificationController.refresh(it) }
         }

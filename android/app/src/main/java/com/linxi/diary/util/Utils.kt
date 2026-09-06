@@ -258,18 +258,6 @@ object UserPrefs {
         sp.edit().remove("music_search_history_entries").apply()
     }
 
-    // 灵动岛/悬浮歌词是 Android 系统通知能力的外观开关；关闭后仍可在应用内看歌词。
-    var dynamicIslandEnabled: Boolean
-        get() = sp.getBoolean("music_dynamic_island", false)
-        set(v) { sp.edit().putBoolean("music_dynamic_island", v).apply() }
-
-    var dynamicIslandShowLyrics: Boolean
-        get() = sp.getBoolean("music_dynamic_island_lyrics", true)
-        set(v) { sp.edit().putBoolean("music_dynamic_island_lyrics", v).apply() }
-
-    var dynamicIslandCompact: Boolean
-        get() = sp.getBoolean("music_dynamic_island_compact", false)
-        set(v) { sp.edit().putBoolean("music_dynamic_island_compact", v).apply() }
 }
 
 object TimeUtil {

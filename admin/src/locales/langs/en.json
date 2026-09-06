@@ -201,7 +201,7 @@
       "title": "System Settings"
     },
     "auditLog": {
-      "title": "Audit Log"
+      "title": "Log Center"
     },
     "networkLog": {
       "title": "Network Log"
@@ -694,6 +694,10 @@
     }
   },
   "auditLog": {
+    "tabs": {
+      "audit": "Audit trail",
+      "network": "Network access"
+    },
     "empty": "No audit entries yet",
     "filter": {
       "operator": "Operator",

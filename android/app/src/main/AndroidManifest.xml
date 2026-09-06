@@ -84,11 +84,6 @@
             </intent-filter>
         </service>
 
-        <!-- 本机音乐通知的播放/暂停动作；不接收外部应用广播。 -->
-        <receiver
-            android:name=".data.MusicNotificationReceiver"
-            android:exported="false" />
-
         <!--
           开机自启保活 + 重建待办闹钟。
           只监听 BOOT_COMPLETED：LOCKED_BOOT_COMPLETED 需要 directBootAware=true 才会投递，

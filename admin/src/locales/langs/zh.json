@@ -201,7 +201,7 @@
       "title": "系统设置"
     },
     "auditLog": {
-      "title": "系统日志"
+      "title": "日志中心"
     },
     "networkLog": {
       "title": "网络日志"
@@ -694,6 +694,10 @@
     }
   },
   "auditLog": {
+    "tabs": {
+      "audit": "操作审计",
+      "network": "网络访问"
+    },
     "empty": "暂无审计日志",
     "filter": {
       "operator": "操作人",
