@@ -66,7 +66,8 @@ object Live2DImportPolicy {
         val warnings: List<String>,
     ) {
         val canRender: Boolean
-            get() = manifestPath != null && missingRequired.isEmpty() && hasMoc3 && textureCount > 0
+            get() = manifestPath != null && missingRequired.isEmpty() && hasMoc3 &&
+                textureCount > 0 && textureWarnings.isEmpty()
 
         val hasBlockingIssue: Boolean get() = !canRender
 
