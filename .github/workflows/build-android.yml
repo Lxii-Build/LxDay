@@ -94,7 +94,7 @@ jobs:
             -PVERSION_NAME="$IN_VERSION_NAME" \
             -PVERSION_CODE="$IN_VERSION_CODE"
 
-      - name: 构建 APK（${{ inputs.build_type }}）
+      - name: 构建 APK（${{ inputs.build_type || 'Release' }}）
         env:
           KS_AVAILABLE: ${{ steps.keystore.outputs.available }}
           KS_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -149,7 +149,7 @@ jobs:
       # R8 已开启混淆（isMinifyEnabled=true）。没有 mapping.txt，
       # 以后线上崩溃堆栈无法还原成可读行号，等于拿不到有效崩溃日志。
       - name: 上传 R8 mapping（崩溃还原用）
-        if: inputs.build_type == 'Release'
+        if: (inputs.build_type || 'Release') == 'Release'
         uses: actions/upload-artifact@v4
         with:
           name: lxday-mapping-${{ inputs.version_name }}-${{ github.sha }}
