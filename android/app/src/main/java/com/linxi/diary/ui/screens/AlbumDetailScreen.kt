@@ -3,7 +3,6 @@ package com.linxi.diary.ui.screens
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -557,12 +556,21 @@ private fun UploadProgressCard(
             )
             if (!uploading && failures.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
-                Text(
-                    if (expanded) "收起失败详情" else "查看失败原因",
-                    fontSize = 13.sp,
-                    color = BrandBlue,
-                    modifier = Modifier.clickable { expanded = !expanded },
-                )
+                LxClickableSurface(
+                    modifier = Modifier.fillMaxWidth(),
+                    tone = LxSurfaceTone.Flat,
+                    edgeRadius = 10.dp,
+                    onClick = { expanded = !expanded },
+                    contentDescription = if (expanded) "收起失败详情" else "查看失败原因",
+                    stateDescription = if (expanded) "已展开" else "已收起",
+                ) {
+                    Text(
+                        if (expanded) "收起失败详情" else "查看失败原因",
+                        fontSize = 13.sp,
+                        color = BrandBlue,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                }
                 if (expanded) {
                     Spacer(Modifier.height(6.dp))
                     failures.forEach { f ->
