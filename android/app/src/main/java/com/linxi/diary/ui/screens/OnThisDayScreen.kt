@@ -1,10 +1,7 @@
 package com.linxi.diary.ui.screens
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -18,7 +15,6 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -30,6 +26,7 @@ import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.components.KernelScreen
 import com.linxi.diary.ui.components.LxButton as Button
 import com.linxi.diary.ui.components.LxButtonVariant
+import com.linxi.diary.ui.components.LxClickableSurface
 import com.linxi.diary.ui.components.LxSurface
 import com.linxi.diary.ui.components.LxSurfaceTone
 import kotlinx.coroutines.launch
@@ -143,13 +140,16 @@ fun OnThisDayScreen(
                     // 「这一天」单次最多返回 200 张，滚动时会明显掉帧。
                     // AlbumDetailScreen 修过同一个坑，这里当时没跟上。
                     itemsIndexed(photos, key = { _, p -> p.id }) { index, p ->
-                        Box(
-                            Modifier
+                        LxClickableSurface(
+                            modifier = Modifier
                                 .aspectRatio(1f)
-                                .clip(RoundedCornerShape(8.dp))
-                                // 占位底色：加载失败时是可见的灰格子而非完全透明。
-                                .background(MiuixTheme.colorScheme.onBackground.copy(alpha = 0.06f))
-                                .clickable { onOpenPhoto(photos, index) }
+                                .padding(0.dp),
+                            tone = LxSurfaceTone.Flat,
+                            color = MiuixTheme.colorScheme.onBackground.copy(alpha = 0.06f),
+                            shape = RoundedCornerShape(8.dp),
+                            edgeRadius = 8.dp,
+                            onClick = { onOpenPhoto(photos, index) },
+                            contentDescription = p.caption.ifBlank { "照片" },
                         ) {
                             AsyncImage(
                                 model = p.displayUrl,

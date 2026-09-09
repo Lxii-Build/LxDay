@@ -1,7 +1,6 @@
 package com.linxi.diary.ui.screens
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,6 +17,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -32,6 +33,7 @@ import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.components.KernelScreen
 import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
+import com.linxi.diary.ui.components.LxClickableSurface
 import com.linxi.diary.ui.components.LxSurface
 import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.ui.components.NeteaseTrackCover
@@ -216,16 +218,26 @@ fun LyricsScreen(track: NeteaseTrack, onBack: () -> Unit) {
                 lines.forEachIndexed { index, line ->
                     item {
                         val active = index == activeIndex
-                        Text(
-                            text = line.text.ifBlank { "♪" },
-                            fontSize = if (active) 21.sp else 16.sp,
-                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-                            color = if (active) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { NeteasePlaybackManager.seekTo(line.timeMs - (lyrics?.offsetMs ?: 0L)) }
-                                .padding(horizontal = 18.dp, vertical = if (active) 10.dp else 7.dp),
-                        )
+                        LxClickableSurface(
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            tone = if (active) LxSurfaceTone.Inset else LxSurfaceTone.Flat,
+                            shape = RoundedCornerShape(12.dp),
+                            edgeRadius = 12.dp,
+                            onClick = { NeteasePlaybackManager.seekTo(line.timeMs - (lyrics?.offsetMs ?: 0L)) },
+                            contentDescription = "跳转到第 ${index + 1} 行歌词",
+                            semanticRole = Role.Button,
+                            stateDescription = if (active) "正在播放" else null,
+                        ) {
+                            Text(
+                                text = line.text.ifBlank { "♪" },
+                                fontSize = if (active) 21.sp else 16.sp,
+                                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (active) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 18.dp, vertical = if (active) 10.dp else 7.dp),
+                            )
+                        }
                     }
                 }
             }

@@ -31,6 +31,7 @@ import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.components.KernelScreen
 import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
+import com.linxi.diary.ui.components.LxConfirmDialog
 import com.linxi.diary.ui.components.LxSurface
 import com.linxi.diary.ui.components.LxSurfaceTone
 import kotlinx.coroutines.delay
@@ -58,6 +59,8 @@ fun WatchTogetherScreen(onBack: () -> Unit) {
     var title by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var info by remember { mutableStateOf<String?>(null) }
+    var showClearDialog by remember { mutableStateOf(false) }
+    var clearRequested by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         WatchPlaybackManager.init(context)
@@ -88,6 +91,21 @@ fun WatchTogetherScreen(onBack: () -> Unit) {
             val playback = WatchPlaybackManager.stateFlow.value
             if (current.room?.state?.isWatch == true && canWatchControl(current)) {
                 ListenSessionController.heartbeatWatch(playback.positionMs, playback.playing)
+            }
+        }
+    }
+
+    // Keep a destructive confirmation open while the authoritative command is
+    // in flight.  A failed request stays visible in the dialog so the user can
+    // retry without accidentally sending the same command twice.
+    LaunchedEffect(session.loading, session.info, session.error) {
+        if (clearRequested && !session.loading) {
+            when {
+                session.error == null && session.info == "已清除一起看的内容" -> {
+                    clearRequested = false
+                    showClearDialog = false
+                }
+                session.error != null -> clearRequested = false
             }
         }
     }
@@ -192,7 +210,7 @@ fun WatchTogetherScreen(onBack: () -> Unit) {
                     )
                 },
                 canControl = canWatchControl(session) && !session.loading,
-                onClear = ListenSessionController::clearWatch,
+                onClear = { showClearDialog = true },
                 onRetry = ListenSessionController::retry,
             )
         }
@@ -235,6 +253,31 @@ fun WatchTogetherScreen(onBack: () -> Unit) {
             }
         }
     }
+
+    LxConfirmDialog(
+        show = showClearDialog,
+        title = "清除一起看内容？",
+        message = "清除后双方房间里的视频链接、标题和观看进度都会移除；之后仍可重新同步新的链接。",
+        confirmText = "清除内容",
+        onConfirm = {
+            if (!clearRequested) {
+                clearRequested = true
+                ListenSessionController.clearWatch()
+            }
+        },
+        onDismiss = {
+            if (!session.loading) {
+                clearRequested = false
+                showClearDialog = false
+            }
+        },
+        destructive = true,
+        busy = clearRequested,
+        busyText = "清除中…",
+        extraContent = {
+            session.error?.let { Text(it, color = MiuixTheme.colorScheme.error, fontSize = 13.sp) }
+        },
+    )
 }
 
 @Composable
