@@ -242,6 +242,19 @@ object UserPrefs {
         get() = sp.getBoolean("music_search_history", true)
         set(v) { sp.edit().putBoolean("music_search_history", v).apply() }
 
+    /**
+     * 控制本机媒体通知是否提供给系统的播放胶囊/锁屏媒体卡片。
+     * 系统是否真的显示胶囊仍由 Android 与厂商桌面决定，App 不申请悬浮窗权限。
+     */
+    var musicPlaybackCapsuleEnabled: Boolean
+        get() = sp.getBoolean("music_playback_capsule", true)
+        set(v) { sp.edit().putBoolean("music_playback_capsule", v).apply() }
+
+    /** 播放胶囊开启时，是否把当前歌词首行作为通知副文案。 */
+    var musicPlaybackCapsuleLyrics: Boolean
+        get() = sp.getBoolean("music_playback_capsule_lyrics", false)
+        set(v) { sp.edit().putBoolean("music_playback_capsule_lyrics", v).apply() }
+
     /** 最近搜索只保存在本机，最多保留 8 条；关闭开关时调用 clearMusicSearchHistory。 */
     val musicSearchHistoryEntries: List<String>
         get() = sp.getString("music_search_history_entries", "")

@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.linxi.diary.data.NeteaseAccountStore
+import com.linxi.diary.data.MusicNotificationController
 import com.linxi.diary.data.NeteasePlaybackManager
 import com.linxi.diary.data.NeteaseRepeatMode
 import com.linxi.diary.ui.NeteaseQrLoginActivity
@@ -52,6 +53,8 @@ fun MusicSettingsScreen(onBack: () -> Unit, onOpenMusic: () -> Unit) {
     var showLyrics by remember { mutableStateOf(UserPrefs.musicShowLyrics) }
     var translation by remember { mutableStateOf(UserPrefs.musicTranslation) }
     var searchHistory by remember { mutableStateOf(UserPrefs.musicSearchHistory) }
+    var playbackCapsule by remember { mutableStateOf(UserPrefs.musicPlaybackCapsuleEnabled) }
+    var capsuleLyrics by remember { mutableStateOf(UserPrefs.musicPlaybackCapsuleLyrics) }
     val loginLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
@@ -186,6 +189,34 @@ fun MusicSettingsScreen(onBack: () -> Unit, onOpenMusic: () -> Unit) {
                         if (!it) UserPrefs.clearMusicSearchHistory()
                     },
                     startAction = { MusicSettingIcon(MiuixIcons.Recent, "搜索历史") },
+                )
+            }
+        }
+
+        item {
+            SmallTitle("播放胶囊与通知")
+            LxSurface(Modifier.padding(top = 6.dp).fillMaxWidth(), tone = LxSurfaceTone.Raised) {
+                LxSwitchPreference(
+                    title = "显示播放胶囊",
+                    summary = "允许系统根据媒体通知显示播放胶囊、锁屏卡片或普通通知；不申请悬浮窗权限",
+                    checked = playbackCapsule,
+                    onCheckedChange = {
+                        playbackCapsule = it
+                        UserPrefs.musicPlaybackCapsuleEnabled = it
+                        MusicNotificationController.refresh(NeteasePlaybackManager.stateFlow.value)
+                    },
+                    startAction = { MusicSettingIcon(MiuixIcons.Messages, "播放胶囊") },
+                )
+                LxSwitchPreference(
+                    title = "胶囊显示当前歌词",
+                    summary = "有已缓存歌词时，把当前行显示为媒体通知副文案",
+                    checked = capsuleLyrics,
+                    onCheckedChange = {
+                        capsuleLyrics = it
+                        UserPrefs.musicPlaybackCapsuleLyrics = it
+                        MusicNotificationController.refresh(NeteasePlaybackManager.stateFlow.value)
+                    },
+                    startAction = { MusicSettingIcon(MiuixIcons.Messages, "胶囊歌词") },
                 )
             }
         }

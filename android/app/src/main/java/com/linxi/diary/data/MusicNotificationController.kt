@@ -8,13 +8,15 @@ import androidx.media3.session.MediaStyleNotificationHelper
 import com.linxi.diary.MainActivity
 import com.linxi.diary.R
 import com.linxi.diary.service.NotificationChannels
+import com.linxi.diary.util.UserPrefs
 
 /**
  * 本机播放的标准媒体通知出口。
  *
- * 不实现或配置“灵动岛”：MediaSession 是 Android 官方媒体控制入口，系统会根据用户
- * 的实时活动/媒体通知设置自行决定是否显示胶囊、锁屏卡片或普通通知。通知只包含本机
- * 曲目元数据，不包含 Cookie、JWT 或播放地址。
+ * “播放胶囊/灵动岛”不是 App 可以强制创建的悬浮窗：MediaSession 是 Android 官方媒体
+ * 控制入口，系统会根据用户与厂商桌面的实时活动/媒体通知设置自行决定呈现方式。本页
+ * 设置只控制是否发布这条媒体通知，以及是否把本机缓存的当前歌词作为副文案。通知只
+ * 包含本机曲目元数据，不包含 Cookie、JWT 或播放地址。
  */
 @androidx.annotation.OptIn(markerClass = [androidx.media3.common.util.UnstableApi::class])
 object MusicNotificationController {
@@ -32,11 +34,16 @@ object MusicNotificationController {
         val context = appContext ?: return
         val manager = NotificationChannels.ensure(context) ?: return
         val session = mediaSession ?: return
-        if (state.track == null) {
+        if (state.track == null || !UserPrefs.musicPlaybackCapsuleEnabled) {
             manager.cancel(NotificationChannels.NOTIFY_ID_MUSIC)
             return
         }
         val track = state.track
+        val lyric = if (UserPrefs.musicPlaybackCapsuleLyrics) {
+            NeteasePlaybackManager.currentLyric()?.take(100)
+        } else {
+            null
+        }
         val builder = NotificationCompat.Builder(context, NotificationChannels.CHANNEL_MUSIC)
             .setSmallIcon(R.drawable.ic_heart)
             .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
@@ -46,7 +53,10 @@ object MusicNotificationController {
             .setOngoing(true)
             .setShowWhen(false)
             .setContentTitle(track.title)
-            .setContentText(track.artist.ifBlank { "网易云音乐" })
+            .setContentText(lyric ?: track.artist.ifBlank { "网易云音乐" })
+            .apply {
+                if (!lyric.isNullOrBlank()) setSubText(track.artist.ifBlank { "网易云音乐" })
+            }
             .setContentIntent(
                 android.app.PendingIntent.getActivity(
                     context,

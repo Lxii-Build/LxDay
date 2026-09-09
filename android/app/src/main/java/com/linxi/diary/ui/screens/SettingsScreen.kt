@@ -135,7 +135,7 @@ fun SettingsScreen(
             LxSurface(Modifier.padding(top = 12.dp).fillMaxWidth(), tone = LxSurfaceTone.Raised) {
                 LxArrowPreference(
                     title = "音乐设置",
-                    summary = "网易云账号、收藏、播放行为、歌词与灵动岛",
+                    summary = "网易云账号、收藏、播放行为、歌词与播放胶囊",
                     startAction = { PrefIcon(MiuixIcons.Messages, "音乐设置") },
                     onClick = onOpenMusicSettings,
                 )

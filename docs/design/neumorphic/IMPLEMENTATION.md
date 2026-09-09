@@ -36,6 +36,7 @@ Draft1.2最新范围：[REFINEMENTS-1.2.md](REFINEMENTS-1.2.md)。石墨暗色�
 ### 2026-09-08 APP 播放器与页面占位补齐（本轮新增）
 
 - 全屏播放器继续消费唯一 `NeteasePlaybackManager`：加入自适应封面（含失败占位）、小屏可滚动布局、真实进度语义与点击 seek；不创建第二个 ExoPlayer。全局 mini 播放条的高度通过新的 `LocalPlaybackBottomPadding` 传给 `KernelScreen`，二级页末尾内容不会再被浮层盖住。
+- “我的 → 音乐设置”已补齐播放胶囊配置：可关闭本机媒体通知，或允许通知副文案显示已缓存的当前歌词；不申请悬浮窗权限、不伪造系统灵动岛，最终呈现仍由 Android/厂商媒体通知决定。
 
 - Android `KernelScreen` 现在默认使用 16dp 页面边距，并把石墨/浅色 `canvas` 作为所有列表页的底层材质；模糊顶栏的采样底色也从 Miuix 动态表面收敛到同一套 `LxSurfaceTokens`。
 - Live2D 本机模型现在有单一“当前使用”选择：选择结果只写入本机 `SharedPreferences`，导入首个模型时自动选中；主页陪伴角展示当前模型并在可选运行时就地渲染，缺少运行时则明确显示等待 Core 的状态。删除当前模型会清理并自动回退到剩余模型。资源库下载与 SAF 导入共用同一同步路径，不会把选择状态上传服务端。
