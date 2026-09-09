@@ -1,6 +1,14 @@
 name: 构建安卓 APK
 
 on:
+  # Android 构建必须在云端执行。main 上的客户端改动自动走 Release
+  # 默认参数；保留 workflow_dispatch 供有权限的维护者手动覆盖参数。
+  push:
+    branches:
+      - main
+    paths:
+      - 'android/**'
+      - '.github/workflows/build-android.yml'
   workflow_dispatch:
     inputs:
       server_url:
