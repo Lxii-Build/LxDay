@@ -85,4 +85,4 @@ WebSocket 地址为 `/ws`，状态同步令牌只允许放在 `Authorization: Be
 
 ## 构建后台内嵌镜像
 
-仓库根 `Dockerfile` 会执行 `npm ci`、`npm run build`，把 `admin/dist` 放入临时 `server/webdist` 后编译。`server/webdist` 为构建输入，不要把后台构建产物提交到仓库；生产更新使用镜像 tag 和 [docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md) 的升级流程。
+仓库根 `Dockerfile` 会执行 `npm ci`、`npm run build`，把 `admin/dist` 放入临时 `server/webdist` 后编译。`server/webdist` 为构建输入，不要把后台构建产物提交到仓库；生产更新使用经过质量门禁与容器冒烟测试的镜像 tag，并按 [docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md) 的升级流程执行。
