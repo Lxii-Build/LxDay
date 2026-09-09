@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,6 +34,7 @@ import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
 import com.linxi.diary.ui.components.LxSurface
 import com.linxi.diary.ui.components.LxSurfaceTone
+import com.linxi.diary.ui.components.NeteaseTrackCover
 import com.linxi.diary.util.UserPrefs
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Text
@@ -97,8 +99,17 @@ fun LyricsScreen(track: NeteaseTrack, onBack: () -> Unit) {
         item {
             LxSurface(Modifier.fillMaxWidth().padding(top = 12.dp), tone = LxSurfaceTone.Raised) {
                 Column(Modifier.padding(18.dp)) {
-                    Text(currentTrack.title, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-                    Text(currentTrack.artist, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        NeteaseTrackCover(
+                            currentTrack,
+                            modifier = Modifier.size(64.dp),
+                            description = "${currentTrack.title}封面",
+                        )
+                        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                            Text(currentTrack.title, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
+                            Text(currentTrack.artist, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 2)
+                        }
+                    }
                     Spacer(Modifier.height(10.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         LxButton(
@@ -110,6 +121,25 @@ fun LyricsScreen(track: NeteaseTrack, onBack: () -> Unit) {
                         LxButton(
                             text = if (playback.playing) "暂停" else "播放",
                             onClick = { if (playback.playing) NeteasePlaybackManager.pause() else NeteasePlaybackManager.resume() },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        LxButton(
+                            text = if (playback.shuffle) "随机已开" else "随机播放",
+                            onClick = { NeteasePlaybackManager.toggleShuffle() },
+                            variant = if (playback.shuffle) LxButtonVariant.Positive else LxButtonVariant.Neutral,
+                            modifier = Modifier.weight(1f),
+                        )
+                        LxButton(
+                            text = when (playback.repeatMode) {
+                                com.linxi.diary.data.NeteaseRepeatMode.OFF -> "循环关闭"
+                                com.linxi.diary.data.NeteaseRepeatMode.ALL -> "列表循环"
+                                com.linxi.diary.data.NeteaseRepeatMode.ONE -> "单曲循环"
+                            },
+                            onClick = { NeteasePlaybackManager.cycleRepeatMode() },
+                            variant = LxButtonVariant.Neutral,
                             modifier = Modifier.weight(1f),
                         )
                     }

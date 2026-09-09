@@ -2,7 +2,6 @@ package com.linxi.diary.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -48,7 +47,6 @@ import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
 import com.linxi.diary.ui.components.LxSurface
 import com.linxi.diary.ui.components.LxSurfaceTone
-import com.linxi.diary.ui.theme.BrandRed
 import com.linxi.diary.util.Logs
 import com.linxi.diary.util.UserPrefs
 import kotlinx.coroutines.launch
@@ -269,23 +267,22 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit)
         }
         item {
             LxSurface(Modifier.padding(top = 12.dp).fillMaxWidth(), tone = LxSurfaceTone.Raised) {
-                if (UserPrefs.pairId > 0) {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 56.dp)
-                            .clickable(enabled = !unbinding) { showUnbind = true }
-                            .padding(horizontal = 16.dp, vertical = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(if (unbinding) "解除中…" else "解除绑定", color = colorScheme.onBackground, fontWeight = FontWeight.Medium)
+                Column(
+                    Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    if (UserPrefs.pairId > 0) {
+                        LxButton(
+                            text = if (unbinding) "解除中…" else "解除绑定",
+                            onClick = { showUnbind = true },
+                            enabled = !unbinding,
+                            variant = LxButtonVariant.Negative,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
-                }
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 56.dp)
-                        .clickable {
+                    LxButton(
+                        text = "退出登录",
+                        onClick = {
                             Logs.i("Auth", "logout: clear token/pairId/consent")
                             UserPrefs.token = null
                             UserPrefs.pairId = 0
@@ -297,11 +294,10 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit)
                             ProfileRuntime.clearSession()
                             StatusForegroundService.stop(context)
                             onLogout()
-                        }
-                        .padding(horizontal = 16.dp, vertical = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("退出登录", color = BrandRed, fontWeight = FontWeight.Medium)
+                        },
+                        variant = LxButtonVariant.Neutral,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
             }
             Spacer(Modifier.height(8.dp))

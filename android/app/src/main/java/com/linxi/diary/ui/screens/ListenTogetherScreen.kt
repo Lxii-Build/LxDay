@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -40,6 +41,7 @@ import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
 import com.linxi.diary.ui.components.LxSurface
 import com.linxi.diary.ui.components.LxSurfaceTone
+import com.linxi.diary.ui.components.NeteaseTrackCover
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import top.yukonga.miuix.kmp.basic.Text
@@ -338,12 +340,18 @@ private fun RoomStatusCard(
 private fun SearchTrackRow(track: NeteaseTrack, resolving: Boolean, onClick: (NeteaseTrack) -> Unit) {
     LxSurface(Modifier.fillMaxWidth().padding(top = 8.dp), tone = LxSurfaceTone.Raised) {
         Column(Modifier.padding(14.dp)) {
-            Text(track.title, fontWeight = FontWeight.Medium)
-            Text(
-                listOf(track.artist, track.album).filter(String::isNotBlank).joinToString(" · "),
-                fontSize = 12.sp,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            )
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                NeteaseTrackCover(track, modifier = Modifier.size(56.dp), description = "${track.title}封面")
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                    Text(track.title, fontWeight = FontWeight.Medium, maxLines = 1)
+                    Text(
+                        listOf(track.artist, track.album).filter(String::isNotBlank).joinToString(" · "),
+                        fontSize = 12.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        maxLines = 2,
+                    )
+                }
+            }
             Spacer(Modifier.height(8.dp))
             LxButton(
                 text = if (resolving) "提交中…" else "一起播放",

@@ -1,21 +1,16 @@
 package com.linxi.diary.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -30,8 +25,8 @@ import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
 import com.linxi.diary.ui.components.LxSurface
 import com.linxi.diary.ui.components.LxSurfaceTone
+import com.linxi.diary.ui.components.LxIconButton
 import com.linxi.diary.ui.navigation.LocalMainFabState
-import com.linxi.diary.ui.theme.BrandBlue
 import com.linxi.diary.util.UserPrefs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -39,7 +34,6 @@ import org.json.JSONObject
 import top.yukonga.miuix.kmp.icon.basic.Check
 import top.yukonga.miuix.kmp.icon.basic.Search
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
@@ -347,10 +341,10 @@ private fun TodoCard(
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Spacer(Modifier.weight(1f))
-                    IconButton(onClick = onComplete) {
+                    LxIconButton(onClick = onComplete, contentDescription = "完成待办") {
                         Icon(MiuixIcons.Basic.Check, contentDescription = "完成", tint = MiuixTheme.colorScheme.primary)
                     }
-                    IconButton(onClick = onDelete) {
+                    LxIconButton(onClick = onDelete, contentDescription = "删除待办") {
                         Icon(MiuixIcons.Delete, contentDescription = "删除", tint = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.7f))
                     }
                 }
@@ -564,28 +558,24 @@ private fun LabeledSwitchRow(label: String, checked: Boolean, onChange: (Boolean
 
 @Composable
 private fun ChipToggle(text: String, selected: Boolean, onClick: () -> Unit) {
-    Box(
-        Modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(if (selected) BrandBlue else MiuixTheme.colorScheme.onBackground.copy(alpha = 0.08f))
-            .clickable { onClick() }
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-    ) {
-        Text(text, fontSize = 13.sp, color = if (selected) Color.White else MiuixTheme.colorScheme.onSurface)
-    }
+    LxButton(
+        text = text,
+        onClick = onClick,
+        variant = if (selected) LxButtonVariant.Positive else LxButtonVariant.Neutral,
+        horizontalPadding = 14,
+    )
 }
 
 @Composable
 private fun WeekdayCircle(text: String, selected: Boolean, onClick: () -> Unit) {
-    Box(
-        Modifier
-            .size(34.dp)
-            .clip(CircleShape)
-            .background(if (selected) BrandBlue else MiuixTheme.colorScheme.onBackground.copy(alpha = 0.08f))
-            .clickable { onClick() },
-        contentAlignment = Alignment.Center,
+    LxIconButton(
+        onClick = onClick,
+        variant = if (selected) LxButtonVariant.Positive else LxButtonVariant.Neutral,
+        shape = androidx.compose.foundation.shape.CircleShape,
+        modifier = Modifier.size(48.dp),
+        contentDescription = "星期$text",
     ) {
-        Text(text, fontSize = 13.sp, color = if (selected) Color.White else MiuixTheme.colorScheme.onSurface)
+        Text(text, fontSize = 13.sp)
     }
 }
 
@@ -602,15 +592,14 @@ private fun StepperRow(label: String, value: Int, min: Int, max: Int, onChange: 
 
 @Composable
 private fun StepBtn(text: String, enabled: Boolean, onClick: () -> Unit) {
-    Box(
-        Modifier
-            .size(32.dp)
-            .clip(CircleShape)
-            .background(MiuixTheme.colorScheme.onBackground.copy(alpha = if (enabled) 0.10f else 0.04f))
-            .clickable(enabled = enabled) { onClick() },
-        contentAlignment = Alignment.Center,
+    LxIconButton(
+        onClick = onClick,
+        enabled = enabled,
+        shape = androidx.compose.foundation.shape.CircleShape,
+        modifier = Modifier.size(48.dp),
+        contentDescription = if (text == "+") "增加" else "减少",
     ) {
-        Text(text, fontSize = 16.sp, color = MiuixTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.4f))
+        Text(text, fontSize = 16.sp)
     }
 }
 

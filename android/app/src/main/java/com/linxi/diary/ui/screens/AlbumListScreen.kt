@@ -3,7 +3,6 @@ package com.linxi.diary.ui.screens
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,9 +39,9 @@ import com.linxi.diary.ui.components.LxConfirmDialog
 import com.linxi.diary.ui.components.LxFormDialog
 import com.linxi.diary.ui.components.LxSurface
 import com.linxi.diary.ui.components.LxSurfaceTone
+import com.linxi.diary.ui.components.LxIconButton
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.icon.MiuixIcons
@@ -296,7 +295,7 @@ private fun AlbumCard(
                 )
             }
             // 显式管理入口：一眼就知道这里能操作，不必猜「要长按」。
-            IconButton(onClick = onManage) {
+            LxIconButton(onClick = onManage, contentDescription = "管理相册") {
                 Icon(
                     imageVector = MiuixIcons.More,
                     contentDescription = "管理 $name",
@@ -392,16 +391,13 @@ private fun ManageAlbumDialog(
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
         } else {
-            // 危险动作与常规动作在视觉上分开：红字条目 + 二次确认。
-            Text(
-                "删除相册",
-                fontSize = 15.sp,
-                color = com.linxi.diary.ui.theme.BrandRed,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .clickable(enabled = !busy) { confirmDelete = true }
-                    .padding(vertical = 12.dp),
+            // 危险动作与常规动作在视觉上分开：语义红色按钮 + 二次确认。
+            LxButton(
+                text = "删除相册",
+                onClick = { confirmDelete = true },
+                enabled = !busy,
+                variant = LxButtonVariant.Negative,
+                modifier = Modifier.fillMaxWidth(),
             )
         }
     }

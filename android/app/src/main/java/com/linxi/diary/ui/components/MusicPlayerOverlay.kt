@@ -9,7 +9,6 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,7 +35,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
@@ -44,19 +42,15 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.layout.ContentScale
-import coil3.compose.AsyncImage
-import coil3.request.ImageRequest
-import com.linxi.diary.data.AppImageLoader
 import com.linxi.diary.data.NeteaseClient
 import com.linxi.diary.data.NeteasePlaybackManager
 import com.linxi.diary.data.NeteasePlaybackState
 import com.linxi.diary.data.NeteaseRepeatMode
 import com.linxi.diary.data.NeteaseTrack
 import com.linxi.diary.ui.theme.LocalLxSurfaceTokens
+import com.linxi.diary.ui.components.LxClickableSurface
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
@@ -172,31 +166,24 @@ private fun MiniPlaybackCard(
 ) {
     val track = state.track ?: return
     val tokens = LocalLxSurfaceTokens.current
-    LxSurface(
+    LxClickableSurface(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
             .padding(start = 12.dp, end = 12.dp, bottom = 76.dp),
         tone = LxSurfaceTone.Floating,
         shape = RoundedCornerShape(16.dp),
+        onClick = onExpand,
+        contentDescription = "展开播放器：${track.title}",
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(onClick = onExpand)
-                .padding(horizontal = 14.dp, vertical = 10.dp)
-                .semantics { contentDescription = "展开播放器：${track.title}" },
+                .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .background(tokens.surface, RoundedCornerShape(12.dp)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(MiuixIcons.Music, contentDescription = "音乐封面", tint = MiuixTheme.colorScheme.primary)
-            }
+            NeteaseTrackCover(track, modifier = Modifier.size(42.dp), description = "音乐封面")
             Column(Modifier.weight(1f)) {
                 Text(track.title, maxLines = 1, fontSize = 14.sp)
                 Text(track.artist, maxLines = 1, fontSize = 12.sp, color = tokens.textSecondary)
@@ -231,7 +218,6 @@ private fun FullPlaybackSheet(
     canvas: androidx.compose.ui.graphics.Color,
 ) {
     val track = state.track ?: return
-    val context = LocalContext.current
     val tokens = LocalLxSurfaceTokens.current
     val duration = state.durationMs.coerceAtLeast(0L)
     val progress = if (duration > 0L) {
@@ -283,23 +269,12 @@ private fun FullPlaybackSheet(
                 tone = LxSurfaceTone.Raised,
                 shape = RoundedCornerShape(28.dp),
             ) {
-                if (track.coverUrl.isNotBlank()) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(context).data(track.coverUrl).build(),
-                        imageLoader = AppImageLoader.get(context),
-                        contentDescription = "当前歌曲封面",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(28.dp)),
-                    )
-                } else {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Icon(
-                            MiuixIcons.Music,
-                            contentDescription = "当前歌曲封面占位",
-                            tint = MiuixTheme.colorScheme.primary,
-                        )
-                    }
-                }
+                NeteaseTrackCover(
+                    track,
+                    modifier = Modifier.fillMaxSize(),
+                    description = "当前歌曲封面",
+                    shape = RoundedCornerShape(28.dp),
+                )
             }
         }
         Spacer(Modifier.height(26.dp))

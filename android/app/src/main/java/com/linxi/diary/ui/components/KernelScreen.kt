@@ -177,7 +177,7 @@ fun LoadingRow() {
 /** KernelSU 顶栏 actions 的返回/历史按钮辅助 */
 @Composable
 fun BackAction(onBack: () -> Unit) {
-    top.yukonga.miuix.kmp.basic.IconButton(onClick = onBack) {
+    LxIconButton(onClick = onBack, contentDescription = "返回") {
         // 用 miuix 的 Icon 而非 material3 的：全 App 统一 miuix 组件（管理员要求）。
         top.yukonga.miuix.kmp.basic.Icon(
             imageVector = MiuixIcons.Back,

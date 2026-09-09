@@ -5,14 +5,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import com.linxi.diary.data.ImagePrep
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -29,6 +26,8 @@ import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.components.KernelScreen
 import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
+import com.linxi.diary.ui.components.LxClickableSurface
+import com.linxi.diary.ui.components.LxIconButton
 import com.linxi.diary.ui.components.LxSurface
 import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.ui.theme.BrandBlue
@@ -225,7 +224,14 @@ private fun ProfileEditContent(
                     if (avatarUploading) "上传中…" else "点击更换头像",
                     fontSize = 13.sp,
                     color = colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.clickable { onPickAvatar() },
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                LxButton(
+                    text = "选择头像",
+                    onClick = onPickAvatar,
+                    enabled = !avatarUploading,
+                    variant = LxButtonVariant.Neutral,
+                    modifier = Modifier.padding(top = 8.dp),
                 )
             }
         }
@@ -312,39 +318,49 @@ private fun ProfileEditContent(
 @Composable
 private fun NetworkAvatar(url: String?, version: Int, fallback: String, size: Dp, onClick: () -> Unit) {
     val context = LocalContext.current
-    Box(
-        Modifier.size(size).clip(CircleShape).background(BrandBlue.copy(alpha = 0.12f)).clickable { onClick() },
-        contentAlignment = Alignment.Center,
+    LxClickableSurface(
+        modifier = Modifier.size(size),
+        tone = LxSurfaceTone.Raised,
+        shape = CircleShape,
+        color = BrandBlue.copy(alpha = 0.12f),
+        onClick = onClick,
+        contentDescription = "更换头像",
     ) {
-        if (!url.isNullOrBlank()) {
-            AsyncImage(
-                model = coil3.request.ImageRequest.Builder(context)
-                    .data(url)
-                    .memoryCacheKey("$url#v$version")
-                    .diskCacheKey("$url#v$version")
-                    .build(),
-                imageLoader = AppImageLoader.get(context),
-                contentDescription = "头像",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-        } else if (fallback.isNotBlank()) {
-            Text(fallback.take(1), color = BrandBlue, fontSize = 32.sp, fontWeight = FontWeight.SemiBold)
-        } else {
-            Icon(MiuixIcons.Contacts, contentDescription = "头像", tint = BrandBlue, modifier = Modifier.size(40.dp))
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            if (!url.isNullOrBlank()) {
+                AsyncImage(
+                    model = coil3.request.ImageRequest.Builder(context)
+                        .data(url)
+                        .memoryCacheKey("$url#v$version")
+                        .diskCacheKey("$url#v$version")
+                        .build(),
+                    imageLoader = AppImageLoader.get(context),
+                    contentDescription = "头像",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else if (fallback.isNotBlank()) {
+                Text(fallback.take(1), color = BrandBlue, fontSize = 32.sp, fontWeight = FontWeight.SemiBold)
+            } else {
+                Icon(MiuixIcons.Contacts, contentDescription = "头像", tint = BrandBlue, modifier = Modifier.size(40.dp))
+            }
         }
     }
 }
 
 @Composable
 private fun GenderOption(label: String, selected: Boolean, onClick: () -> Unit) {
-    Box(
-        Modifier.size(64.dp).clip(CircleShape)
-            .background(if (selected) BrandBlue else colorScheme.onBackground.copy(alpha = 0.08f))
-            .clickable { onClick() },
-        contentAlignment = Alignment.Center,
+    LxClickableSurface(
+        modifier = Modifier.size(64.dp),
+        tone = LxSurfaceTone.Raised,
+        shape = CircleShape,
+        color = if (selected) BrandBlue else colorScheme.onBackground.copy(alpha = 0.08f),
+        onClick = onClick,
+        contentDescription = label,
     ) {
-        Text(label, fontSize = 14.sp, color = if (selected) Color.White else colorScheme.onSurface)
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(label, fontSize = 14.sp, color = if (selected) Color.White else colorScheme.onSurface)
+        }
     }
 }
 
@@ -361,11 +377,12 @@ private fun StepperRow(label: String, value: Int, min: Int, max: Int, onChange: 
 
 @Composable
 private fun StepBtn(text: String, enabled: Boolean, onClick: () -> Unit) {
-    Box(
-        Modifier.size(32.dp).clip(CircleShape)
-            .background(colorScheme.onBackground.copy(alpha = if (enabled) 0.10f else 0.04f))
-            .clickable(enabled = enabled) { onClick() },
-        contentAlignment = Alignment.Center,
+    LxIconButton(
+        onClick = onClick,
+        enabled = enabled,
+        shape = CircleShape,
+        modifier = Modifier.size(48.dp),
+        contentDescription = if (text == "+") "增加" else "减少",
     ) {
         Text(text, fontSize = 16.sp, color = colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.4f))
     }

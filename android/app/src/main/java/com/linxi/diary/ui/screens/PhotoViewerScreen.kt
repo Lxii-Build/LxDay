@@ -37,13 +37,13 @@ import com.linxi.diary.ui.components.LxButton as Button
 import com.linxi.diary.ui.components.LxButtonVariant
 import com.linxi.diary.ui.components.LxSurface
 import com.linxi.diary.ui.components.LxSurfaceTone
+import com.linxi.diary.ui.components.LxIconButton
 import com.linxi.diary.data.PhotoItem
 import com.linxi.diary.data.PhotoLoadSource
 import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.theme.BrandRed
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
@@ -209,16 +209,17 @@ fun PhotoViewerScreen(
                     // 设为相册封面：接口早就有（PUT /albums/:id 的 cover_photo_id），
                     // 但一直没有任何 UI 入口，等于白写。未归类（album_id=0）没有封面概念。
                     if (current.albumId != 0L) {
-                        IconButton(onClick = {
-                            if (busy) return@IconButton
-                            busy = true
-                            scope.launch {
-                                runCatching { ApiClient.setAlbumCover(current.albumId, current.id) }
-                                    .onSuccess { hintText = "已设为相册封面" }
-                                    .onFailure { hintText = "设置封面失败" }
-                                busy = false
+                        LxIconButton(onClick = {
+                            if (!busy) {
+                                busy = true
+                                scope.launch {
+                                    runCatching { ApiClient.setAlbumCover(current.albumId, current.id) }
+                                        .onSuccess { hintText = "已设为相册封面" }
+                                        .onFailure { hintText = "设置封面失败" }
+                                    busy = false
+                                }
                             }
-                        }) {
+                        }, contentDescription = "设为相册封面") {
                             Icon(
                                 imageVector = MiuixIcons.Album,
                                 contentDescription = "设为相册封面",
@@ -227,7 +228,7 @@ fun PhotoViewerScreen(
                         }
                     }
                     // 删除必须二次确认：照片是不可再生数据，此前点一下就删、零确认，误触零成本。
-                    IconButton(onClick = { if (!busy) confirmDelete = true }) {
+                    LxIconButton(onClick = { if (!busy) confirmDelete = true }, contentDescription = "删除这张照片") {
                         Icon(
                             imageVector = MiuixIcons.Delete,
                             contentDescription = "删除这张照片",
@@ -269,29 +270,30 @@ fun PhotoViewerScreen(
                     Modifier.fillMaxWidth().padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(onClick = {
-                        if (busy) return@IconButton
-                        busy = true
-                        val wasLiked = liked
-                        // 乐观更新：先动 UI，失败再回滚。点赞是高频轻量操作，等网络往返会显得迟钝。
-                        liked = !wasLiked
-                        likeCount = (likeCount + if (wasLiked) -1 else 1).coerceAtLeast(0)
-                        scope.launch {
-                            val r = if (wasLiked) {
-                                runCatching { ApiClient.unlikePhoto(current.id) }
-                            } else {
-                                runCatching { ApiClient.likePhoto(current.id) }
+                    LxIconButton(onClick = {
+                        if (!busy) {
+                            busy = true
+                            val wasLiked = liked
+                            // 乐观更新：先动 UI，失败再回滚。点赞是高频轻量操作，等网络往返会显得迟钝。
+                            liked = !wasLiked
+                            likeCount = (likeCount + if (wasLiked) -1 else 1).coerceAtLeast(0)
+                            scope.launch {
+                                val r = if (wasLiked) {
+                                    runCatching { ApiClient.unlikePhoto(current.id) }
+                                } else {
+                                    runCatching { ApiClient.likePhoto(current.id) }
+                                }
+                                r.onSuccess { d ->
+                                    liked = d.optBoolean("liked", liked)
+                                    likeCount = d.optInt("like_count", likeCount)
+                                }.onFailure {
+                                    liked = wasLiked
+                                    likeCount = (likeCount + if (wasLiked) 1 else -1).coerceAtLeast(0)
+                                }
+                                busy = false
                             }
-                            r.onSuccess { d ->
-                                liked = d.optBoolean("liked", liked)
-                                likeCount = d.optInt("like_count", likeCount)
-                            }.onFailure {
-                                liked = wasLiked
-                                likeCount = (likeCount + if (wasLiked) 1 else -1).coerceAtLeast(0)
-                            }
-                            busy = false
                         }
-                    }) {
+                    }, contentDescription = if (liked) "取消赞" else "点赞") {
                         Icon(
                             if (liked) MiuixIcons.FavoritesFill else MiuixIcons.Favorites,
                             contentDescription = if (liked) "取消赞" else "点赞",

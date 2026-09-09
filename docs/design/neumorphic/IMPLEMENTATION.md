@@ -10,6 +10,14 @@ Draft1.2最新范围：[REFINEMENTS-1.2.md](REFINEMENTS-1.2.md)。石墨暗色�
 
 ### 2026-09-09 会话与门禁收口（本轮新增）
 
+### 2026-09-09 播放器与高频操作材质收口（本轮新增）
+
+- 新增 `ui/components/LxIconButton.kt`，把返回、相册管理、照片查看、待办操作等原先直接使用的 `miuix IconButton` 收口到统一语义组件：组件内部提供 48dp 触达下限、Raised/Inset 按压状态、禁用态和按钮无障碍角色。
+- 全局播放器的迷你胶囊改用 `LxClickableSurface`，移除原生 ripple；搜索结果、一起听结果、歌词页、迷你胶囊和全屏播放器共用 `NeteaseTrackCover`，远程封面失败时保留可见拟态底色，不渲染透明空白。
+- 歌词详情页补齐封面、随机播放和循环模式控制，仍只派发给唯一的 `NeteasePlaybackManager`，没有创建第二个播放器或本地假状态。
+- 资料页性别、日期步进、头像入口和待办重复选项迁移到统一拟态按钮/可点击表面；解绑、删除相册等危险操作不再使用无语义的红色可点击文字。
+- 验证：JDK 21 + Gradle 9.7 下 `:app:compileDebugKotlin`、`:app:testDebugUnitTest` 通过；`git diff --check` 通过。真实设备绘制和 Cubism 首帧仍需授权运行时、模型与真机验收，不能以编译结果替代。
+
 - 首页陪伴角现在读取本机当前模型并通过 `ui/components/Live2DPreviewHost.kt` 嵌入真实 `GLSurfaceView`；管理页预览也复用同一宿主。宿主用进程级单活跃租约处理 `AnimatedContent` 转场，避免两个页面同时初始化 Cubism Framework。缺少授权 Core AAR/Framework 或模型宿主创建失败时，仍显示可读的降级状态，不用 PNG/线框冒充渲染。
 - Live2D 导入安全边界继续收口：APP 与服务端现在同时限制压缩 ZIP 50 MiB、单文件 64 MiB、moc3 20 MiB，并按 `model3.json` 实际引用汇总全部贴图像素，避免多张“单张合规”纹理合计耗尽显存。新增服务端与 JVM 回归测试覆盖聚合预算。
 - 新增 `Live2DRenderPolicy`（纯策略）与 30fps 上限：静态模型不启动自由运行 ticker，卡片离屏、被遮挡、未选中或尺寸为零时停止绘制。新增 `Live2DNativeRuntime`/`Live2DRendererBridge`，可探测官方 Core/Framework，并保持缺少许可 AAR 时的真实降级态。
