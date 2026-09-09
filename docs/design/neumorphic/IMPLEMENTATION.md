@@ -21,7 +21,7 @@ Draft1.2最新范围：[REFINEMENTS-1.2.md](REFINEMENTS-1.2.md)。石墨暗色�
 ### 2026-09-09 默认点击反馈清零（本轮新增）
 
 - 待办详情展开、知情同意整行和本机相册分桶切换改用 `LxClickableSurface`；按下时统一进入 Inset、移除平台 ripple，并声明按钮/复选框/状态文案语义。嵌套的提醒开关、完成/删除动作和 Checkbox 仍保留各自事件，不改变业务操作。
-- 本轮不在本机执行 Android Gradle 或 Java；Android 编译、单测、Lint 与 Debug APK 打包只以 GitHub Actions 质量门禁为证据。提交后等待质量门禁 #30 完成，再记录其三端 job 与 APK artifact 结果。
+- 本轮不在本机执行 Android Gradle 或 Java；Android 编译、单测、Lint 与 Debug APK 打包只以 GitHub Actions 质量门禁为证据。质量门禁 #31（`5b4608a`）已成功完成三端 job，并产出 `android-debug-apk-5b4608a981e3421594a45b3f865937ab37e6a7e4` 与 Lint 报告 artifact。
 
 ### 2026-09-09 交互表面残留收口（本轮新增）
 
