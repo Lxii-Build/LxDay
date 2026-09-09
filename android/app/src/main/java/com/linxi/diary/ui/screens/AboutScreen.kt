@@ -45,6 +45,7 @@ import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.components.KernelScreen
 import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
+import com.linxi.diary.ui.components.LxConfirmDialog
 import com.linxi.diary.ui.components.LxSurface
 import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.util.Logs
@@ -308,66 +309,48 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit)
         UpdateDialog(info = info, onDismiss = { update = null })
     }
 
-    if (showUnbind) {
-        OverlayDialog(
-            show = true,
-            title = "解除绑定",
-            onDismissRequest = { if (!unbinding) showUnbind = false },
-            renderInRootScaffold = true,
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    "解除后你和对方都会回到绑定页，可重新绑定。确定解除当前绑定？",
-                    color = colorScheme.onSurfaceVariantSummary,
-                )
-                unbindError?.let { msg ->
-                    Text(msg, color = colorScheme.primary)
+    LxConfirmDialog(
+        show = showUnbind,
+        title = "解除绑定",
+        message = "解除后你和对方都会回到绑定页，状态共享、一起听和伴侣数据访问会立即停止，可稍后重新绑定。",
+        confirmText = "确定解除",
+        onConfirm = {
+            scope.launch {
+                unbinding = true
+                unbindError = null
+                // 必须先确认服务端解绑成功再清本地：
+                // 此前 runCatching 的结果被直接丢弃，网络失败时服务端仍是绑定状态、
+                // 本地却已清空并跳回绑定页 —— 双端状态分裂，重新登录也回不去。
+                val ok = runCatching {
+                    ApiClient.postJson("/pair/unbind", JSONObject())
+                }.isSuccess
+                if (!ok) {
+                    unbindError = "解除绑定失败，请检查网络后重试"
+                    unbinding = false
+                    return@launch
                 }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    LxButton(
-                        "取消",
-                        onClick = { showUnbind = false },
-                        variant = LxButtonVariant.Neutral,
-                        enabled = !unbinding,
-                        modifier = Modifier.weight(1f),
-                    )
-                    LxButton(
-                        text = if (unbinding) "解除中…" else "确定解除",
-                        onClick = {
-                            scope.launch {
-                                unbinding = true
-                                unbindError = null
-                                // 必须先确认服务端解绑成功再清本地：
-                                // 此前 runCatching 的结果被直接丢弃，网络失败时服务端仍是绑定状态、
-                                // 本地却已清空并跳回绑定页 —— 双端状态分裂，重新登录也回不去。
-                                val ok = runCatching {
-                                    ApiClient.postJson("/pair/unbind", JSONObject())
-                                }.isSuccess
-                                if (!ok) {
-                                    unbindError = "解除绑定失败，请检查网络后重试"
-                                    unbinding = false
-                                    return@launch
-                                }
-                                UserPrefs.pairId = 0
-                                UserPrefs.partnerName = ""
-                                UserPrefs.sharingEnabled = false
-                                ListenSessionController.clearForLogout()
-                                StatusSyncManager.disconnect()
-                                StatusForegroundService.stop(context)
-                                ProfileRuntime.clearSession()
-                                unbinding = false
-                                showUnbind = false
-                                onUnbound()
-                            }
-                        },
-                        variant = LxButtonVariant.Negative,
-                        enabled = !unbinding,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
+                UserPrefs.pairId = 0
+                UserPrefs.partnerName = ""
+                UserPrefs.sharingEnabled = false
+                ListenSessionController.clearForLogout()
+                StatusSyncManager.disconnect()
+                StatusForegroundService.stop(context)
+                ProfileRuntime.clearSession()
+                unbinding = false
+                showUnbind = false
+                onUnbound()
             }
-        }
-    }
+        },
+        onDismiss = { if (!unbinding) showUnbind = false },
+        destructive = true,
+        busy = unbinding,
+        busyText = "解除中…",
+        extraContent = {
+            unbindError?.let { msg ->
+                Text(msg, color = colorScheme.error)
+            }
+        },
+    )
 }
 
 @Composable
