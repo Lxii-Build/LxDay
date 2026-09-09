@@ -34,9 +34,10 @@ import com.linxi.diary.ui.components.LoadingRow
 import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
 import com.linxi.diary.ui.components.LxConfirmDialog
+import com.linxi.diary.ui.components.LxSurface
+import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.ui.theme.BrandRed
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -189,7 +190,7 @@ fun RecycleBinScreen(onBack: () -> Unit) {
         }
         error?.let { msg ->
             item {
-                Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                LxSurface(Modifier.fillMaxWidth().padding(top = 12.dp), tone = LxSurfaceTone.Raised) {
                     Column(Modifier.padding(16.dp)) {
                         Text(msg, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         Spacer(Modifier.height(12.dp))
@@ -204,7 +205,7 @@ fun RecycleBinScreen(onBack: () -> Unit) {
         }
         if (!loading && error == null && photos.isEmpty()) {
             item {
-                Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                LxSurface(Modifier.fillMaxWidth().padding(top = 12.dp), tone = LxSurfaceTone.Raised) {
                     Column(Modifier.padding(20.dp)) {
                         Text("回收站是空的", style = MiuixTheme.textStyles.headline1)
                         Spacer(Modifier.height(6.dp))
@@ -217,7 +218,7 @@ fun RecycleBinScreen(onBack: () -> Unit) {
             }
         }
         items(photos, key = { it.id }) { p ->
-            Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+            LxSurface(Modifier.fillMaxWidth().padding(top = 12.dp), tone = LxSurfaceTone.Raised) {
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         Modifier.size(64.dp)

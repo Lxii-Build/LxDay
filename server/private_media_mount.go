@@ -1,10 +1,9 @@
 package main
 
 import (
-	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
+	"path"
 	"runtime"
 	"strings"
 )
@@ -14,11 +13,10 @@ import (
 // the same filesystem as their parent; mountinfo is the kernel's source of
 // truth.
 func privateMediaMountPresent(target, mountInfo string) (bool, error) {
-	want, err := filepath.Abs(target)
-	if err != nil {
-		return false, fmt.Errorf("make mount target absolute: %w", err)
-	}
-	want = filepath.Clean(want)
+	// mountinfo is a Linux/POSIX format even when the pure helper is exercised
+	// by a Windows CI runner. Do not use filepath.Abs/Clean here: on Windows a
+	// leading /app path becomes C:\\app and can never match the fixture.
+	want := path.Clean(target)
 	for _, line := range strings.Split(mountInfo, "\n") {
 		fields := strings.Fields(line)
 		// Linux mountinfo field 5 is the mount point. It is present before
@@ -26,7 +24,7 @@ func privateMediaMountPresent(target, mountInfo string) (bool, error) {
 		if len(fields) < 5 {
 			continue
 		}
-		mountedAt := filepath.Clean(unescapeMountInfoPath(fields[4]))
+		mountedAt := path.Clean(unescapeMountInfoPath(fields[4]))
 		if mountedAt == want {
 			return true, nil
 		}

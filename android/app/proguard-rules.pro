@@ -29,3 +29,10 @@
 # kotlinx.coroutines：StateFlow/Flow 的内部类被裁掉会导致状态同步静默失效
 -dontwarn kotlinx.coroutines.**
 -keep class kotlinx.coroutines.android.AndroidDispatcherFactory { *; }
+
+# Optional official Cubism Java adapter.  The default build has no matching
+# classes, so these rules are inert until CUBISM_CORE_AAR + Framework are
+# explicitly supplied.  Keep the reflection factory and JNI-facing framework
+# names stable in release builds.
+-keep class com.linxi.diary.live2d.** { *; }
+-keep class com.live2d.sdk.cubism.** { *; }

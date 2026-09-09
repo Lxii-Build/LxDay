@@ -21,3 +21,6 @@
 
 // 主题切换圆形扩散动画
 @use './core/theme-animation.scss';
+
+// 林曦拟物 token：最后引入，确保覆盖 Element Plus 主题生成的默认表面。
+@use './core/linxi-neumorphic.scss';

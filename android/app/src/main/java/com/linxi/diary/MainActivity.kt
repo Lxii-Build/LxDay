@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -15,6 +14,7 @@ import com.linxi.diary.data.ProfileRuntime
 import com.linxi.diary.ui.navigation.LinxiApp
 import com.linxi.diary.ui.theme.LinxiTheme
 import com.linxi.diary.ui.theme.rememberThemeState
+import com.linxi.diary.util.AppNoticeBus
 import com.linxi.diary.util.Logs
 
 /**
@@ -30,11 +30,7 @@ class MainActivity : ComponentActivity() {
             val denied = result.filterValues { !it }.keys
             if (denied.isNotEmpty()) {
                 Logs.w("Main", "权限被拒: $denied")
-                Toast.makeText(
-                    this,
-                    "部分权限未授予，可在「我的」中补开",
-                    Toast.LENGTH_SHORT
-                ).show()
+                AppNoticeBus.show("部分权限未授予，可在「我的」中补开")
             }
         }
 

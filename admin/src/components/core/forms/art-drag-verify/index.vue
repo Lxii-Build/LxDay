@@ -107,16 +107,16 @@
     height: 40,
     text: '按住滑块拖动',
     successText: 'success',
-    background: '#eee',
-    progressBarBg: '#1385FF',
-    completedBg: '#57D187',
+    background: 'var(--lx-surface)',
+    progressBarBg: 'var(--lx-focus)',
+    completedBg: '#2e9c68',
     circle: false,
     radius: 'calc(var(--custom-radius) / 3 + 2px)',
     handlerIcon: 'solar:double-alt-arrow-right-linear',
     successIcon: 'ri:check-fill',
-    handlerBg: '#fff',
+    handlerBg: 'var(--lx-elevated)',
     textSize: '13px',
-    textColor: '#333'
+    textColor: 'var(--lx-text-secondary)'
   })
 
   // 组件状态接口定义
@@ -372,7 +372,11 @@
     box-sizing: border-box;
     overflow: hidden;
     text-align: center;
-    border: 1px solid var(--default-border-dashed);
+    background: var(--lx-surface);
+    border: 0;
+    box-shadow:
+      inset 3px 3px 8px var(--lx-shadow-inset),
+      inset -3px -3px 8px var(--lx-highlight-inset);
 
     .dv_handler {
       position: absolute;
@@ -382,10 +386,21 @@
       align-items: center;
       justify-content: center;
       cursor: move;
+      border-radius: inherit;
+      box-shadow:
+        -3px -3px 7px var(--lx-highlight-raised),
+        3px 3px 7px var(--lx-shadow-raised);
+      transition: box-shadow var(--lx-motion-fast) ease;
 
       &:focus-visible {
-        outline: 2px solid var(--main-color);
+        outline: 3px solid color-mix(in srgb, var(--lx-focus) 55%, transparent);
         outline-offset: -3px;
+      }
+
+      &:active {
+        box-shadow:
+          inset 2px 2px 5px var(--lx-shadow-inset),
+          inset -2px -2px 5px var(--lx-highlight-inset);
       }
 
       i {
@@ -418,7 +433,7 @@
         to right,
         var(--textColor) 0%,
         var(--textColor) 40%,
-        #fff 50%,
+        var(--lx-highlight-raised) 50%,
         var(--textColor) 60%,
         var(--textColor) 100%
       );

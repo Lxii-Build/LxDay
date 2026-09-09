@@ -49,6 +49,20 @@ val propKeystorePassword = (project.findProperty("KEYSTORE_PASSWORD") as String?
 val propKeyAlias = (project.findProperty("KEY_ALIAS") as String?) ?: ""
 val propKeyPassword = (project.findProperty("KEY_PASSWORD") as String?) ?: ""
 
+// Live2D's Core AAR is distributed by Live2D under its own license and is not
+// checked into this repository.  A normal build therefore stays dependency
+// free; an owner who has accepted the SDK terms can opt into the real renderer
+// with `-PCUBISM_CORE_AAR=... -PCUBISM_FRAMEWORK_DIR=...`.
+val cubismCoreAar = (project.findProperty("CUBISM_CORE_AAR") as String?)
+    ?.takeIf { it.isNotBlank() }
+    ?.let(::file)
+    ?: file("libs/Live2DCubismCore.aar")
+val cubismFrameworkDir = (project.findProperty("CUBISM_FRAMEWORK_DIR") as String?)
+    ?.takeIf { it.isNotBlank() }
+    ?.let(::file)
+val cubismEnabled = cubismCoreAar.isFile &&
+    cubismFrameworkDir?.resolve("framework/src/main/java")?.isDirectory == true
+
 // 固定的 debug 密钥库：随仓库提交（debug 密钥按安卓惯例是公开的，口令固定 android）。
 // 目的是让本地与 CI 的 debug APK 签名也一致，调试时不必卸载重装丢数据。
 val debugKeystore = rootProject.file("keystore/lxday-debug.p12")
@@ -99,6 +113,16 @@ android {
     buildFeatures {
         buildConfig = true
         compose = true
+    }
+
+    sourceSets {
+        getByName("main") {
+            if (cubismEnabled) {
+                java.srcDir("src/cubism/java")
+                java.srcDir(cubismFrameworkDir!!.resolve("framework/src/main/java"))
+                assets.srcDir(cubismFrameworkDir!!.resolve("framework/src/main/assets"))
+            }
+        }
     }
 
     compileSdk {
@@ -189,6 +213,10 @@ dependencies {
 
     // KernelSU 同款动态取色
     implementation(libs.material.kolor)
+
+    if (cubismEnabled) {
+        implementation(files(cubismCoreAar))
+    }
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")

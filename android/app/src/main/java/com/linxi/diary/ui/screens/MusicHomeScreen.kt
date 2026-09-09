@@ -24,11 +24,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.linxi.diary.data.NeteaseAccountStore
 import com.linxi.diary.data.NeteaseClient
 import com.linxi.diary.data.NeteasePlaybackManager
-import com.linxi.diary.data.NeteaseRepeatMode
 import com.linxi.diary.data.NeteaseTrack
 import com.linxi.diary.ui.NeteaseQrLoginActivity
 import com.linxi.diary.ui.NeteaseWebLoginActivity
@@ -36,13 +34,12 @@ import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.components.KernelScreen
 import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
+import com.linxi.diary.ui.components.LxSurface
+import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.util.UserPrefs
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 网易云音乐库：搜索、我的收藏、队列与歌词入口。 */
@@ -55,7 +52,6 @@ fun MusicHomeScreen(
     BackHandler { onBack() }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val playback by NeteasePlaybackManager.stateFlow.collectAsStateWithLifecycle()
     var loggedIn by remember { mutableStateOf(NeteaseAccountStore.isLoggedIn()) }
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<NeteaseTrack>>(emptyList()) }
@@ -132,14 +128,6 @@ fun MusicHomeScreen(
         }
     }
 
-    fun playAdjacent(next: Boolean) {
-        val track = NeteasePlaybackManager.adjacentTrack(next) ?: run {
-            info = if (next) "已经是队列最后一首" else "已经是队列第一首"
-            return
-        }
-        playTrack(track, playback.queue)
-    }
-
     fun toggleFavorite(track: NeteaseTrack) {
         if (!loggedIn) return
         val currentlyLiked = track.liked || favorites.any { it.id == track.id }
@@ -166,7 +154,7 @@ fun MusicHomeScreen(
 
     KernelScreen(title = "音乐", navigationIcon = { BackAction(onBack) }, loading = loading) {
         item {
-            Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+            LxSurface(Modifier.fillMaxWidth().padding(top = 12.dp), tone = LxSurfaceTone.Raised) {
                 Column(Modifier.padding(18.dp)) {
                     Text("网易云音乐", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(4.dp))
@@ -260,25 +248,6 @@ fun MusicHomeScreen(
             }
         }
 
-        item {
-            playback.track?.let { track ->
-                MusicMiniPlayer(
-                    track = track,
-                    playing = playback.playing,
-                    positionMs = playback.positionMs,
-                    durationMs = playback.durationMs,
-                    shuffle = playback.shuffle,
-                    repeatMode = playback.repeatMode,
-                    onPrevious = { playAdjacent(false) },
-                    onNext = { playAdjacent(true) },
-                    onToggle = { if (playback.playing) NeteasePlaybackManager.pause() else NeteasePlaybackManager.resume() },
-                    onShuffle = { NeteasePlaybackManager.toggleShuffle() },
-                    onRepeat = { NeteasePlaybackManager.cycleRepeatMode() },
-                    onLyrics = { onOpenLyrics(track) },
-                )
-            }
-        }
-
         error?.let { message ->
             item {
                 Row(
@@ -319,7 +288,7 @@ private fun MusicTrackRow(
     onFavorite: () -> Unit,
     onLyrics: () -> Unit,
 ) {
-    Card(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+    LxSurface(Modifier.fillMaxWidth().padding(top = 8.dp), tone = LxSurfaceTone.Raised) {
         Column(Modifier.padding(14.dp)) {
             Text(track.title, fontWeight = FontWeight.Medium)
             Text(
@@ -345,56 +314,4 @@ private fun MusicTrackRow(
             }
         }
     }
-}
-
-@Composable
-private fun MusicMiniPlayer(
-    track: NeteaseTrack,
-    playing: Boolean,
-    positionMs: Long,
-    durationMs: Long,
-    shuffle: Boolean,
-    repeatMode: NeteaseRepeatMode,
-    onPrevious: () -> Unit,
-    onNext: () -> Unit,
-    onToggle: () -> Unit,
-    onShuffle: () -> Unit,
-    onRepeat: () -> Unit,
-    onLyrics: () -> Unit,
-) {
-    Card(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp)) {
-        Column(Modifier.padding(16.dp)) {
-            Text("正在播放", fontSize = 12.sp, color = MiuixTheme.colorScheme.primary)
-            Text(track.title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-            Text(track.artist, fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-            Text(
-                "${formatMusicPosition(positionMs)} / ${if (durationMs > 0) formatMusicPosition(durationMs) else "--:--"}",
-                fontSize = 12.sp,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                LxButton("上一首", onClick = onPrevious, variant = LxButtonVariant.Neutral, modifier = Modifier.weight(1f))
-                LxButton(if (playing) "暂停" else "播放", onClick = onToggle, modifier = Modifier.weight(1f))
-                LxButton("下一首", onClick = onNext, variant = LxButtonVariant.Neutral, modifier = Modifier.weight(1f))
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 6.dp)) {
-                LxButton(if (shuffle) "随机：开" else "随机：关", onClick = onShuffle, variant = LxButtonVariant.Neutral, modifier = Modifier.weight(1f))
-                LxButton("循环：${repeatLabel(repeatMode)}", onClick = onRepeat, variant = LxButtonVariant.Neutral, modifier = Modifier.weight(1f))
-                LxButton("打开歌词", onClick = onLyrics, variant = LxButtonVariant.Neutral, modifier = Modifier.weight(1f))
-            }
-        }
-    }
-}
-
-private fun repeatLabel(mode: NeteaseRepeatMode): String = when (mode) {
-    NeteaseRepeatMode.OFF -> "关"
-    NeteaseRepeatMode.ALL -> "列表"
-    NeteaseRepeatMode.ONE -> "单曲"
-}
-
-private fun formatMusicPosition(value: Long): String {
-    val seconds = (value / 1_000L).coerceAtLeast(0L)
-    return "%d:%02d".format(seconds / 60L, seconds % 60L)
 }

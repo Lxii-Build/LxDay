@@ -4,7 +4,6 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,10 +35,12 @@ import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.components.KernelScreen
 import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
+import com.linxi.diary.ui.components.LxClickableSurface
 import com.linxi.diary.ui.components.LxConfirmDialog
 import com.linxi.diary.ui.components.LxFormDialog
+import com.linxi.diary.ui.components.LxSurface
+import com.linxi.diary.ui.components.LxSurfaceTone
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
@@ -192,7 +193,7 @@ fun AlbumListScreen(
         }
         error?.let { msg ->
             item {
-                Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                LxSurface(Modifier.fillMaxWidth().padding(top = 12.dp), tone = LxSurfaceTone.Raised) {
                     Column(Modifier.padding(16.dp)) {
                         Text(msg, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         Spacer(Modifier.height(12.dp))
@@ -229,7 +230,7 @@ fun AlbumListScreen(
         }
         if (!loading && error == null && albums.isEmpty() && unclassifiedCount == 0) {
             item {
-                Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                LxSurface(Modifier.fillMaxWidth().padding(top = 12.dp), tone = LxSurfaceTone.Raised) {
                     Column(Modifier.padding(20.dp)) {
                         Text("还没有照片", style = MiuixTheme.textStyles.headline1)
                         Spacer(Modifier.height(6.dp))
@@ -254,12 +255,14 @@ private fun AlbumCard(
     onManage: () -> Unit,
 ) {
     val context = LocalContext.current
-    Card(
+    LxClickableSurface(
+        // 长按保留为快捷方式；显式入口是右侧的「⋯」。
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 12.dp)
-            // 长按保留为快捷方式；显式入口是右侧的「⋯」。
-            .combinedClickable(onClick = onClick, onLongClick = onManage),
+            .padding(top = 12.dp),
+        onClick = onClick,
+        onLongClick = onManage,
+        contentDescription = "$name，相册，$count 张",
     ) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(

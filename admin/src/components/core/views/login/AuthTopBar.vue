@@ -119,8 +119,11 @@
 <style scoped>
   .color-dots {
     pointer-events: none;
+    background: var(--lx-surface);
     backdrop-filter: blur(10px);
-    box-shadow: 0 2px 12px var(--art-gray-300);
+    box-shadow:
+      -8px -8px 18px var(--lx-highlight-raised),
+      8px 8px 18px var(--lx-shadow-raised);
     transition:
       opacity 0.3s ease,
       transform 0.3s ease;
@@ -128,7 +131,9 @@
   }
 
   .color-dot {
-    box-shadow: 0 2px 4px rgb(0 0 0 / 15%);
+    box-shadow:
+      -3px -3px 7px var(--lx-highlight-raised),
+      3px 3px 7px var(--lx-shadow-raised);
     transition:
       box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1),
       transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
@@ -138,7 +143,9 @@
   }
 
   .color-dot:hover {
-    box-shadow: 0 4px 8px rgb(0 0 0 / 20%);
+    box-shadow:
+      inset 2px 2px 5px var(--lx-shadow-inset),
+      inset -2px -2px 5px var(--lx-highlight-inset);
     transform: translateX(0) scale(1.1);
   }
 
@@ -165,8 +172,44 @@
   }
 
   .dark .color-dots {
-    background-color: var(--art-gray-200);
-    box-shadow: none;
+    background-color: var(--lx-surface);
+    box-shadow:
+      -8px -8px 18px var(--lx-highlight-raised),
+      8px 8px 18px var(--lx-shadow-raised);
+  }
+
+  .palette-btn,
+  .language-btn,
+  .theme-btn {
+    color: var(--lx-text-secondary);
+    background: var(--lx-surface) !important;
+    border-radius: var(--lx-radius-control);
+    box-shadow:
+      -4px -4px 9px var(--lx-highlight-raised),
+      4px 4px 9px var(--lx-shadow-raised);
+    transition:
+      color var(--lx-motion-fast) ease,
+      box-shadow var(--lx-motion-fast) ease,
+      transform var(--lx-motion-fast) ease;
+  }
+
+  .palette-btn:hover,
+  .language-btn:hover,
+  .theme-btn:hover,
+  .palette-btn:focus-visible,
+  .language-btn:focus-visible,
+  .theme-btn:focus-visible {
+    color: var(--lx-link);
+    transform: translateY(-1px);
+  }
+
+  .palette-btn:active,
+  .language-btn:active,
+  .theme-btn:active {
+    box-shadow:
+      inset 3px 3px 7px var(--lx-shadow-inset),
+      inset -3px -3px 7px var(--lx-highlight-inset);
+    transform: translateY(0);
   }
 
   .color-picker-expandable:hover .palette-btn :deep(.art-svg-icon) {

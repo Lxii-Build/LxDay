@@ -12,6 +12,7 @@ import { auditRoutes } from './audit'
 import { networkLogRoutes } from './network-log'
 import { adminsRoutes } from './admins'
 import { listenRoutes } from './listen'
+import { live2dRoutes } from './live2d'
 
 /**
  * 导出所有模块化路由（林曦日记运营后台）
@@ -29,5 +30,6 @@ export const routeModules: AppRouteRecord[] = [
   auditRoutes,
   networkLogRoutes,
   adminsRoutes,
-  listenRoutes
+  listenRoutes,
+  live2dRoutes
 ]

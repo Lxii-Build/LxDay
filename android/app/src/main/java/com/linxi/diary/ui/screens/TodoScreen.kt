@@ -28,6 +28,8 @@ import com.linxi.diary.data.TodoItem
 import com.linxi.diary.ui.components.KernelScreen
 import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
+import com.linxi.diary.ui.components.LxSurface
+import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.ui.navigation.LocalMainFabState
 import com.linxi.diary.ui.theme.BrandBlue
 import com.linxi.diary.util.UserPrefs
@@ -38,7 +40,6 @@ import top.yukonga.miuix.kmp.icon.basic.Check
 import top.yukonga.miuix.kmp.icon.basic.Search
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
@@ -268,12 +269,17 @@ private fun SearchRow(
                 .weight(1f)
                 .onFocusChanged { onFocusChange(it.isFocused) },
         )
-        AnimatedVisibility(visible = showCancel) {
-            Text(
-                "取消",
-                color = MiuixTheme.colorScheme.primary,
-                fontSize = 15.sp,
-                modifier = Modifier.clickable { onCancel() }.padding(start = 12.dp, end = 4.dp),
+        AnimatedVisibility(
+            visible = showCancel,
+            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(160)),
+            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120)),
+        ) {
+            LxButton(
+                text = "取消",
+                onClick = onCancel,
+                variant = LxButtonVariant.Neutral,
+                modifier = Modifier.padding(start = 8.dp),
+                horizontalPadding = 10,
             )
         }
     }
@@ -290,9 +296,11 @@ private fun TodoCard(
 ) {
     var expanded by remember { mutableStateOf(false) }
     val hasNote = todo.note.isNotBlank()
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        onClick = if (hasNote) ({ expanded = !expanded }) else null,
+    LxSurface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (hasNote) Modifier.clickable { expanded = !expanded } else Modifier),
+        tone = LxSurfaceTone.Raised,
     ) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

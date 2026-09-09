@@ -50,32 +50,66 @@
         </div>
       </template>
 
-      <ElTable v-loading="loading" :data="stats?.pairs || []" :class="{ 'narrow-table': isNarrow }">
-        <ElTableColumn prop="pair_id" :label="$t('storageStats.table.pairId')" width="100" />
-        <ElTableColumn prop="couple" :label="$t('storageStats.table.couple')" min-width="150" />
-        <ElTableColumn
-          prop="photo_count"
-          :label="$t('storageStats.table.photoCount')"
-          width="100"
-        />
-        <ElTableColumn :label="$t('storageStats.table.storage')" width="120">
-          <template #default="{ row }">{{ formatFileSize(row.size_bytes) }}</template>
-        </ElTableColumn>
-        <ElTableColumn :label="$t('storageStats.table.recycleBin')" width="160">
-          <template #default="{ row }">
-            {{ row.recycled_count }} 张 / {{ formatFileSize(row.recycled_bytes) }}
-          </template>
-        </ElTableColumn>
-        <ElTableColumn :label="$t('common.operation')" width="140" fixed="right">
-          <template #default="{ row }">
-            <ElButton type="danger" link :disabled="!row.recycled_count" @click="handlePurge(row)">
-              {{ $t('storageStats.purge') }}
-            </ElButton>
-          </template>
-        </ElTableColumn>
-      </ElTable>
+      <LxMobileRecordList
+        :rows="stats?.pairs || []"
+        :fields="mobileFields"
+        :loading="loading"
+        :empty-text="$t('storageStats.empty')"
+        aria-label="按关系容量移动端列表"
+      >
+        <template #storage="{ row }">{{ formatFileSize(row.size_bytes) }}</template>
+        <template #recycleBin="{ row }">
+          {{ row.recycled_count }} 张 / {{ formatFileSize(row.recycled_bytes) }}
+        </template>
+        <template #actions="{ row }">
+          <ElButton
+            type="danger"
+            :disabled="!row.recycled_count"
+            @click="handlePurge(asStorageUsage(row))"
+          >
+            {{ $t('storageStats.purge') }}
+          </ElButton>
+        </template>
+      </LxMobileRecordList>
+
+      <div class="storage-desktop-table">
+        <ElTable
+          v-loading="loading"
+          :data="stats?.pairs || []"
+          :class="{ 'narrow-table': isNarrow }"
+        >
+          <ElTableColumn prop="pair_id" :label="$t('storageStats.table.pairId')" width="100" />
+          <ElTableColumn prop="couple" :label="$t('storageStats.table.couple')" min-width="150" />
+          <ElTableColumn
+            prop="photo_count"
+            :label="$t('storageStats.table.photoCount')"
+            width="100"
+          />
+          <ElTableColumn :label="$t('storageStats.table.storage')" width="120">
+            <template #default="{ row }">{{ formatFileSize(row.size_bytes) }}</template>
+          </ElTableColumn>
+          <ElTableColumn :label="$t('storageStats.table.recycleBin')" width="160">
+            <template #default="{ row }">
+              {{ row.recycled_count }} 张 / {{ formatFileSize(row.recycled_bytes) }}
+            </template>
+          </ElTableColumn>
+          <ElTableColumn :label="$t('common.operation')" width="140" fixed="right">
+            <template #default="{ row }">
+              <ElButton
+                type="danger"
+                link
+                :disabled="!row.recycled_count"
+                @click="handlePurge(row)"
+              >
+                {{ $t('storageStats.purge') }}
+              </ElButton>
+            </template>
+          </ElTableColumn>
+        </ElTable>
+      </div>
 
       <ElEmpty
+        class="storage-desktop-empty"
         v-if="!loading && !(stats?.pairs || []).length"
         :description="$t('storageStats.empty')"
       />
@@ -103,6 +137,7 @@
     ElTable,
     ElTableColumn
   } from 'element-plus'
+  import LxMobileRecordList from '@/components/linxi/LxMobileRecordList.vue'
 
   defineOptions({ name: 'StorageStats' })
 
@@ -113,6 +148,17 @@
 
   const stats = ref<Api.Admin.StorageStats | null>(null)
   const loading = ref(false)
+
+  const mobileFields = computed(() => [
+    { key: 'pair_id', label: t('storageStats.table.pairId') },
+    { key: 'couple', label: t('storageStats.table.couple') },
+    { key: 'photo_count', label: t('storageStats.table.photoCount') },
+    { key: 'storage', label: t('storageStats.table.storage') },
+    { key: 'recycleBin', label: t('storageStats.table.recycleBin') }
+  ])
+
+  const asStorageUsage = (row: Record<string, any>): Api.Admin.StorageUsageItem =>
+    row as Api.Admin.StorageUsageItem
 
   const summaryCards = computed(() => {
     const totalStats = stats.value?.total
@@ -241,6 +287,13 @@
     :deep(.el-table__body),
     :deep(.el-table__header) {
       min-width: 680px;
+    }
+  }
+
+  @media (width < 768px) {
+    .storage-desktop-table,
+    .storage-desktop-empty {
+      display: none;
     }
   }
 </style>

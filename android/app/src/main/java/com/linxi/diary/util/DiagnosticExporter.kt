@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
-import android.widget.Toast
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -26,7 +25,7 @@ object DiagnosticExporter {
 
     suspend fun share(activity: Activity) {
         if (!exporting.compareAndSet(false, true)) {
-            Toast.makeText(activity, "诊断日志正在打包", Toast.LENGTH_SHORT).show()
+            AppNoticeBus.show("诊断日志正在打包")
             return
         }
         try {
@@ -34,7 +33,7 @@ object DiagnosticExporter {
             openSharesheet(activity, zip)
         } catch (t: Throwable) {
             Logs.e("Diagnostics", "导出诊断日志失败", t)
-            Toast.makeText(activity, "导出诊断日志失败", Toast.LENGTH_SHORT).show()
+            AppNoticeBus.show("导出诊断日志失败", isError = true)
         } finally {
             exporting.set(false)
         }
@@ -45,15 +44,17 @@ object DiagnosticExporter {
         try {
             val zip = withContext(Dispatchers.IO) { createArchive(activity) }
             withContext(Dispatchers.IO) {
-                activity.contentResolver.openOutputStream(uri)?.use { out ->
+                val output = activity.contentResolver.openOutputStream(uri)
+                    ?: error("document provider returned no output stream")
+                output.use { out ->
                     zip.inputStream().use { it.copyTo(out) }
                 }
             }
-            Toast.makeText(activity, "日志已保存", Toast.LENGTH_SHORT).show()
+            AppNoticeBus.show("日志已保存")
             Logs.i("Diagnostics", "diagnostics saved to document uri")
         } catch (t: Throwable) {
             Logs.e("Diagnostics", "save diagnostics failed", t)
-            Toast.makeText(activity, "保存日志失败", Toast.LENGTH_SHORT).show()
+            AppNoticeBus.show("保存日志失败", isError = true)
         }
     }
 
@@ -67,7 +68,7 @@ object DiagnosticExporter {
         }
         val chooser = Intent.createChooser(sendIntent, "导出诊断日志")
         if (chooser.resolveActivity(activity.packageManager) == null) {
-            Toast.makeText(activity, "没有可用的分享应用", Toast.LENGTH_SHORT).show()
+            AppNoticeBus.show("没有可用的分享应用", isError = true)
             return
         }
         activity.startActivity(chooser)

@@ -44,6 +44,8 @@ import com.linxi.diary.data.ApiClient
 import com.linxi.diary.data.AuthEvents
 import com.linxi.diary.data.ClientRuntimeConfig
 import com.linxi.diary.data.NeteaseTrack
+import com.linxi.diary.data.NeteasePlaybackManager
+import com.linxi.diary.data.ListenSessionController
 import com.linxi.diary.service.StatusForegroundService
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.ui.liquid.miuix.FloatingBottomBar
@@ -58,12 +60,13 @@ import com.linxi.diary.ui.screens.PhotoViewerScreen
 import com.linxi.diary.ui.screens.RecycleBinScreen
 import com.linxi.diary.ui.screens.AboutScreen
 import com.linxi.diary.ui.screens.AppearanceScreen
-import com.linxi.diary.ui.screens.DiscoverPlaceholderScreen
 import com.linxi.diary.ui.screens.DiscoverScreen
 import com.linxi.diary.ui.screens.FeatureDisabledScreen
 import com.linxi.diary.ui.screens.HistoryScreen
 import com.linxi.diary.ui.screens.KeepAliveCheckScreen
 import com.linxi.diary.ui.screens.ListenTogetherScreen
+import com.linxi.diary.ui.screens.WatchTogetherScreen
+import com.linxi.diary.ui.screens.Live2DManagerScreen
 import com.linxi.diary.ui.screens.LyricsScreen
 import com.linxi.diary.ui.screens.MusicHomeScreen
 import com.linxi.diary.ui.screens.MusicSettingsScreen
@@ -74,12 +77,17 @@ import com.linxi.diary.ui.screens.ProfileEditScreen
 import com.linxi.diary.ui.screens.RegisterScreen
 import com.linxi.diary.ui.screens.SettingsScreen
 import com.linxi.diary.ui.screens.TodoScreen
+import com.linxi.diary.ui.components.MusicPlayerOverlay
+import com.linxi.diary.ui.components.LxNoticeHost
+import com.linxi.diary.ui.theme.LocalLxSurfaceTokens
 import com.linxi.diary.ui.screens.UpdateDialog
 import com.linxi.diary.ui.screens.UpdateInfo
 import com.linxi.diary.util.Logs
+import com.linxi.diary.util.AppNoticeBus
 import com.linxi.diary.util.UserPrefs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Add
 import top.yukonga.miuix.kmp.icon.extended.Community
@@ -138,6 +146,7 @@ fun LinxiApp() {
             }
         )
     }
+    var live2DReturnScreen by remember { mutableStateOf(Screen.Appearance) }
     var navigationDirection by remember { mutableStateOf(NavigationDirection.Forward) }
     fun navigate(to: Screen, direction: NavigationDirection = NavigationDirection.Forward) {
         if (screen == to) return
@@ -165,6 +174,17 @@ fun LinxiApp() {
     var cropUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var croppedAvatar by remember { mutableStateOf<java.io.File?>(null) }
     var musicTrack by remember { mutableStateOf<NeteaseTrack?>(null) }
+    var notice by remember { mutableStateOf<AppNoticeBus.Notice?>(null) }
+    val playback by NeteasePlaybackManager.stateFlow.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) {
+        AppNoticeBus.events.collect { event -> notice = event }
+    }
+    LaunchedEffect(notice?.id) {
+        if (notice != null) {
+            delay(2800)
+            notice = null
+        }
+    }
     LaunchedEffect(Unit) {
         ProfileRuntime.actions.collect { action ->
             if (action.navigateToBind) {
@@ -182,6 +202,7 @@ fun LinxiApp() {
             UserPrefs.partnerName = ""
             UserPrefs.privacyConsented = false
             UserPrefs.sharingEnabled = false
+            ListenSessionController.clearForLogout()
             StatusSyncManager.disconnect()
             StatusForegroundService.stop(context)
             ProfileRuntime.clearSession()
@@ -209,15 +230,20 @@ fun LinxiApp() {
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { rootPadding ->
         Box(Modifier.fillMaxSize().padding(rootPadding)) {
-            AnimatedContent(
-                targetState = screen,
-                modifier = Modifier.fillMaxSize(),
-                transitionSpec = {
-                    globalScreenTransition(navigationDirection)
-                },
-                contentKey = { it },
-                label = "global-screen-transition",
-            ) { target ->
+            CompositionLocalProvider(
+                LocalPlaybackBottomPadding provides if (
+                    playback.track != null && targetShowsPlaybackChrome(screen)
+                ) 88.dp else 0.dp,
+            ) {
+                AnimatedContent(
+                    targetState = screen,
+                    modifier = Modifier.fillMaxSize(),
+                    transitionSpec = {
+                        globalScreenTransition(navigationDirection)
+                    },
+                    contentKey = { it },
+                    label = "global-screen-transition",
+                ) { target ->
                 when (target) {
                 Screen.Login -> LoginScreen(
                     onLoggedIn = {
@@ -246,6 +272,16 @@ fun LinxiApp() {
                     onBack = {
                         mainInitialPage = 3
                         navigate(Screen.Main, NavigationDirection.Back)
+                    },
+                    onOpenLive2D = {
+                        live2DReturnScreen = Screen.Appearance
+                        navigate(Screen.Live2D)
+                    },
+                )
+                Screen.Live2D -> Live2DManagerScreen(
+                    onBack = {
+                        if (live2DReturnScreen == Screen.Main) mainInitialPage = 0 else mainInitialPage = 3
+                        navigate(live2DReturnScreen, NavigationDirection.Back)
                     },
                 )
                 Screen.DiscoverAlbum -> if (!albumEnabled) {
@@ -365,7 +401,7 @@ fun LinxiApp() {
                         )
                     }
                 }
-                Screen.DiscoverWatch -> DiscoverPlaceholderScreen("一起看", onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) })
+                Screen.DiscoverWatch -> WatchTogetherScreen(onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) })
                 Screen.ProfileEdit -> ProfileEditScreen(
                     onBack = { mainInitialPage = 3; navigate(Screen.Main, NavigationDirection.Back) },
                     onPickAvatar = {
@@ -393,6 +429,10 @@ fun LinxiApp() {
                     onOpenHistory = { navigate(Screen.History) },
                     onOpenBind = { navigate(Screen.Bind) },
                     onOpenAppearance = { navigate(Screen.Appearance) },
+                    onOpenLive2D = {
+                        live2DReturnScreen = Screen.Main
+                        navigate(Screen.Live2D)
+                    },
                     onOpenAlbum = { navigate(Screen.DiscoverAlbum) },
                     onOpenMusic = { navigate(Screen.Music) },
                     onOpenListen = { navigate(Screen.DiscoverListen) },
@@ -403,6 +443,28 @@ fun LinxiApp() {
                     onOpenKeepAliveCheck = { navigate(Screen.KeepAliveCheck) },
                 )
                 }
+            }
+                    // Keep global chrome outside AnimatedContent: during a page
+                    // transition both old and new targets can be composed, and placing
+                    // the player inside the transition would briefly create two mini
+                    // players (and two BackHandlers). The player is one shell sibling.
+                }
+                // The playback chrome belongs to the app shell, not to the music page.
+                // It therefore survives switching tabs, opening lyrics, entering
+                // Together, and returning to the home page without duplicating during
+                // AnimatedContent transitions.
+                if (playback.track != null && targetShowsPlaybackChrome(screen)) {
+                    MusicPlayerOverlay(
+                        state = playback,
+                        onOpenLyrics = { track -> musicTrack = track; navigate(Screen.Lyrics) },
+                        onOpenMusic = { navigate(Screen.Music) },
+                    )
+                }
+                LxNoticeHost(
+                    notice = notice,
+                    onDismiss = { notice = null },
+                    bottomPadding = if (playback.track != null && targetShowsPlaybackChrome(screen)) 104.dp else 12.dp,
+                )
             }
             pendingUpdate?.let { info -> UpdateDialog(info) { pendingUpdate = null } }
         }
@@ -417,6 +479,7 @@ private fun MainTabs(
     onOpenHistory: () -> Unit,
     onOpenBind: () -> Unit,
     onOpenAppearance: () -> Unit,
+    onOpenLive2D: () -> Unit,
     onOpenAlbum: () -> Unit,
     onOpenMusic: () -> Unit,
     onOpenListen: () -> Unit,
@@ -434,7 +497,7 @@ private fun MainTabs(
         mutableStateOf(UserPrefs.pairId > 0 && !UserPrefs.privacyConsented)
     }
     var reviewConsent by remember { mutableStateOf(false) }
-    val surfaceColor = MiuixTheme.colorScheme.surface
+    val surfaceColor = LocalLxSurfaceTokens.current.canvas
     val backdrop = rememberLayerBackdrop {
         drawRect(surfaceColor)
         drawContent()
@@ -461,9 +524,7 @@ private fun MainTabs(
             (context as? android.app.Activity)?.finish()
         } else {
             backArmedAt = now
-            android.widget.Toast
-                .makeText(context, "再按一次退出", android.widget.Toast.LENGTH_SHORT)
-                .show()
+            AppNoticeBus.show("再按一次退出")
         }
     }
 
@@ -486,7 +547,7 @@ private fun MainTabs(
                 state = pagerState
             ) { page ->
                 when (page) {
-                    0 -> NowScreen(onOpenBind = onOpenBind)
+                    0 -> NowScreen(onOpenBind = onOpenBind, onOpenLive2D = onOpenLive2D)
                     1 -> TodoScreen()
                     2 -> DiscoverScreen(
                         onOpenAlbum = onOpenAlbum,
@@ -544,26 +605,29 @@ private fun MainTabs(
 
     val fabDestination = MainFabDestination.forPage(mainState.selectedPage)
     val fabAction = mainFabState.actionFor(fabDestination)
-    Scaffold(
-        bottomBar = bottomBar,
-        floatingActionButton = {
-            // 仿 KernelSU：FAB 随列表滚动做位移隐藏/显示（下滑下移出屏，上滑回位），350ms。
-            if (fabAction != null) {
-                val fabOffsetY by animateDpAsState(
-                    targetValue = if (mainFabState.fabVisible) 0.dp else 120.dp,
-                    animationSpec = tween(350),
-                    label = "fabOffset",
-                )
-                FloatingActionButton(
-                    onClick = { fabAction.invoke() },
-                    modifier = Modifier.offset { IntOffset(0, fabOffsetY.roundToPx()) },
-                ) {
-                    Icon(MiuixIcons.Add, contentDescription = "添加待办")
+    Box(Modifier.fillMaxSize()) {
+        Scaffold(
+            bottomBar = bottomBar,
+            floatingActionButton = {
+                // 仿 KernelSU：FAB 随列表滚动做位移隐藏/显示（下滑下移出屏，上滑回位），350ms。
+                if (fabAction != null) {
+                    val fabOffsetY by animateDpAsState(
+                        targetValue = if (mainFabState.fabVisible) 0.dp else 120.dp,
+                        animationSpec = tween(350),
+                        label = "fabOffset",
+                    )
+                    FloatingActionButton(
+                        onClick = { fabAction.invoke() },
+                        modifier = Modifier.offset { IntOffset(0, fabOffsetY.roundToPx()) },
+                    ) {
+                        Icon(MiuixIcons.Add, contentDescription = "添加待办")
+                    }
                 }
             }
+        ) { innerPadding ->
+            pagerContent(innerPadding.calculateBottomPadding())
         }
-    ) { innerPadding ->
-        pagerContent(innerPadding.calculateBottomPadding())
+
     }
 
     PrivacyConsentDialog(
@@ -580,7 +644,12 @@ private enum class Screen {
     Login, Register, Bind, Main, History, Appearance, ProfileEdit, About,
     DiscoverAlbum, AlbumDetail, PhotoPicker, PhotoViewer, OnThisDay, RecycleBin,
     AvatarCrop, KeepAliveCheck,
-    DiscoverListen, DiscoverWatch, Music, Lyrics, MusicSettings,
+    DiscoverListen, DiscoverWatch, Music, Lyrics, MusicSettings, Live2D,
+}
+
+private fun targetShowsPlaybackChrome(screen: Screen): Boolean = when (screen) {
+    Screen.Login, Screen.Register, Screen.Bind -> false
+    else -> true
 }
 
 /** 选图器的用途。决定单选/多选、标题，以及选完该回哪个页面。 */

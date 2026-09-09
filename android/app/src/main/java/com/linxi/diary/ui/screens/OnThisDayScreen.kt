@@ -30,8 +30,9 @@ import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.components.KernelScreen
 import com.linxi.diary.ui.components.LxButton as Button
 import com.linxi.diary.ui.components.LxButtonVariant
+import com.linxi.diary.ui.components.LxSurface
+import com.linxi.diary.ui.components.LxSurfaceTone
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.util.Calendar
@@ -82,7 +83,7 @@ fun OnThisDayScreen(
         loading = loading,
     ) {
         item {
-            Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+            LxSurface(Modifier.fillMaxWidth().padding(top = 12.dp), tone = LxSurfaceTone.Raised) {
                 Column(Modifier.padding(12.dp)) {
                     Text("$month 月 $day 日", style = MiuixTheme.textStyles.headline1)
                     Spacer(Modifier.height(4.dp))
@@ -120,7 +121,7 @@ fun OnThisDayScreen(
         }
         error?.let { msg ->
             item {
-                Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                LxSurface(Modifier.fillMaxWidth().padding(top = 12.dp), tone = LxSurfaceTone.Raised) {
                     Column(Modifier.padding(16.dp)) {
                         Text(msg, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         Spacer(Modifier.height(12.dp))

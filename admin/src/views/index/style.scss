@@ -2,7 +2,8 @@
   display: flex;
   width: 100%;
   min-height: 100vh;
-  background: var(--default-bg-color);
+  color: var(--lx-text);
+  background: var(--lx-canvas, var(--default-bg-color));
 
   #app-sidebar {
     flex-shrink: 0;
@@ -22,6 +23,10 @@
       z-index: 50;
       flex-shrink: 0;
       width: 100%;
+      background: color-mix(in srgb, var(--lx-canvas) 88%, transparent);
+      -webkit-backdrop-filter: blur(18px);
+      backdrop-filter: blur(18px);
+      border-bottom: 1px solid color-mix(in srgb, var(--lx-line) 55%, transparent);
     }
 
     #app-content {
@@ -30,6 +35,7 @@
       :deep(.layout-content) {
         box-sizing: border-box;
         width: calc(100% - 40px);
+        padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
         margin: auto;
 
         // 子页面默认 style
@@ -38,8 +44,11 @@
           box-sizing: border-box;
           padding: 20px;
           overflow: hidden;
-          background: var(--default-box-color);
+          background: var(--lx-surface, var(--default-box-color));
           border-radius: calc(var(--custom-radius) / 2 + 2px) !important;
+          box-shadow:
+            -10px -10px 22px var(--lx-highlight-raised),
+            10px 10px 22px var(--lx-shadow-raised);
         }
       }
     }
@@ -74,6 +83,7 @@
       #app-content {
         :deep(.layout-content) {
           width: calc(100% - 40px);
+          padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
         }
       }
     }
@@ -82,12 +92,28 @@
 
 @media only screen and (width <= 640px) {
   .app-layout {
+    min-width: 320px;
+
     #app-main {
+      padding-bottom: env(safe-area-inset-bottom, 0);
+
       #app-content {
         :deep(.layout-content) {
-          width: calc(100% - 30px);
+          width: calc(100% - 24px);
+          padding: 14px;
+          border-radius: 18px !important;
+          box-shadow:
+            -6px -6px 14px var(--lx-highlight-raised),
+            6px 6px 14px var(--lx-shadow-raised);
         }
       }
     }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-layout #app-header {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 }

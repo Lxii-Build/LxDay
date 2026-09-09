@@ -46,8 +46,12 @@ const PAGES = [
   '/system-settings',
   '/audit-log',
   '/network-log',
-  '/admin-manage'
+  '/admin-manage',
+  // 超级管理员才能看到的 Live2D 资源库也要覆盖；普通 admin 运行审计时，
+  // 页面会按真实 RBAC 留在无权限态，而不是把它从“全站适配”清单里漏掉。
+  '/live2d-manage'
 ]
+const SUPER_ONLY_ROUTES = new Set(['/live2d-manage'])
 
 // 首登改密用的新凭据。口令强度要求：>=12 位且含大小写与数字。
 const NEW_ADMIN = 'auditadmin'
@@ -205,20 +209,22 @@ async function main() {
       await page.screenshot({ path: `${OUT}/${vp.name}-change-cred.png`, fullPage: true })
       const ci = page.locator('input')
       const n = await ci.count()
-      // 表单为：新用户名 / 原密码 / 新密码 / 确认新密码 / 邮箱（顺序按页面）
-      for (let i = 0; i < n; i++) {
-        const type = await ci.nth(i).getAttribute('type')
-        const ph = (await ci.nth(i).getAttribute('placeholder')) || ''
-        if (type === 'password') {
-          await ci.nth(i).fill(ph.includes('原') || ph.includes('当前') ? pass : NEW_PASS)
-        } else if (ph.includes('邮箱') || ph.includes('mail')) {
-          await ci.nth(i).fill('audit@local.test')
-        } else {
-          await ci.nth(i).fill(NEW_ADMIN)
-        }
-      }
+      // 页面实际顺序是：原密码、用户名、新密码、确认新密码、邮箱。
+      // 不能按 type/placeholder 猜：三个密码框的 type 完全一样，
+      // 猜错会让接口保持 must_change，后续所有页面都被 403，形成假审计。
+      if (n < 5) throw new Error(`首登改密表单字段数异常：${n}`)
+      await ci.nth(0).fill(pass)
+      await ci.nth(1).fill(NEW_ADMIN)
+      await ci.nth(2).fill(NEW_PASS)
+      await ci.nth(3).fill(NEW_PASS)
+      await ci.nth(4).fill('audit@local.test')
       await page.locator('button.el-button--primary').first().click()
       await page.waitForTimeout(3000)
+      if (hashOf(page).includes('change-credentials')) {
+        failures.push(`${vp.name}: 首登改密提交后仍停在改密页 —— 后续页面审计无效`)
+        await context.close()
+        continue
+      }
       credsChanged = true
       console.log(`[${vp.name}] 改密后 URL: ${page.url()}`)
     }
@@ -262,7 +268,12 @@ async function main() {
       const blank = metrics.bodyText < 20
       const actualRoute = hashOf(page).split('?')[0]
       if (actualRoute !== route) {
-        failures.push(`${vp.name} ${route}: 最终落在 ${actualRoute}，目标页面未成功打开`)
+        const expectedPermissionRedirect = SUPER_ONLY_ROUTES.has(route) && actualRoute === '/403'
+        if (expectedPermissionRedirect) {
+          console.log(`[${vp.name}] ${route} 按 RBAC 落到 403，权限态可见`)
+        } else {
+          failures.push(`${vp.name} ${route}: 最终落在 ${actualRoute}，目标页面未成功打开`)
+        }
       }
       if (overflow) {
         failures.push(

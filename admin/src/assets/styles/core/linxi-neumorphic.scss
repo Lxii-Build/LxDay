@@ -1,0 +1,798 @@
+// 林曦后台与 Android 共用的拟物表面层。
+// 这个文件只负责视觉 token 与跨页面的壳，不把业务页的布局绑死在某个组件库。
+:root {
+  --lx-canvas: #edf0f4;
+  --lx-surface: #edf0f4;
+  --lx-elevated: #f7f9fc;
+  --lx-text: #1f2937;
+  --lx-text-secondary: #566273;
+  --lx-text-muted: #7a8595;
+  --lx-line: #d0d7e2;
+  --lx-control-boundary: #788598;
+  --lx-link: #185bc4;
+  --lx-shadow-raised: rgba(163, 177, 196, 0.42);
+  --lx-highlight-raised: rgba(255, 255, 255, 0.86);
+  --lx-shadow-inset: rgba(163, 177, 196, 0.48);
+  --lx-highlight-inset: rgba(255, 255, 255, 0.88);
+  --lx-radius-card: 16px;
+  --lx-radius-control: 14px;
+  --lx-motion-fast: 160ms;
+  --lx-motion-normal: 240ms;
+  --lx-focus: #277af7;
+
+  // Element Plus surfaces are intentionally mapped to the same material.
+  --default-box-color: var(--lx-surface);
+  --art-card-border: transparent;
+  --el-bg-color: var(--lx-surface);
+  --el-bg-color-overlay: var(--lx-elevated);
+  --el-fill-color-blank: var(--lx-surface);
+  --el-text-color-primary: var(--lx-text);
+  --el-text-color-regular: var(--lx-text-secondary);
+  --el-border-color: var(--lx-line);
+  --art-main-bg-color: var(--lx-surface);
+  --art-border-color: color-mix(in srgb, var(--lx-line) 72%, transparent);
+  --art-border-dashed-color: color-mix(in srgb, var(--lx-line) 62%, transparent);
+  --art-text-gray-600: var(--lx-text-secondary);
+  --art-text-gray-800: var(--lx-text);
+}
+
+html.dark {
+  --lx-canvas: #202328;
+  --lx-surface: #272b31;
+  --lx-elevated: #32373f;
+  --lx-text: #f1f3f5;
+  --lx-text-secondary: #b8c0cb;
+  --lx-text-muted: #8f99a6;
+  --lx-line: #424851;
+  --lx-control-boundary: #8893a0;
+  --lx-link: #9cbffc;
+  --lx-shadow-raised: rgba(0, 0, 0, 0.42);
+  --lx-highlight-raised: rgba(255, 255, 255, 0.04);
+  --lx-shadow-inset: rgba(0, 0, 0, 0.32);
+  --lx-highlight-inset: rgba(255, 255, 255, 0.035);
+  --el-bg-color: var(--lx-surface);
+  --el-bg-color-overlay: var(--lx-elevated);
+  --el-fill-color-blank: var(--lx-surface);
+  --el-text-color-primary: var(--lx-text);
+  --el-text-color-regular: var(--lx-text-secondary);
+  --el-border-color: var(--lx-line);
+  --art-main-bg-color: var(--lx-surface);
+  --art-border-color: color-mix(in srgb, var(--lx-line) 72%, transparent);
+  --art-border-dashed-color: color-mix(in srgb, var(--lx-line) 62%, transparent);
+  --art-text-gray-600: var(--lx-text-secondary);
+  --art-text-gray-800: var(--lx-text);
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+  background: var(--lx-canvas);
+}
+
+body {
+  color: var(--lx-text);
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    'PingFang SC',
+    'Microsoft YaHei',
+    sans-serif;
+}
+
+#app-main,
+#app-content,
+.app-layout {
+  background: var(--lx-canvas);
+}
+
+#app-content {
+  padding: 18px 20px 28px;
+}
+
+#app-header .art-icon-button,
+#app-header .el-button.is-text,
+#app-header .el-button.is-link {
+  color: var(--lx-text-secondary);
+  border-radius: 12px;
+  transition:
+    color var(--lx-motion-fast) ease,
+    box-shadow var(--lx-motion-fast) ease,
+    transform var(--lx-motion-fast) ease;
+
+  &:hover {
+    color: var(--lx-link);
+    background: var(--lx-surface);
+    box-shadow:
+      -3px -3px 7px var(--lx-highlight-raised),
+      3px 3px 7px var(--lx-shadow-raised);
+    transform: translateY(-1px);
+  }
+
+  &:active {
+    box-shadow:
+      inset 2px 2px 5px var(--lx-shadow-inset),
+      inset -2px -2px 5px var(--lx-highlight-inset);
+    transform: translateY(0);
+  }
+}
+
+.el-switch.is-checked .el-switch__core {
+  border-color: #277af7;
+  background: #277af7;
+}
+
+.el-radio-button__inner,
+.el-segmented {
+  border: 0 !important;
+  color: var(--lx-text-secondary);
+  background: var(--lx-surface) !important;
+  box-shadow:
+    inset 2px 2px 6px var(--lx-shadow-inset),
+    inset -2px -2px 6px var(--lx-highlight-inset) !important;
+}
+
+.el-radio-button__original-radio:checked + .el-radio-button__inner,
+.el-segmented .is-selected {
+  color: var(--lx-text) !important;
+  background: var(--lx-elevated) !important;
+  box-shadow:
+    -3px -3px 7px var(--lx-highlight-raised),
+    3px 3px 7px var(--lx-shadow-raised) !important;
+}
+
+.el-empty {
+  padding: 36px 16px;
+  color: var(--lx-text-secondary);
+}
+
+.el-loading-mask {
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--lx-surface) 82%, transparent) !important;
+  backdrop-filter: blur(2px);
+}
+
+// Cards, data tables and page shells share one raised material. The inner
+// component may still opt into a semantic border for a dense data state.
+.el-card,
+.page-content,
+.art-table-card,
+.art-card,
+.art-card-sm,
+.art-card-xs,
+.dashboard-hero,
+.dashboard-page .stat-card,
+.dashboard-page .chart-card {
+  border: 0 !important;
+  border-radius: var(--lx-radius-card) !important;
+  background: var(--lx-surface) !important;
+  box-shadow:
+    -10px -10px 22px var(--lx-highlight-raised),
+    10px 10px 22px var(--lx-shadow-raised) !important;
+}
+
+.el-card__header {
+  border-bottom: 1px solid color-mix(in srgb, var(--lx-line) 62%, transparent) !important;
+}
+
+// 不让嵌套卡片重复投影：页面壳负责抬升，数据区保持平面并用内边界分层。
+.el-card .el-card {
+  background: var(--lx-elevated) !important;
+  box-shadow:
+    inset 2px 2px 6px var(--lx-shadow-inset),
+    inset -2px -2px 6px var(--lx-highlight-inset) !important;
+}
+
+.el-button:not(.is-link):not(.is-text) {
+  min-height: 40px;
+  border: 0 !important;
+  border-radius: var(--lx-radius-control) !important;
+  background: var(--lx-surface);
+  color: var(--lx-text);
+  box-shadow:
+    -5px -5px 11px var(--lx-highlight-raised),
+    5px 5px 11px var(--lx-shadow-raised);
+  transition:
+    box-shadow var(--lx-motion-fast) ease,
+    transform var(--lx-motion-fast) ease,
+    color var(--lx-motion-fast) ease;
+
+  &:hover:not(:disabled) {
+    color: var(--lx-focus);
+    transform: translateY(-1px);
+  }
+
+  &:active:not(:disabled) {
+    box-shadow:
+      inset 3px 3px 8px var(--lx-shadow-inset),
+      inset -3px -3px 8px var(--lx-highlight-inset);
+    transform: translateY(0);
+  }
+
+  &.el-button--primary {
+    background: #277af7;
+    color: #fff;
+    box-shadow:
+      -4px -4px 10px color-mix(in srgb, var(--lx-highlight-raised) 70%, transparent),
+      5px 5px 11px var(--lx-shadow-raised);
+  }
+
+  &.el-button--danger {
+    background: #d94b58;
+    color: #fff;
+  }
+}
+
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper,
+.el-date-editor.el-input__wrapper,
+.el-input-number {
+  min-height: 40px;
+  border: 0 !important;
+  border-radius: var(--lx-radius-control) !important;
+  background: var(--lx-surface) !important;
+  box-shadow:
+    inset 3px 3px 8px var(--lx-shadow-inset),
+    inset -3px -3px 8px var(--lx-highlight-inset) !important;
+}
+
+.el-input__wrapper:focus-within,
+.el-select__wrapper.is-focused,
+.el-textarea__inner:focus {
+  box-shadow:
+    inset 3px 3px 8px var(--lx-shadow-inset),
+    inset -3px -3px 8px var(--lx-highlight-inset),
+    0 0 0 3px color-mix(in srgb, var(--lx-focus) 22%, transparent) !important;
+}
+
+.el-table {
+  --el-table-bg-color: var(--lx-surface);
+  --el-table-tr-bg-color: var(--lx-surface);
+  --el-table-header-bg-color: color-mix(in srgb, var(--lx-elevated) 70%, var(--lx-surface));
+  --el-table-row-hover-bg-color: color-mix(in srgb, var(--lx-focus) 7%, var(--lx-surface));
+  color: var(--lx-text);
+}
+
+.el-table th.el-table__cell,
+.el-table td.el-table__cell {
+  border-bottom-color: color-mix(in srgb, var(--lx-line) 58%, transparent);
+}
+
+.el-tag,
+.el-alert,
+.el-pagination.is-background .btn-next,
+.el-pagination.is-background .btn-prev,
+.el-pagination.is-background .el-pager li {
+  border: 0;
+  border-radius: 10px;
+  background: var(--lx-surface);
+  box-shadow:
+    -3px -3px 7px var(--lx-highlight-raised),
+    3px 3px 7px var(--lx-shadow-raised);
+}
+
+.el-dialog,
+.el-message-box,
+.el-popover {
+  border: 0 !important;
+  border-radius: 20px !important;
+  background: var(--lx-surface) !important;
+  box-shadow:
+    -14px -14px 28px var(--lx-highlight-raised),
+    14px 14px 28px var(--lx-shadow-raised) !important;
+}
+
+// 页面壳、菜单和工作区标签不是 Element 卡片，但它们仍然是后台的主要
+// 触点。把旧主题里留下的纯色平面收口到同一套 token，避免切换页面时
+// 侧栏／标签栏突然出现另一种材质。
+.layout-sidebar,
+.layout-sidebar .menu-left,
+.layout-sidebar .dual-menu-left,
+#app-header,
+.art-work-tab,
+.art-work-tab .work-tab {
+  color: var(--lx-text);
+  background-color: var(--lx-surface) !important;
+}
+
+.layout-sidebar,
+#app-header,
+.art-work-tab {
+  border-color: color-mix(in srgb, var(--lx-line) 62%, transparent) !important;
+}
+
+.layout-sidebar {
+  box-shadow:
+    8px 0 22px var(--lx-shadow-raised),
+    -3px 0 10px var(--lx-highlight-raised);
+
+  .el-menu,
+  .el-sub-menu__title,
+  .el-menu-item {
+    color: var(--lx-text-secondary) !important;
+    background-color: transparent !important;
+    border-radius: var(--lx-radius-control);
+  }
+
+  .el-sub-menu__title:hover,
+  .el-menu-item:not(.is-active):hover {
+    color: var(--lx-text) !important;
+    background: var(--lx-elevated) !important;
+    box-shadow:
+      inset 2px 2px 5px var(--lx-shadow-inset),
+      inset -2px -2px 5px var(--lx-highlight-inset);
+  }
+
+  .el-menu-item.is-active {
+    color: var(--lx-link) !important;
+    background: var(--lx-elevated) !important;
+    box-shadow:
+      -3px -3px 7px var(--lx-highlight-raised),
+      3px 3px 7px var(--lx-shadow-raised);
+  }
+}
+
+.art-work-tab {
+  box-shadow:
+    0 5px 16px color-mix(in srgb, var(--lx-shadow-raised) 72%, transparent),
+    0 -2px 8px color-mix(in srgb, var(--lx-highlight-raised) 66%, transparent);
+
+  .google-tab {
+    color: var(--lx-text-secondary) !important;
+    background: transparent !important;
+    border-radius: var(--lx-radius-control) !important;
+    transition:
+      background var(--lx-motion-fast) ease,
+      box-shadow var(--lx-motion-fast) ease,
+      color var(--lx-motion-fast) ease;
+  }
+
+  .google-tab:hover:not(.activ-tab) {
+    color: var(--lx-text) !important;
+    background: var(--lx-elevated) !important;
+    box-shadow:
+      inset 2px 2px 5px var(--lx-shadow-inset),
+      inset -2px -2px 5px var(--lx-highlight-inset);
+  }
+
+  .google-tab.activ-tab {
+    color: var(--lx-link) !important;
+    background: var(--lx-elevated) !important;
+    box-shadow:
+      -3px -3px 7px var(--lx-highlight-raised),
+      3px 3px 7px var(--lx-shadow-raised);
+  }
+}
+
+// 旧页面的“border-mode/shadow-mode”仍由设置项控制，但两种模式都应保留
+// 林曦的可读边界和光影，而不是恢复 Element 默认灰框。
+[data-box-mode='border-mode'],
+[data-box-mode='shadow-mode'] {
+  .page-content,
+  .art-table-card,
+  .art-card,
+  .art-card-sm,
+  .art-card-xs {
+    border: 0 !important;
+    background: var(--lx-surface) !important;
+    box-shadow:
+      -10px -10px 22px var(--lx-highlight-raised),
+      10px 10px 22px var(--lx-shadow-raised) !important;
+  }
+}
+
+// 常见的二级控件（标签页、折叠面板、上传拖拽区）也采用明确的
+// raised/inset 状态；语义色只保留在选中线和图标上。
+.el-tabs__nav-wrap::after,
+.el-collapse,
+.el-collapse-item__header,
+.el-collapse-item__wrap,
+.el-upload-dragger,
+.el-descriptions {
+  border-color: color-mix(in srgb, var(--lx-line) 65%, transparent) !important;
+  background: var(--lx-surface) !important;
+  color: var(--lx-text) !important;
+}
+
+.el-tabs__item {
+  color: var(--lx-text-secondary) !important;
+  border-radius: 10px 10px 0 0;
+
+  &.is-active,
+  &:hover {
+    color: var(--lx-link) !important;
+  }
+}
+
+.el-upload-dragger {
+  box-shadow:
+    inset 3px 3px 8px var(--lx-shadow-inset),
+    inset -3px -3px 8px var(--lx-highlight-inset) !important;
+
+  &:hover {
+    border-color: var(--lx-focus) !important;
+    background: var(--lx-elevated) !important;
+  }
+}
+
+.el-checkbox__inner,
+.el-radio__inner {
+  border-color: var(--lx-control-boundary) !important;
+  background: var(--lx-surface) !important;
+  box-shadow:
+    inset 1px 1px 3px var(--lx-shadow-inset),
+    inset -1px -1px 3px var(--lx-highlight-inset);
+}
+
+.el-checkbox__input.is-checked .el-checkbox__inner,
+.el-radio__input.is-checked .el-radio__inner {
+  border-color: var(--lx-focus) !important;
+  background: var(--lx-focus) !important;
+  box-shadow: none;
+}
+
+// Markdown/代码预览是独立的内容材质，但不能回到纯白 GitHub 卡片，尤其在
+// 暗色模式下会形成刺眼的矩形闪烁。
+.markdown-body blockquote,
+.markdown-body table tr,
+.markdown-body img,
+.markdown-body code:not(pre code) {
+  color: var(--lx-text-secondary);
+  background: var(--lx-elevated) !important;
+  border-color: color-mix(in srgb, var(--lx-line) 65%, transparent) !important;
+}
+
+.markdown-body pre,
+.markdown-body .highlight pre,
+.line-numbers-mode {
+  color: var(--lx-text);
+  background: var(--lx-elevated) !important;
+  border-radius: var(--lx-radius-control);
+  box-shadow:
+    inset 3px 3px 8px var(--lx-shadow-inset),
+    inset -3px -3px 8px var(--lx-highlight-inset);
+}
+
+// 浮层与短提示也属于页面材质的一部分。Element Plus 默认的硬边／黑色投影
+// 会在登录、删除确认、筛选和错误反馈时突然跳出拟态系统，因此统一成同一
+// 套 raised surface；语义色只留给图标与文字，不再铺满整块背景。
+.el-message,
+.el-notification,
+.el-dropdown-menu,
+.el-select-dropdown,
+.el-picker-panel,
+.el-tooltip__popper {
+  border: 0 !important;
+  border-radius: 16px !important;
+  background: var(--lx-surface) !important;
+  color: var(--lx-text) !important;
+  box-shadow:
+    -10px -10px 22px var(--lx-highlight-raised),
+    10px 10px 22px var(--lx-shadow-raised) !important;
+}
+
+.el-message__content,
+.el-notification__content,
+.el-message-box__message,
+.el-dialog__body,
+.el-dialog__footer,
+.el-dropdown-menu__item,
+.el-select-dropdown__item,
+.el-picker-panel {
+  color: var(--lx-text) !important;
+}
+
+.el-message__icon,
+.el-notification__icon {
+  color: var(--lx-focus) !important;
+}
+
+.el-message--error .el-message__icon,
+.el-notification--error .el-notification__icon {
+  color: #d94b58 !important;
+}
+
+.el-dropdown-menu__item:not(.is-disabled):hover,
+.el-dropdown-menu__item:not(.is-disabled):focus,
+.el-dropdown-menu__item.is-selected,
+.el-select-dropdown__item.hover,
+.el-select-dropdown__item:hover {
+  color: var(--lx-text) !important;
+  background: var(--lx-elevated) !important;
+  box-shadow:
+    inset 2px 2px 5px var(--lx-shadow-inset),
+    inset -2px -2px 5px var(--lx-highlight-inset) !important;
+}
+
+.el-select-dropdown__item.is-selected {
+  color: var(--lx-link) !important;
+  background: var(--lx-elevated) !important;
+  box-shadow:
+    inset 2px 2px 5px var(--lx-shadow-inset),
+    inset -2px -2px 5px var(--lx-highlight-inset) !important;
+}
+
+// 顶栏用户菜单、语言菜单和右键菜单是 Teleport 到 body 的浮层，
+// 不会继承页面卡片样式；显式指定 popper class，避免它们回到模板默认材质。
+.user-menu-popover,
+.langDropDownStyle,
+.context-menu,
+.context-menu .submenu-list {
+  border: 0 !important;
+  border-radius: var(--lx-radius-card) !important;
+  background: var(--lx-surface) !important;
+  color: var(--lx-text) !important;
+  box-shadow:
+    -10px -10px 22px var(--lx-highlight-raised),
+    10px 10px 22px var(--lx-shadow-raised) !important;
+}
+
+.user-menu-popover .btn-item,
+.user-menu-popover .log-out,
+.langDropDownStyle .el-dropdown-menu__item,
+.context-menu .menu-item {
+  min-height: 44px;
+  color: var(--lx-text) !important;
+  border: 0;
+  border-radius: var(--lx-radius-control);
+  background: transparent !important;
+  transition:
+    background-color var(--lx-motion-fast) ease,
+    box-shadow var(--lx-motion-fast) ease,
+    transform var(--lx-motion-fast) ease;
+}
+
+.user-menu-popover .btn-item:hover,
+.user-menu-popover .btn-item:focus-visible,
+.user-menu-popover .log-out:hover,
+.user-menu-popover .log-out:focus-visible,
+.langDropDownStyle .el-dropdown-menu__item:hover,
+.langDropDownStyle .el-dropdown-menu__item:focus,
+.context-menu .menu-item:not(.is-disabled):hover,
+.context-menu .menu-item:not(.is-disabled):focus-visible {
+  background: var(--lx-elevated) !important;
+  box-shadow:
+    inset 2px 2px 5px var(--lx-shadow-inset),
+    inset -2px -2px 5px var(--lx-highlight-inset) !important;
+}
+
+.user-menu-popover .log-out {
+  border: 0 !important;
+  box-shadow:
+    -3px -3px 7px var(--lx-highlight-raised),
+    3px 3px 7px var(--lx-shadow-raised);
+}
+
+.user-menu-popover .log-out:active,
+.langDropDownStyle .el-dropdown-menu__item:active,
+.context-menu .menu-item:not(.is-disabled):active {
+  transform: translateY(1px);
+}
+
+.user-menu-popover .border-g-300\/80,
+.user-menu-popover .bg-g-300\/80 {
+  border-color: color-mix(in srgb, var(--lx-text-muted) 18%, transparent) !important;
+  background-color: color-mix(in srgb, var(--lx-text-muted) 18%, transparent) !important;
+}
+
+.el-message-box__headerbtn,
+.el-dialog__headerbtn {
+  border-radius: 12px !important;
+  background: var(--lx-surface) !important;
+  box-shadow:
+    -3px -3px 7px var(--lx-highlight-raised),
+    3px 3px 7px var(--lx-shadow-raised) !important;
+}
+
+.el-message-box__headerbtn:hover,
+.el-dialog__headerbtn:hover {
+  box-shadow:
+    inset 2px 2px 5px var(--lx-shadow-inset),
+    inset -2px -2px 5px var(--lx-highlight-inset) !important;
+}
+
+a {
+  color: var(--lx-link);
+}
+
+:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--lx-focus) 55%, transparent);
+  outline-offset: 3px;
+}
+
+@media (width <= 1180px) {
+  #app-content {
+    padding: 14px 16px 24px;
+  }
+}
+
+@media (width <= 768px) {
+  #app-content {
+    padding: 10px 12px calc(18px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .el-card,
+  .page-content,
+  .art-table-card,
+  .art-card,
+  .art-card-sm,
+  .art-card-xs {
+    border-radius: 16px !important;
+    box-shadow:
+      -6px -6px 14px var(--lx-highlight-raised),
+      6px 6px 14px var(--lx-shadow-raised) !important;
+  }
+
+  .el-button:not(.is-link):not(.is-text) {
+    min-height: 44px;
+  }
+
+  .el-table {
+    font-size: 12px;
+  }
+
+  .el-table__body-wrapper,
+  .el-table__header-wrapper {
+    scrollbar-color: var(--lx-control-boundary) transparent;
+  }
+
+  .art-table__card {
+    border: 0 !important;
+    background: var(--lx-surface) !important;
+    box-shadow:
+      -5px -5px 11px var(--lx-highlight-raised),
+      5px 5px 11px var(--lx-shadow-raised) !important;
+  }
+
+  .el-dialog {
+    width: calc(100vw - 24px) !important;
+    max-width: 560px;
+    margin: 12px auto !important;
+
+    .el-dialog__footer {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+
+      .el-button {
+        min-height: 44px;
+        margin-left: 0 !important;
+      }
+    }
+
+    .el-form-item {
+      max-width: 100%;
+    }
+  }
+
+  // 页面级数据表（未使用 ArtTable 的旧模块）也必须把横向滚动收口到数据区，
+  // 不能把整个手机页面撑出第二个滚动轴。ArtTable 自己的卡片模式不受影响。
+  .page-content {
+    max-width: 100%;
+    overflow-x: hidden;
+
+    > .el-table,
+    > .el-card,
+    .el-table {
+      max-width: 100%;
+    }
+
+    .el-table__inner-wrapper {
+      max-width: 100%;
+      overflow-x: auto !important;
+      overscroll-behavior-inline: contain;
+    }
+
+    .el-table__header,
+    .el-table__body {
+      min-width: 640px;
+    }
+
+    // 直接写 ElTableColumn 的旧页没有 ArtTable 的卡片操作槽，
+    // 把按钮扩大到同一触达下限并允许换行，保持操作仍然可达。
+    .el-table .el-button.is-link,
+    .el-table .el-button.is-text {
+      min-height: 44px;
+      padding: 10px 8px;
+      white-space: normal;
+    }
+
+    .el-form,
+    .el-form-item,
+    .el-space,
+    .el-row {
+      max-width: 100%;
+    }
+
+    .el-form-item__content {
+      min-width: 0;
+    }
+  }
+
+  // 顶栏在 360～412px 只保留可操作的图标，不让用户横向拖整页。
+  #app-header {
+    min-height: 56px;
+
+    > div {
+      min-height: 56px;
+      padding-inline: 4px;
+    }
+
+    > div > div:last-child {
+      min-width: 0;
+      gap: 4px;
+    }
+
+    .art-icon-button {
+      flex: 0 0 44px;
+      width: 44px;
+      min-width: 44px;
+      min-height: 44px;
+    }
+
+    .art-user-menu,
+    .el-dropdown {
+      flex-shrink: 0;
+    }
+  }
+}
+
+@media (width <= 480px) {
+  .el-dialog .el-dialog__footer {
+    display: grid;
+    grid-template-columns: 1fr;
+
+    .el-button {
+      width: 100%;
+    }
+  }
+}
+
+@media (width >= 1440px) {
+  // 大屏保留呼吸感，但不让内容无限拉宽；表格内部仍由各页控制列宽。
+  #app-content > .layout-content {
+    width: min(100%, 1680px);
+    margin-inline: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root,
+  html.dark {
+    --lx-line: currentColor;
+    --lx-control-boundary: currentColor;
+  }
+
+  .el-card,
+  .page-content,
+  .art-table-card,
+  .art-card,
+  .art-card-sm,
+  .art-card-xs,
+  .el-button,
+  .el-input__wrapper,
+  .el-textarea__inner,
+  .el-select__wrapper,
+  .el-dialog,
+  .el-message-box,
+  .el-popover,
+  .layout-sidebar,
+  .art-work-tab {
+    box-shadow: none !important;
+    border: 1px solid var(--lx-control-boundary) !important;
+  }
+}

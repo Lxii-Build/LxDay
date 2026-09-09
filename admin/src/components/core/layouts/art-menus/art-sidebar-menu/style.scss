@@ -3,7 +3,9 @@
   height: 100vh;
   user-select: none;
   scrollbar-width: none;
-  border-right: 1px solid var(--art-card-border);
+  background: var(--lx-surface, var(--default-box-color));
+  border-right: 1px solid color-mix(in srgb, var(--lx-line) 65%, transparent);
+  box-shadow: 8px 0 22px var(--lx-shadow-raised);
 
   &.no-border {
     border-right: none !important;
@@ -45,11 +47,16 @@
           flex-direction: column;
           align-items: center;
           justify-content: center;
+          min-height: 48px;
           margin: 8px;
           overflow: hidden;
           text-align: center;
           cursor: pointer;
-          border-radius: 5px;
+          border-radius: 14px;
+          transition:
+            color var(--lx-motion-fast, 160ms) ease,
+            background var(--lx-motion-fast, 160ms) ease,
+            box-shadow var(--lx-motion-fast, 160ms) ease;
 
           .art-svg-icon {
             display: block;
@@ -69,12 +76,22 @@
           }
 
           &.is-active {
-            background: var(--el-color-primary-light-9);
+            background: var(--lx-surface);
+            box-shadow:
+              inset 3px 3px 8px var(--lx-shadow-inset),
+              inset -3px -3px 8px var(--lx-highlight-inset);
 
             .art-svg-icon,
             span {
               color: var(--theme-color) !important;
             }
+          }
+
+          &:hover:not(.is-active) {
+            color: var(--lx-link);
+            box-shadow:
+              -3px -3px 7px var(--lx-highlight-raised),
+              3px 3px 7px var(--lx-shadow-raised);
           }
         }
       }
@@ -117,8 +134,8 @@
       height: 50px;
       padding: 0;
       cursor: pointer;
-      background-color: var(--default-box-color);
-      border: 1px solid var(--art-card-border);
+      background-color: var(--lx-surface, var(--default-box-color));
+      border: 1px solid color-mix(in srgb, var(--lx-line) 70%, transparent);
       border-radius: 0 15px 15px 0;
       opacity: 0;
       transition: opacity 0.2s;
@@ -151,8 +168,8 @@
     padding: 0;
     overflow: hidden;
     line-height: 60px;
-    cursor: pointer;
     text-align: left;
+    cursor: pointer;
     background: transparent;
     border: 0;
     outline-offset: -3px;
@@ -199,7 +216,43 @@
 
 @media only screen and (width <= 800px) {
   .layout-sidebar {
-    width: 0;
+    position: fixed;
+    inset: 0;
+    z-index: 300;
+    width: 100%;
+    height: 100dvh;
+    pointer-events: none;
+    box-shadow: none;
+
+    &.is-mobile-open {
+      pointer-events: auto;
+    }
+
+    .dual-menu-left {
+      display: none;
+    }
+
+    // 移动端是抽屉，不让桌面菜单宽度参与页面布局；遮罩与菜单在同一个层叠上下文。
+    .menu-left {
+      position: absolute;
+      inset: 0 auto 0 0;
+      z-index: 2;
+      width: min(86vw, 320px);
+      min-width: 280px;
+      max-width: 320px;
+      height: 100dvh;
+      background: var(--lx-surface, var(--default-box-color));
+      box-shadow:
+        12px 0 28px var(--lx-shadow-raised),
+        -4px 0 10px var(--lx-highlight-raised);
+      transition: transform 240ms cubic-bezier(0.2, 0, 0, 1);
+      transform: translateX(-105%);
+      will-change: transform;
+    }
+
+    &.is-mobile-open .menu-left {
+      transform: translateX(0);
+    }
 
     .header {
       height: 50px;
@@ -231,12 +284,22 @@
       position: fixed;
       top: 0;
       left: 0;
-      z-index: -1;
+      z-index: 1;
       display: block;
       width: 100%;
-      height: 100vh;
-      background: rgba($color: #000, $alpha: 50%);
-      transition: opacity 0.2s ease-in-out;
+      height: 100dvh;
+      pointer-events: none;
+      background: color-mix(in srgb, var(--lx-canvas) 48%, #000 52%);
+      -webkit-backdrop-filter: blur(3px);
+      backdrop-filter: blur(3px);
+      opacity: 0 !important;
+      transition: opacity 240ms ease-in-out;
+      transform: none !important;
+    }
+
+    &.is-mobile-open .menu-model {
+      pointer-events: auto;
+      opacity: 1 !important;
     }
   }
 }
@@ -244,6 +307,13 @@
 @media only screen and (width <= 640px) {
   .layout-sidebar {
     border-right: 0 !important;
+
+    .menu-left {
+      max-width: min(86vw, 320px);
+      box-shadow:
+        12px 0 28px var(--lx-shadow-raised),
+        -4px 0 10px var(--lx-highlight-raised);
+    }
   }
 }
 
@@ -258,5 +328,12 @@
     .dual-menu-left {
       border-right: 1px solid rgb(255 255 255 / 9%) !important;
     }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .layout-sidebar .menu-left,
+  .layout-sidebar .menu-model {
+    transition-duration: 0.01ms !important;
   }
 }

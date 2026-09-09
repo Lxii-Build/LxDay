@@ -17,8 +17,9 @@ import com.linxi.diary.data.PagingMerge
 import com.linxi.diary.ui.components.KernelScreen
 import com.linxi.diary.ui.components.LxButton as Button
 import com.linxi.diary.ui.components.LxButtonVariant
+import com.linxi.diary.ui.components.LxSurface
+import com.linxi.diary.ui.components.LxSurfaceTone
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -108,7 +109,7 @@ fun HistoryScreen(onBack: () -> Unit = {}) {
         loading = loading,
     ) {
         item {
-            Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+            LxSurface(Modifier.fillMaxWidth().padding(top = 12.dp), tone = LxSurfaceTone.Raised) {
                 Column(Modifier.padding(12.dp)) {
                     Row(
                         Modifier.fillMaxWidth(),
@@ -134,7 +135,7 @@ fun HistoryScreen(onBack: () -> Unit = {}) {
         // 失败态 + 重试：全 App 此前零个重试按钮。
         error?.let { msg ->
             item {
-                Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                LxSurface(Modifier.fillMaxWidth().padding(top = 12.dp), tone = LxSurfaceTone.Raised) {
                     Column(Modifier.padding(16.dp)) {
                         Text(msg, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         Spacer(Modifier.height(12.dp))
@@ -144,7 +145,7 @@ fun HistoryScreen(onBack: () -> Unit = {}) {
             }
         }
         item {
-            Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+            LxSurface(Modifier.fillMaxWidth().padding(top = 12.dp), tone = LxSurfaceTone.Raised) {
                 Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { showCurve = false }, enabled = showCurve, modifier = Modifier.weight(1f)) { Text("时间线") }
                     Button(onClick = { showCurve = true }, enabled = !showCurve, modifier = Modifier.weight(1f)) { Text("电量曲线") }
@@ -154,7 +155,7 @@ fun HistoryScreen(onBack: () -> Unit = {}) {
         if (!loading && error == null) {
             if (showCurve) {
                 item {
-                    Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                    LxSurface(Modifier.fillMaxWidth().padding(top = 12.dp), tone = LxSurfaceTone.Inset) {
                         if (curve.size < 2) {
                             Text(
                                 "当日电量数据不足",
@@ -168,7 +169,7 @@ fun HistoryScreen(onBack: () -> Unit = {}) {
                 }
             } else if (timeline.isEmpty()) {
                 item {
-                    Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                    LxSurface(Modifier.fillMaxWidth().padding(top = 12.dp), tone = LxSurfaceTone.Raised) {
                         Column(Modifier.padding(20.dp)) {
                             Text(
                                 if (isToday) "今天还没有记录" else "这一天没有记录",
@@ -185,7 +186,7 @@ fun HistoryScreen(onBack: () -> Unit = {}) {
             } else {
                 // key 用记录自身的时间戳而非下标：换日期后下标会错位复用旧 item 状态。
                 items(timeline, key = { it.ts }) { h ->
-                    Card(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                    LxSurface(modifier = Modifier.fillMaxWidth().padding(top = 12.dp), tone = LxSurfaceTone.Raised) {
                         Column(Modifier.padding(16.dp)) {
                             Text(h.timeLabel, style = MiuixTheme.textStyles.headline1)
                             Text(

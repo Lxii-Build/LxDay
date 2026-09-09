@@ -1,4 +1,4 @@
-.art-table {
+:is(.lx-responsive-table) {
   position: relative;
   height: 100%;
 
@@ -104,7 +104,7 @@
  * 这里统一把共享表格里的操作按钮扩大到触达下限，不改变它们的语义颜色。
  */
 @media (width <= 768px) {
-  .art-table {
+  .lx-responsive-table {
     .art-table__card-actions {
       :deep(.el-button) {
         min-height: 44px;
@@ -129,7 +129,7 @@
  * 安全区（env(safe-area-inset-*)）：一加曲面屏与 iPhone 刘海屏的底部
  * 会遮住最后一张卡的操作按钮，必须留出内边距。
  */
-.art-table {
+.lx-responsive-table-cards {
   .art-table__cards {
     display: flex;
     flex-direction: column;
@@ -170,6 +170,7 @@
     flex: 1 1 auto;
     color: var(--art-text-gray-800);
     text-align: right;
+
     /* 长文本（URL、UA）必须能换行，否则会把卡片撑破导致整页横向溢出 */
     word-break: break-all;
   }
@@ -189,7 +190,7 @@
  * 无法卡片化的表格（用 <ElTableColumn> 子元素写法、拿不到列元信息的页面）
  * 在窄屏退回"可横向滚动"：宁可让用户横滑，也不能把整页撑出溢出。
  */
-.art-table {
+.lx-responsive-table-scroll {
   .art-table--scroll-x {
     .el-table__inner-wrapper {
       overflow-x: auto;

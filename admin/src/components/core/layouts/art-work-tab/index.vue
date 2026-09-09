@@ -2,7 +2,7 @@
 <template>
   <div
     v-if="showWorkTab"
-    class="box-border flex-b w-full px-5 mb-3 select-none max-sm:px-[15px]"
+    class="art-work-tab box-border flex-b w-full px-5 mb-3 select-none max-sm:px-[15px]"
     :class="[
       tabStyle === 'tab-card' ? 'py-1 border-b border-[var(--art-card-border)]' : '',
       tabStyle === 'tab-google' ? 'pt-1 pb-0 border-b border-[var(--art-card-border)]' : ''

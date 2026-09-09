@@ -31,9 +31,10 @@ import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.components.KernelScreen
 import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
+import com.linxi.diary.ui.components.LxSurface
+import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.util.UserPrefs
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -94,7 +95,7 @@ fun LyricsScreen(track: NeteaseTrack, onBack: () -> Unit) {
 
     KernelScreen(title = "歌词", navigationIcon = { BackAction(onBack) }, loading = loading) {
         item {
-            Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+            LxSurface(Modifier.fillMaxWidth().padding(top = 12.dp), tone = LxSurfaceTone.Raised) {
                 Column(Modifier.padding(18.dp)) {
                     Text(currentTrack.title, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                     Text(currentTrack.artist, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
@@ -137,7 +138,7 @@ fun LyricsScreen(track: NeteaseTrack, onBack: () -> Unit) {
         if (showingSearch) {
             candidates.forEach { candidate ->
                 item {
-                    Card(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    LxSurface(Modifier.fillMaxWidth().padding(top = 8.dp), tone = LxSurfaceTone.Raised) {
                         Column(Modifier.padding(14.dp)) {
                             Text(candidate.track.title, fontWeight = FontWeight.Medium)
                             Text(candidate.track.artist, fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)

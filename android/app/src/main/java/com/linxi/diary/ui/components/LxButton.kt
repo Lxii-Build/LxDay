@@ -6,16 +6,23 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.linxi.diary.ui.theme.BrandBlue
 import com.linxi.diary.ui.theme.BrandRed
+import com.linxi.diary.ui.theme.LocalLxSurfaceTokens
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.LocalContentColor
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -86,12 +93,35 @@ fun LxButton(
     horizontalPadding: Int = 20,
     content: @Composable () -> Unit,
 ) {
+    val tokens = LocalLxSurfaceTokens.current
     val container = when (variant) {
         LxButtonVariant.Positive -> BrandBlue
         LxButtonVariant.Negative -> BrandRed
-        LxButtonVariant.Neutral -> MiuixTheme.colorScheme.onBackground.copy(alpha = 0.08f)
+        LxButtonVariant.Neutral -> tokens.surface
     }
-    val bg = if (enabled) container else container.copy(alpha = 0.4f)
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val bg = if (enabled) container else container.copy(alpha = 0.45f)
+    val surfaceModifier = if (pressed && enabled) {
+        Modifier
+            .drawWithContent {
+                drawContent()
+                // Keep the semantic blue/red fill while making the pressed state
+                // visibly sink into the same neutral material.
+                drawRoundRect(
+                    color = tokens.insetShadow,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()),
+                    topLeft = androidx.compose.ui.geometry.Offset(1.dp.toPx(), 1.dp.toPx()),
+                    size = size.copy(
+                        width = (size.width - 2.dp.toPx()).coerceAtLeast(0f),
+                        height = (size.height - 2.dp.toPx()).coerceAtLeast(0f),
+                    ),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius((cornerRadius - 1).coerceAtLeast(1).dp.toPx()),
+                )
+            }
+    } else {
+        Modifier.shadow(5.dp, RoundedCornerShape(cornerRadius.dp), clip = false)
+    }
     Box(
         modifier = modifier
             // 下限在前、clip 在后：这样圆角与背景覆盖的是撑开后的尺寸。
@@ -99,7 +129,14 @@ fun LxButton(
             .defaultMinSize(minWidth = MIN_TOUCH_DP.dp, minHeight = MIN_TOUCH_DP.dp)
             .clip(RoundedCornerShape(cornerRadius.dp))
             .background(bg)
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .then(surfaceModifier)
+            .clickable(
+                enabled = enabled,
+                role = Role.Button,
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            )
             .padding(vertical = 13.dp, horizontal = horizontalPadding.dp),
         contentAlignment = Alignment.Center,
     ) {

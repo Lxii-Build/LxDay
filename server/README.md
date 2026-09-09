@@ -60,12 +60,12 @@ push:
 - `/interactions/*`：陪伴、冷静、响铃；
 - `/status`、`/status/history*`：状态上报与历史；
 - `/albums*`、`/photos*`、`/media`：相册、照片和回收站；
-- `/listen/rooms*`：一起听房间按 `pair_id` 唯一创建，已绑定情侣可自动加入（没有房间时自动创建），兼容口令加入、网易云歌曲 ID/播放时间轴同步和离开；房间状态落 SQLite，实时事件走独立 WSS。网易云 Cookie、密码与解析出的播放地址只留在客户端。
+- `/listen/rooms*`：一起听/一起看共用按 `pair_id` 唯一创建的情侣房间，已绑定情侣可自动加入（没有房间时自动创建），支持网易云歌曲或经过 HTTPS 校验的观看链接、时间轴同步和离开；房间状态落 SQLite，实时事件走独立 WSS。网易云 Cookie、密码、解析出的播放地址和后台审计列表中的观看链接只留在用户侧/不向后台列表返回。
 - `/push/*`：兼容 token 注册入口，当前不接入商业推送。
 
 后台接口统一在 `/api/admin/*`，使用管理员 JWT 和 RBAC。用户、关系、待办、照片、通知、存储、设置、审计和网络日志的读写都在服务端再次校验权限与数据归属，不能依赖后台页面隐藏按钮。
 
-WebSocket 地址为 `/ws`，状态同步令牌只允许放在 `Authorization: Bearer ...` 请求头中，不接受查询串令牌。一起听建立 `/api/v1/listen/rooms/<id>/ws` 时，JWT 与 `X-Lx-Listen-Token` 房间会话令牌都走请求头；查询串仅为旧客户端兼容保留。媒体地址统一走 `/media/<id>`、`/media/<id>/thumb` 和 `/media/<id>/preview` 鉴权代理。
+WebSocket 地址为 `/ws`，状态同步令牌只允许放在 `Authorization: Bearer ...` 请求头中，不接受查询串令牌。一起听/一起看建立 `/api/v1/listen/rooms/<id>/ws` 时，JWT 与 `X-Lx-Listen-Token` 房间会话令牌都走请求头；查询串仅为旧客户端兼容保留。相册媒体地址统一走 `/media/<id>`、`/media/<id>/thumb` 和 `/media/<id>/preview` 鉴权代理。
 
 ## 数据和文件
 

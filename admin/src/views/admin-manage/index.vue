@@ -7,64 +7,114 @@
         <ElButton type="primary" @click="openCreate">{{ $t('adminManage.create') }}</ElButton>
       </div>
 
-      <ElTable v-loading="loading" :data="pagedAdmins" border>
-        <ElTableColumn prop="id" :label="$t('adminManage.table.id')" width="80" />
-        <ElTableColumn prop="username" :label="$t('adminManage.table.username')" min-width="160" />
-        <ElTableColumn prop="email" :label="$t('adminManage.table.email')" min-width="180">
-          <template #default="{ row }">{{ row.email || '-' }}</template>
-        </ElTableColumn>
-        <ElTableColumn :label="$t('adminManage.table.role')" width="140">
-          <template #default="{ row }">
-            <ElTag :type="row.role === 'super' ? 'danger' : 'primary'">
-              {{
-                row.role === 'super' ? $t('adminManage.role.super') : $t('adminManage.role.admin')
-              }}
-            </ElTag>
-          </template>
-        </ElTableColumn>
-        <ElTableColumn :label="$t('adminManage.table.status')" width="100">
-          <template #default="{ row }">
-            <ElTag :type="row.status === 1 ? 'success' : 'info'">
-              {{
-                row.status === 1
-                  ? $t('adminManage.status.normal')
-                  : $t('adminManage.status.disabled')
-              }}
-            </ElTag>
-          </template>
-        </ElTableColumn>
-        <ElTableColumn :label="$t('adminManage.table.mustChange')" width="110">
-          <template #default="{ row }">
-            <ElTag v-if="row.must_change" type="warning">
-              {{ $t('adminManage.mustChange.pending') }}
-            </ElTag>
-            <span v-else>-</span>
-          </template>
-        </ElTableColumn>
-        <ElTableColumn :label="$t('common.operation')" width="300" fixed="right">
-          <template #default="{ row }">
-            <ElButton type="primary" link @click="openEditRole(row)">
-              {{ $t('adminManage.editRole') }}
-            </ElButton>
-            <ElButton
-              :type="row.status === 1 ? 'warning' : 'success'"
-              link
-              @click="toggleStatus(row)"
-            >
-              {{ row.status === 1 ? $t('common.disable') : $t('common.enable') }}
-            </ElButton>
-            <ElButton type="warning" link @click="openResetPassword(row)">
-              {{ $t('adminManage.resetPassword') }}
-            </ElButton>
-            <ElButton type="danger" link @click="handleDelete(row)">
-              {{ $t('common.delete') }}
-            </ElButton>
-          </template>
-        </ElTableColumn>
-        <template #empty>
-          <ElEmpty :description="$t('adminManage.empty')" :image-size="120" />
+      <LxMobileRecordList
+        :rows="pagedAdmins"
+        :fields="mobileFields"
+        :loading="loading"
+        :empty-text="$t('adminManage.empty')"
+        aria-label="管理员移动端列表"
+      >
+        <template #role="{ row }">
+          <ElTag :type="row.role === 'super' ? 'danger' : 'primary'">
+            {{ row.role === 'super' ? $t('adminManage.role.super') : $t('adminManage.role.admin') }}
+          </ElTag>
         </template>
-      </ElTable>
+        <template #status="{ row }">
+          <ElTag :type="row.status === 1 ? 'success' : 'info'">
+            {{
+              row.status === 1 ? $t('adminManage.status.normal') : $t('adminManage.status.disabled')
+            }}
+          </ElTag>
+        </template>
+        <template #must_change="{ row }">
+          <ElTag v-if="row.must_change" type="warning">
+            {{ $t('adminManage.mustChange.pending') }}
+          </ElTag>
+          <span v-else>-</span>
+        </template>
+        <template #actions="{ row }">
+          <ElButton type="primary" @click="openEditRole(asAdmin(row))">
+            {{ $t('adminManage.editRole') }}
+          </ElButton>
+          <ElButton
+            :type="row.status === 1 ? 'warning' : 'success'"
+            @click="toggleStatus(asAdmin(row))"
+          >
+            {{ row.status === 1 ? $t('common.disable') : $t('common.enable') }}
+          </ElButton>
+          <ElButton type="warning" @click="openResetPassword(asAdmin(row))">
+            {{ $t('adminManage.resetPassword') }}
+          </ElButton>
+          <ElButton type="danger" @click="handleDelete(asAdmin(row))">
+            {{ $t('common.delete') }}
+          </ElButton>
+        </template>
+      </LxMobileRecordList>
+
+      <div class="admin-desktop-table">
+        <ElTable v-loading="loading" :data="pagedAdmins" border>
+          <ElTableColumn prop="id" :label="$t('adminManage.table.id')" width="80" />
+          <ElTableColumn
+            prop="username"
+            :label="$t('adminManage.table.username')"
+            min-width="160"
+          />
+          <ElTableColumn prop="email" :label="$t('adminManage.table.email')" min-width="180">
+            <template #default="{ row }">{{ row.email || '-' }}</template>
+          </ElTableColumn>
+          <ElTableColumn :label="$t('adminManage.table.role')" width="140">
+            <template #default="{ row }">
+              <ElTag :type="row.role === 'super' ? 'danger' : 'primary'">
+                {{
+                  row.role === 'super' ? $t('adminManage.role.super') : $t('adminManage.role.admin')
+                }}
+              </ElTag>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn :label="$t('adminManage.table.status')" width="100">
+            <template #default="{ row }">
+              <ElTag :type="row.status === 1 ? 'success' : 'info'">
+                {{
+                  row.status === 1
+                    ? $t('adminManage.status.normal')
+                    : $t('adminManage.status.disabled')
+                }}
+              </ElTag>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn :label="$t('adminManage.table.mustChange')" width="110">
+            <template #default="{ row }">
+              <ElTag v-if="row.must_change" type="warning">
+                {{ $t('adminManage.mustChange.pending') }}
+              </ElTag>
+              <span v-else>-</span>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn :label="$t('common.operation')" width="300" fixed="right">
+            <template #default="{ row }">
+              <ElButton type="primary" link @click="openEditRole(row)">
+                {{ $t('adminManage.editRole') }}
+              </ElButton>
+              <ElButton
+                :type="row.status === 1 ? 'warning' : 'success'"
+                link
+                @click="toggleStatus(row)"
+              >
+                {{ row.status === 1 ? $t('common.disable') : $t('common.enable') }}
+              </ElButton>
+              <ElButton type="warning" link @click="openResetPassword(row)">
+                {{ $t('adminManage.resetPassword') }}
+              </ElButton>
+              <ElButton type="danger" link @click="handleDelete(row)">
+                {{ $t('common.delete') }}
+              </ElButton>
+            </template>
+          </ElTableColumn>
+          <template #empty>
+            <ElEmpty :description="$t('adminManage.empty')" :image-size="120" />
+          </template>
+        </ElTable>
+      </div>
 
       <div class="mt-4 flex justify-end">
         <ElPagination
@@ -193,6 +243,7 @@
     deleteAdmin
   } from '@/api/admin'
   import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+  import LxMobileRecordList from '@/components/linxi/LxMobileRecordList.vue'
 
   defineOptions({ name: 'AdminManage' })
 
@@ -229,6 +280,21 @@
     const start = (pagination.current - 1) * pagination.size
     return admins.value.slice(start, start + pagination.size)
   })
+
+  const mobileFields = computed(() => [
+    { key: 'id', label: t('adminManage.table.id') },
+    { key: 'username', label: t('adminManage.table.username') },
+    {
+      key: 'email',
+      label: t('adminManage.table.email'),
+      format: (row: Record<string, any>) => row.email || '-'
+    },
+    { key: 'role', label: t('adminManage.table.role') },
+    { key: 'status', label: t('adminManage.table.status') },
+    { key: 'must_change', label: t('adminManage.table.mustChange') }
+  ])
+
+  const asAdmin = (row: Record<string, any>): AdminItem => row as AdminItem
 
   const createForm = reactive<Api.Admin.AdminCreateParams>({
     username: '',
@@ -406,3 +472,21 @@
 
   onMounted(loadAdmins)
 </script>
+
+<style lang="scss" scoped>
+  .admin-manage-page {
+    width: 100%;
+  }
+
+  @media (width < 768px) {
+    .admin-manage-page {
+      .admin-desktop-table {
+        display: none;
+      }
+
+      :deep(.el-pagination) {
+        justify-content: center;
+      }
+    }
+  }
+</style>

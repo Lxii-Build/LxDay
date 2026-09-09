@@ -2361,6 +2361,8 @@ func registerAdminRoutes(r *gin.Engine) {
 
 	// 相册管理 + 磁盘统计（Q28=D）。全部限超管：相册是全站最私密的内容。
 	registerAdminAlbumRoutes(sup)
+	// Live2D 资源包包含可执行渲染数据，目录与上传均限超管，且只存私有目录。
+	registerAdminLive2DRoutes(sup)
 
 	sup.PUT("/notify-templates", handleAdminUpsertTemplate)
 	sup.DELETE("/notify-templates/:id", handleAdminDeleteTemplate)

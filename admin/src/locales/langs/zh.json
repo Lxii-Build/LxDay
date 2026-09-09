@@ -226,6 +226,9 @@
     },
     "listenTogether": {
       "title": "一起听房间"
+    },
+    "live2dManage": {
+      "title": "Live2D 模型"
     }
   },
   "table": {
@@ -387,11 +390,13 @@
   "listenTogether": {
     "eyebrow": "LISTEN TOGETHER",
     "title": "一起听房间",
-    "description": "查看当前同步房间；关闭房间会让两台手机立即停止同步。",
+    "description": "查看当前一起听／一起看同步房间；关闭房间会让两台手机立即停止同步。",
     "roomsTitle": "活动房间",
     "playing": "播放中",
     "paused": "已暂停",
     "noTrack": "尚未同步歌曲",
+    "noWatch": "尚未同步观看内容",
+    "watchMode": "一起看",
     "pair": "关系 #{id}",
     "host": "房主 #{id}",
     "members": "{count} 人在线",

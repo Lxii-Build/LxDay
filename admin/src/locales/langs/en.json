@@ -226,6 +226,9 @@
     },
     "listenTogether": {
       "title": "Listen Together"
+    },
+    "live2dManage": {
+      "title": "Live2D Models"
     }
   },
   "table": {
@@ -387,11 +390,13 @@
   "listenTogether": {
     "eyebrow": "LISTEN TOGETHER",
     "title": "Listen Together rooms",
-    "description": "Inspect active sync rooms. Closing a room immediately stops synchronization on both phones.",
+    "description": "Inspect active listen/watch rooms. Closing a room immediately stops synchronization on both phones.",
     "roomsTitle": "Active rooms",
     "playing": "Playing",
     "paused": "Paused",
     "noTrack": "No track synchronized",
+    "noWatch": "No watch item synchronized",
+    "watchMode": "Watch together",
     "pair": "Pair #{id}",
     "host": "Host #{id}",
     "members": "{count} online",

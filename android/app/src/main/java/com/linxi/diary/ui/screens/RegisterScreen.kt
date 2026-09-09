@@ -40,6 +40,8 @@ import com.linxi.diary.R
 import com.linxi.diary.data.ApiClient
 import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
+import com.linxi.diary.ui.components.LxSurface
+import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.util.Logs
 import com.linxi.diary.util.UserPrefs
 import kotlinx.coroutines.delay
@@ -50,7 +52,6 @@ import top.yukonga.miuix.kmp.icon.extended.Email
 import top.yukonga.miuix.kmp.icon.extended.Lock
 import top.yukonga.miuix.kmp.icon.extended.Pin
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
@@ -145,7 +146,7 @@ fun RegisterScreen(
         )
         Spacer(Modifier.height(32.dp))
 
-        Card(modifier = Modifier.fillMaxWidth()) {
+        LxSurface(modifier = Modifier.fillMaxWidth(), tone = LxSurfaceTone.Raised) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     TextField(

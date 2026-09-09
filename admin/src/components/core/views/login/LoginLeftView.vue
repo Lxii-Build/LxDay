@@ -1,6 +1,6 @@
 <!-- 登录、注册、忘记密码左侧背景 -->
 <template>
-  <div class="login-left-view">
+  <div class="login-left-view lx-neumorphic-login-left">
     <div class="logo">
       <ArtLogo class="icon" size="46" />
       <h1 class="title">{{ AppConfig.systemInfo.name }}</h1>
@@ -31,14 +31,14 @@
       ></div>
 
       <!-- 背景泡泡 -->
-      <div class="geo-element bg-bubble animate-scale-in" style="animation-delay: 0.5"></div>
+      <div class="geo-element bg-bubble animate-scale-in" style="animation-delay: 0.5s"></div>
 
       <!-- 太阳/月亮 -->
       <button
         type="button"
         class="geo-element circle-top-right animate-fade-in-down border-0 bg-transparent p-0"
         :aria-label="$t('topBar.actions.themeToggle')"
-        style="animation-delay: 0.5"
+        style="animation-delay: 0.5s"
         @click="themeAnimation"
         @keydown.enter="themeAnimation"
         @keydown.space.prevent="themeAnimation"
@@ -165,11 +165,17 @@
 
           @if $direction == 'up' {
             transform: translateY(30px) rotate($rotation);
-          } @else if $direction == 'down' {
+          }
+
+          @else if $direction == 'down' {
             transform: translateY(-30px) rotate($rotation);
-          } @else if $direction == 'left' {
+          }
+
+          @else if $direction == 'left' {
             transform: translateX(-30px) rotate($rotation);
-          } @else if $direction == 'right' {
+          }
+
+          @else if $direction == 'right' {
             transform: translateX(30px) rotate($rotation);
           }
         }
@@ -179,7 +185,9 @@
 
           @if $direction == 'up' or $direction == 'down' {
             transform: translateY(0) rotate($rotation);
-          } @else {
+          }
+
+          @else {
             transform: translateX(0) rotate($rotation);
           }
         }
@@ -369,7 +377,7 @@
           width: 100%;
           height: 100%;
           content: '';
-          background: linear-gradient(to right, #fcbb04, #fffc00);
+          background: var(--lx-elevated);
           border-radius: 50%;
           opacity: 0;
           transition:
@@ -379,7 +387,9 @@
         }
 
         &:hover {
-          box-shadow: 0 0 36px #fffc00;
+          box-shadow:
+            inset 3px 3px 8px var(--lx-shadow-inset),
+            inset -3px -3px 8px var(--lx-highlight-inset);
 
           &::after {
             opacity: 1;
@@ -446,7 +456,9 @@
           position: absolute;
           display: block;
           border-radius: 8px;
-          box-shadow: 0 8px 24px rgb(64 87 167 / 12%);
+          box-shadow:
+            -4px -4px 10px var(--lx-highlight-raised),
+            4px 4px 10px var(--lx-shadow-raised);
 
           &.square-blue {
             top: 12px;
@@ -484,7 +496,7 @@
           width: 80px;
           height: 1px;
           content: '';
-          background: linear-gradient(90deg, var(--el-color-primary-light-6), transparent);
+          background: var(--lx-line);
           opacity: 0;
           transform: rotate(50deg);
           animation: lineGrow 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
@@ -532,7 +544,9 @@
       // 月亮效果
       .circle-top-right {
         background-color: $bg-mix-light-8;
-        box-shadow: 0 0 25px #333 inset;
+        box-shadow:
+          inset 3px 3px 8px var(--lx-shadow-inset),
+          inset -3px -3px 8px var(--lx-highlight-inset);
         transition:
           background-color 0.3s ease-in-out 0.1s,
           box-shadow 0.3s ease-in-out 0.1s,
@@ -556,7 +570,9 @@
 
         &:hover {
           background-color: transparent;
-          box-shadow: 0 40px 25px #ddd inset;
+          box-shadow:
+            inset 4px 4px 10px var(--lx-shadow-inset),
+            inset -4px -4px 10px var(--lx-highlight-inset);
 
           &::before {
             left: 18px;
@@ -610,7 +626,111 @@
       }
 
       &::after {
-        background: linear-gradient(90deg, $primary-light-8, transparent);
+        background: var(--lx-line);
+      }
+    }
+  }
+
+  // 林曦拟态收口：登录左侧仍保留品牌插画与主题入口，但不再使用
+  // 渐变、霓虹发光或彩色玻璃装饰。装饰几何只表达层次，不抢登录表单焦点。
+  .lx-neumorphic-login-left {
+    color: var(--lx-text);
+    background: var(--lx-canvas) !important;
+    box-shadow:
+      inset -12px 0 24px var(--lx-shadow-raised),
+      inset 0 12px 24px var(--lx-highlight-raised);
+
+    .text-wrap {
+      h1,
+      p {
+        color: var(--lx-text) !important;
+      }
+
+      p {
+        color: var(--lx-text-secondary) !important;
+      }
+    }
+
+    .geometric-decorations {
+      .geo-element {
+        background: var(--lx-elevated);
+        border-color: var(--lx-line);
+        box-shadow:
+          -5px -5px 12px var(--lx-highlight-raised),
+          5px 5px 12px var(--lx-shadow-raised);
+      }
+
+      .circle-outline {
+        background: transparent;
+        box-shadow: none;
+      }
+
+      .circle-small,
+      .dot {
+        background: var(--lx-elevated);
+      }
+
+      .circle-top-right {
+        background: var(--lx-elevated) !important;
+        box-shadow:
+          -5px -5px 12px var(--lx-highlight-raised),
+          5px 5px 12px var(--lx-shadow-raised);
+
+        &::after {
+          display: none;
+        }
+
+        &::before {
+          background: var(--lx-canvas) !important;
+          box-shadow: none !important;
+        }
+
+        &:hover {
+          box-shadow:
+            inset 3px 3px 8px var(--lx-shadow-inset),
+            inset -3px -3px 8px var(--lx-highlight-inset);
+        }
+      }
+
+      .bg-bubble {
+        background: var(--lx-surface) !important;
+        box-shadow: none;
+        opacity: 0.72;
+      }
+
+      .squares-group {
+        .square {
+          background: var(--lx-elevated) !important;
+          box-shadow:
+            -4px -4px 10px var(--lx-highlight-raised),
+            4px 4px 10px var(--lx-shadow-raised);
+        }
+
+        &::after {
+          background: var(--lx-line) !important;
+        }
+      }
+
+      .animate-bounce-in {
+        animation-name: fadeInUp;
+      }
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .login-left-view {
+      .geo-element,
+      .left-img,
+      .text-wrap {
+        opacity: 1 !important;
+        transform: none !important;
+        animation: none !important;
+      }
+
+      .circle-top-right,
+      .circle-top-right::before,
+      .circle-top-right::after {
+        transition: none !important;
       }
     }
   }

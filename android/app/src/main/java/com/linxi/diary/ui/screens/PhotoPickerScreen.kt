@@ -56,9 +56,10 @@ import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.components.LoadingRow
 import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
+import com.linxi.diary.ui.components.LxSurface
+import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.ui.theme.BrandBlue
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
@@ -271,7 +272,7 @@ fun PhotoPickerScreen(
             if (loading) {
                 LoadingRow()
             } else if (!granted) {
-                Card(Modifier.fillMaxWidth().padding(12.dp)) {
+                LxSurface(Modifier.fillMaxWidth().padding(12.dp), tone = LxSurfaceTone.Raised) {
                     Column(Modifier.padding(16.dp)) {
                         Text("没有相册访问权限", style = MiuixTheme.textStyles.headline1)
                         Spacer(Modifier.height(6.dp))
@@ -288,7 +289,7 @@ fun PhotoPickerScreen(
                     }
                 }
             } else if (loadError != null) {
-                Card(Modifier.fillMaxWidth().padding(12.dp)) {
+                LxSurface(Modifier.fillMaxWidth().padding(12.dp), tone = LxSurfaceTone.Raised) {
                     Column(Modifier.padding(16.dp)) {
                         Text("读取相册失败", style = MiuixTheme.textStyles.headline1)
                         Spacer(Modifier.height(6.dp))
@@ -305,7 +306,7 @@ fun PhotoPickerScreen(
                     }
                 }
             } else if (images.isEmpty()) {
-                Card(Modifier.fillMaxWidth().padding(12.dp)) {
+                LxSurface(Modifier.fillMaxWidth().padding(12.dp), tone = LxSurfaceTone.Raised) {
                     Column(Modifier.padding(16.dp)) {
                         Text("没有找到照片", style = MiuixTheme.textStyles.headline1)
                         Spacer(Modifier.height(6.dp))

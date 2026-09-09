@@ -383,9 +383,10 @@
     hover:bg-g-300 
     md:ml-0 
     md:mr-2.5;
-    transition-property: background-color, color, transform, box-shadow;
-    transition-duration: 150ms;
+
     transition-timing-function: ease-out;
+    transition-duration: 150ms;
+    transition-property: background-color, color, transform, box-shadow;
 
     &:focus-visible {
       outline: 2px solid var(--el-color-primary);

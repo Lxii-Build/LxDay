@@ -35,11 +35,26 @@
               </ElTag>
             </div>
             <div class="room-item__track">
-              {{ room.state.title || $t('listenTogether.noTrack') }}
-              <span v-if="room.state.artist"> · {{ room.state.artist }}</span>
+              {{
+                room.state.kind === 'watch'
+                  ? room.state.watch_title || $t('listenTogether.noWatch')
+                  : room.state.title || $t('listenTogether.noTrack')
+              }}
+              <span v-if="room.state.kind !== 'watch' && room.state.artist">
+                · {{ room.state.artist }}</span
+              >
+            </div>
+            <div v-if="room.state.kind === 'watch'" class="room-item__source">
+              {{ $t('listenTogether.watchMode') }} ·
+              {{
+                formatWatchPosition(
+                  room.state.watch_position_ms || 0,
+                  room.state.watch_duration_ms || 0
+                )
+              }}
             </div>
             <div
-              v-if="room.state.source === 'netease' && room.state.song_id"
+              v-else-if="room.state.source === 'netease' && room.state.song_id"
               class="room-item__source"
             >
               网易云 · {{ room.state.song_id }}
@@ -77,6 +92,14 @@
 
   function formatDate(value: string) {
     return formatDateTime(value)
+  }
+
+  function formatWatchPosition(position: number, duration: number) {
+    const format = (value: number) => {
+      const seconds = Math.max(0, Math.floor(value / 1000))
+      return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+    }
+    return `${format(position)} / ${duration > 0 ? format(duration) : '--:--'}`
   }
 
   async function load() {
@@ -131,23 +154,23 @@
 
   .listen-hero {
     display: flex;
+    gap: 16px;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
   }
 
   .listen-hero__eyebrow {
-    color: var(--theme-color);
     font-size: 12px;
     font-weight: 700;
-    letter-spacing: 0.12em;
+    color: var(--theme-color);
     text-transform: uppercase;
+    letter-spacing: 0.12em;
   }
 
   h2 {
     margin: 5px 0;
-    color: var(--art-gray-900);
     font-size: 22px;
+    color: var(--art-gray-900);
   }
 
   p {
@@ -158,8 +181,8 @@
   .listen-room-card__header,
   .room-item__title {
     display: flex;
-    align-items: center;
     gap: 10px;
+    align-items: center;
   }
 
   .room-list {
@@ -169,33 +192,33 @@
 
   .room-item {
     display: flex;
+    gap: 16px;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
     padding: 16px;
-    border-radius: 16px;
     background: var(--default-box-color);
+    border-radius: 16px;
     box-shadow:
       inset 3px 3px 7px var(--lx-neo-dark),
       inset -3px -3px 7px var(--lx-neo-light);
   }
 
   .room-item__title strong {
-    color: var(--theme-color);
     font-size: 18px;
+    color: var(--theme-color);
     letter-spacing: 0.08em;
   }
 
   .room-item__track {
     margin-top: 7px;
-    color: var(--art-gray-900);
     font-weight: 600;
+    color: var(--art-gray-900);
   }
 
   .room-item__meta {
     margin-top: 6px;
-    color: var(--art-gray-500);
     font-size: 12px;
+    color: var(--art-gray-500);
   }
 
   .room-loading {
@@ -204,11 +227,11 @@
     text-align: center;
   }
 
-  @media (max-width: 640px) {
+  @media (width <= 640px) {
     .listen-hero,
     .room-item {
-      align-items: stretch;
       flex-direction: column;
+      align-items: stretch;
     }
 
     .room-item :deep(.el-button) {

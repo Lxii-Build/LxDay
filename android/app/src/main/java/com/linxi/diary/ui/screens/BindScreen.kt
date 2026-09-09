@@ -21,11 +21,13 @@ import androidx.compose.ui.unit.sp
 import com.linxi.diary.data.ApiClient
 import com.linxi.diary.data.ProfileRuntime
 import com.linxi.diary.ui.components.LxButton as Button
+import com.linxi.diary.ui.components.LxClickableSurface
+import com.linxi.diary.ui.components.LxSurface
+import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.util.UserPrefs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONObject
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -133,7 +135,7 @@ fun BindScreen(onBound: () -> Unit, onBack: () -> Unit) {
 
         Spacer(Modifier.height(20.dp))
 
-        Card(modifier = Modifier.fillMaxWidth()) {
+        LxSurface(modifier = Modifier.fillMaxWidth(), tone = LxSurfaceTone.Raised) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 when (mode) {
                     0 -> if (myCode.isEmpty()) {
@@ -195,9 +197,10 @@ fun BindScreen(onBound: () -> Unit, onBack: () -> Unit) {
 
 @Composable
 private fun ModeCard(text: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    Card(
+    LxClickableSurface(
         modifier = modifier,
         onClick = onClick,
+        contentDescription = text,
     ) {
         Box(
             Modifier

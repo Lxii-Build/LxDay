@@ -51,6 +51,23 @@ gradle :app:compileDebugKotlin --no-daemon
 gradle :app:testDebugUnitTest --no-daemon
 ```
 
+### Live2D 原生渲染（可选的许可依赖）
+
+默认构建不会携带 Live2D Cubism Core，也不会把任何模型素材伪装成已经渲染。若项目所有者已从
+Live2D 官方发行包取得与 Java Framework 同版本的 `Live2DCubismCore.aar`，并确认 SDK 与模型的
+分发许可，可在本机或受控 CI 输入：
+
+```text
+gradle :app:assembleDebug --no-daemon \
+  -PCUBISM_CORE_AAR=C:/secure/sdk/Live2DCubismCore.aar \
+  -PCUBISM_FRAMEWORK_DIR=C:/secure/sdk/CubismJavaFramework
+```
+
+`CUBISM_FRAMEWORK_DIR` 应指向官方 Framework 仓库根目录（其下包含
+`framework/src/main/java` 与 `framework/src/main/assets`）。构建脚本只在两个输入都存在时启用
+`src/cubism` 的真实 `GLSurfaceView` 宿主；缺少任一输入时 APP 仍可正常构建，并在管理页明确显示
+“等待 Core AAR/Java Framework”。Core AAR 不提交仓库，模型也必须先通过本机安全 ZIP 校验与许可审查。
+
 ## 权限与降级
 
 | 权限/能力 | 用途 | 被拒后的行为 |

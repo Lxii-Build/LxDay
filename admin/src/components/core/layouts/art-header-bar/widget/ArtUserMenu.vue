@@ -146,6 +146,7 @@
     border
     border-g-400
     rounded-md;
+
     transition:
       box-shadow 200ms,
       background-color 200ms,

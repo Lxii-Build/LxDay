@@ -1,0 +1,204 @@
+{
+  "schemaVersion": 1,
+  "designRevision": "1.2",
+  "companion": {
+    "stageMinHeightDp": 176,
+    "characterCanvasHeightDp": 152,
+    "radiusDp": 16,
+    "defaultMode": "static-on-demand",
+    "optionalIdleMaxFps": 30,
+    "placement": "home-after-partner-status",
+    "spec": "LIVE2D-AND-CONTROLS.md",
+    "managementSpec": "REFINEMENTS-1.2.md",
+    "localImportUploadsToServer": false,
+    "catalogActivation": "download-validate-preview-user-confirm",
+    "adminRole": "super-only"
+  },
+  "status": "draft-not-production",
+  "baseline": "bb6c16b",
+  "date": "2026-09-08",
+  "name": "林曦·柔光拟态",
+  "units": {
+    "androidLayout": "dp",
+    "androidType": "sp",
+    "webLayout": "CSS px",
+    "webType": "rem preferred"
+  },
+  "color": {
+    "light": {
+      "canvas": "#EDF0F4",
+      "surface": "#EDF0F4",
+      "elevated": "#F7F9FC",
+      "text": "#1F2937",
+      "textSecondary": "#566273",
+      "line": "#D0D7E2",
+      "controlBoundary": "#788598",
+      "link": "#185BC4",
+      "dangerText": "#B32635",
+      "successText": "#226D54",
+      "warningText": "#81520B"
+    },
+    "dark": {
+      "canvas": "#202328",
+      "surface": "#272B31",
+      "elevated": "#32373F",
+      "text": "#F1F3F5",
+      "textSecondary": "#B8C0CB",
+      "line": "#424851",
+      "controlBoundary": "#8893A0",
+      "link": "#9CBFFC",
+      "dangerText": "#FFADB1",
+      "successText": "#8DD8BA",
+      "warningText": "#F0CA81"
+    },
+    "brand": "#277AF7",
+    "danger": "#E5484D",
+    "onBrand": "#FFFFFF",
+    "neutral": "existing onBackground alpha .08"
+  },
+  "radius": {
+    "card": 16,
+    "button": 16,
+    "thumbnail": 8
+  },
+  "spacing": [
+    4,
+    8,
+    12,
+    16,
+    24,
+    32
+  ],
+  "size": {
+    "touchAndroid": 48,
+    "touchWebMobile": 48,
+    "controlWebDesktop": 40,
+    "pagePaddingAndroid": 16,
+    "kernelLegacyDefault": 12,
+    "miniPlayerMinHeight": 64,
+    "miniCover": 40,
+    "playerMainButton": 72,
+    "playerCoverMax": 288,
+    "sidebarWeb": 224,
+    "pagePaddingWeb": 24
+  },
+  "type": {
+    "app": {
+      "title": [
+        24,
+        32
+      ],
+      "section": [
+        18,
+        26
+      ],
+      "body": [
+        16,
+        24
+      ],
+      "secondary": [
+        14,
+        20
+      ],
+      "caption": [
+        12,
+        18
+      ]
+    },
+    "web": {
+      "title": [
+        24,
+        32
+      ],
+      "section": [
+        18,
+        26
+      ],
+      "body": [
+        14,
+        22
+      ],
+      "caption": [
+        12,
+        18
+      ],
+      "metric": [
+        32,
+        40
+      ]
+    }
+  },
+  "shadowCss": {
+    "light": {
+      "raised": "4px 4px 10px rgba(163,177,196,.42), -4px -4px 10px rgba(255,255,255,.86)",
+      "inset": "inset 2px 2px 5px rgba(163,177,196,.48), inset -2px -2px 5px rgba(255,255,255,.88)",
+      "floating": "4px 4px 10px rgba(163,177,196,.42), -4px -4px 10px rgba(255,255,255,.86), 0 10px 24px rgba(33,48,70,.12)"
+    },
+    "dark": {
+      "raised": "3px 3px 8px rgba(0,0,0,.28), -2px -2px 6px rgba(255,255,255,.04)",
+      "inset": "inset 2px 2px 5px rgba(0,0,0,.32), inset -1px -1px 3px rgba(255,255,255,.035)",
+      "floating": "0 8px 20px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.04)"
+    }
+  },
+  "motionMs": {
+    "press": 80,
+    "release": 120,
+    "route": 240,
+    "playerExpand": 280,
+    "playerCollapse": 220,
+    "chromeHide": 80,
+    "chromeReveal": 100,
+    "destructiveDelay": 1000
+  },
+  "playerTransition": {
+    "expandDirection": "bottom-to-top",
+    "expandEasing": [0.2, 0, 0, 1],
+    "collapseEasing": [0.4, 0, 1, 1],
+    "preserveUnderlyingPageAndScroll": true,
+    "visualControls": "icons-with-accessible-Chinese-labels",
+    "spec": "REFINEMENTS-1.2.md"
+  },
+  "breakpointsWeb": [
+    768,
+    1024,
+    1280
+  ],
+  "validation": {
+    "appWidths": [
+      320,
+      360,
+      390,
+      412,
+      600,
+      840
+    ],
+    "fontScales": [
+      1,
+      1.3,
+      1.5,
+      2
+    ],
+    "webWidths": [
+      360,
+      390,
+      768,
+      1024,
+      1440,
+      1920
+    ]
+  },
+  "exceptions": [
+    {
+      "id": "brand-small-text-contrast",
+      "status": "requires-user-decision",
+      "whiteOnBlue": 4.028,
+      "whiteOnRed": 3.914,
+      "requirement": "Do not claim normal text AA. Preserve AGENTS fixed brand constraints pending approval."
+    }
+  ],
+  "notes": [
+    "Reference values, not measured Android rendering.",
+    "No automatic dependency/theme replacement.",
+    "Same design system does not require every row to have a shadow."
+  ]
+}

@@ -11,6 +11,14 @@
         <ElButton type="primary" :loading="loading" @click="load">刷新 GitHub</ElButton>
       </div>
       <ElAlert v-if="error" class="mt-4" type="error" :title="error" show-icon :closable="false" />
+      <ElAlert
+        v-else-if="warning"
+        class="mt-4"
+        type="warning"
+        :title="warning"
+        show-icon
+        :closable="false"
+      />
       <div v-if="serverInfo" class="mt-4 flex flex-wrap gap-3">
         <ElTag type="success">服务端 {{ serverInfo.version }}</ElTag>
         <ElTag type="info">commit {{ serverInfo.commit }}</ElTag>
@@ -20,37 +28,64 @@
     </ElCard>
 
     <ElCard shadow="never" class="art-table-card">
-      <ElTable v-loading="loading" :data="releases" stripe>
-        <ElTableColumn prop="version_name" label="版本" width="130" />
-        <ElTableColumn label="渠道" width="110">
-          <template #default="{ row }">
-            <ElTag :type="row.prerelease ? 'warning' : 'success'">
-              {{ row.prerelease ? '测试版' : '正式版' }}
-            </ElTag>
-          </template>
-        </ElTableColumn>
-        <ElTableColumn prop="version_code" label="versionCode" width="120" />
-        <ElTableColumn label="发布时间" width="190">
-          <template #default="{ row }">{{ formatDateTime(row.published_at) }}</template>
-        </ElTableColumn>
-        <ElTableColumn label="APK" min-width="150">
-          <template #default="{ row }">
-            <ElLink v-if="row.apk_url" :href="row.apk_url" target="_blank" type="primary">
-              下载 {{ row.version_name }}
-            </ElLink>
-            <span v-else class="art-text-gray-400">未附 APK</span>
-          </template>
-        </ElTableColumn>
-        <ElTableColumn label="更新说明" min-width="260" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.notes || '未填写' }}</template>
-        </ElTableColumn>
-        <ElTableColumn label="Release" width="100" fixed="right">
-          <template #default="{ row }">
-            <ElLink :href="row.html_url" target="_blank" type="primary">查看</ElLink>
-          </template>
-        </ElTableColumn>
-      </ElTable>
-      <ElEmpty v-if="!loading && releases.length === 0" description="GitHub 暂无可用 Release" />
+      <LxMobileRecordList
+        :rows="releases"
+        :fields="mobileFields"
+        :loading="loading"
+        empty-text="GitHub 暂无可用 Release"
+        aria-label="APP 版本移动端列表"
+      >
+        <template #channel="{ row }">
+          <ElTag :type="row.prerelease ? 'warning' : 'success'">
+            {{ row.prerelease ? '测试版' : '正式版' }}
+          </ElTag>
+        </template>
+        <template #published_at="{ row }">{{ formatDateTime(row.published_at) }}</template>
+        <template #apk="{ row }">
+          <ElLink v-if="row.apk_url" :href="row.apk_url" target="_blank" type="primary">
+            下载 {{ row.version_name }}
+          </ElLink>
+          <span v-else class="art-text-gray-400">未附 APK</span>
+        </template>
+        <template #notes="{ row }">{{ row.notes || '未填写' }}</template>
+        <template #release="{ row }">
+          <ElLink :href="row.html_url" target="_blank" type="primary">查看 Release</ElLink>
+        </template>
+      </LxMobileRecordList>
+
+      <div class="app-release-desktop-table">
+        <ElTable v-loading="loading" :data="releases" stripe>
+          <ElTableColumn prop="version_name" label="版本" width="130" />
+          <ElTableColumn label="渠道" width="110">
+            <template #default="{ row }">
+              <ElTag :type="row.prerelease ? 'warning' : 'success'">
+                {{ row.prerelease ? '测试版' : '正式版' }}
+              </ElTag>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn prop="version_code" label="versionCode" width="120" />
+          <ElTableColumn label="发布时间" width="190">
+            <template #default="{ row }">{{ formatDateTime(row.published_at) }}</template>
+          </ElTableColumn>
+          <ElTableColumn label="APK" min-width="150">
+            <template #default="{ row }">
+              <ElLink v-if="row.apk_url" :href="row.apk_url" target="_blank" type="primary">
+                下载 {{ row.version_name }}
+              </ElLink>
+              <span v-else class="art-text-gray-400">未附 APK</span>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="更新说明" min-width="260" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.notes || '未填写' }}</template>
+          </ElTableColumn>
+          <ElTableColumn label="Release" width="100" fixed="right">
+            <template #default="{ row }">
+              <ElLink :href="row.html_url" target="_blank" type="primary">查看</ElLink>
+            </template>
+          </ElTableColumn>
+        </ElTable>
+        <ElEmpty v-if="!loading && releases.length === 0" description="GitHub 暂无可用 Release" />
+      </div>
     </ElCard>
   </div>
 </template>
@@ -68,21 +103,35 @@
   } from 'element-plus'
   import { fetchAppReleases } from '@/api/admin'
   import { formatDateTime } from '@/utils/format/datetime'
+  import LxMobileRecordList from '@/components/linxi/LxMobileRecordList.vue'
 
   defineOptions({ name: 'AppVersion' })
 
   const loading = ref(false)
   const error = ref('')
+  const warning = ref('')
   const releases = ref<Api.Admin.AppReleaseItem[]>([])
   const repository = ref('https://github.com/Lxii-Build/LxDay')
   const serverInfo = ref<{ version: string; commit: string; go: string } | null>(null)
 
+  const mobileFields = computed(() => [
+    { key: 'version_name', label: '版本' },
+    { key: 'channel', label: '渠道' },
+    { key: 'version_code', label: 'versionCode' },
+    { key: 'published_at', label: '发布时间' },
+    { key: 'apk', label: 'APK' },
+    { key: 'notes', label: '更新说明' },
+    { key: 'release', label: 'Release' }
+  ])
+
   const load = async () => {
     loading.value = true
     error.value = ''
+    warning.value = ''
     try {
       const data = await fetchAppReleases()
       releases.value = data.releases || []
+      warning.value = data.degraded ? data.warning || 'GitHub 数据暂时不可用，稍后可重试' : ''
       repository.value = data.repository || repository.value
       serverInfo.value = {
         version: data.server_version,
@@ -98,3 +147,11 @@
 
   onMounted(load)
 </script>
+
+<style lang="scss" scoped>
+  @media (width < 768px) {
+    .app-release-desktop-table {
+      display: none;
+    }
+  }
+</style>

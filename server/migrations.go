@@ -13,8 +13,9 @@ import (
 var baseSchemaSQL string
 
 // schemaBaselineVersion 是当前已知迁移的最高版本。迁移 1 负责“建表 + 补列 + 建索引”，
-// 迁移 2 负责移除旧版 APP 版本表，迁移 3 增加一起听房间表，迁移 4 收敛每对情侣的活动房间。
-const schemaBaselineVersion = 4
+// 迁移 2 负责移除旧版 APP 版本表，迁移 3 增加一起听房间表，迁移 4 收敛每对情侣的活动房间，
+// 迁移 5 增加 Live2D 模型资源目录。
+const schemaBaselineVersion = 5
 
 // migrationExecutor 是 sql.DB 与 sql.Tx 的共同子集，让建表、补列、建索引能在同一
 // 事务内完成。迁移失败时不会留下“只建了一半索引却已标记成功”的状态。
@@ -78,6 +79,34 @@ func runMigrations(db *sql.DB) error {
 		if err := applyMigration(db, 4, applyListenTogetherActiveRoomConstraint); err != nil {
 			return err
 		}
+	}
+	if current.Int64 < 5 {
+		if err := applyMigration(db, 5, applyLive2DModelTable); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func applyLive2DModelTable(db migrationExecutor) error {
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS live2d_model (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		version TEXT NOT NULL,
+		status INTEGER NOT NULL DEFAULT 0,
+		bytes INTEGER NOT NULL DEFAULT 0,
+		sha256 TEXT NOT NULL,
+		texture_count INTEGER NOT NULL DEFAULT 0,
+		client_min_version TEXT NOT NULL DEFAULT '',
+		rel_path TEXT NOT NULL,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		return fmt.Errorf("create live2d_model table failed: %w", err)
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_live2d_model_status_updated
+		ON live2d_model(status, updated_at DESC)`); err != nil {
+		return fmt.Errorf("create live2d_model index failed: %w", err)
 	}
 	return nil
 }

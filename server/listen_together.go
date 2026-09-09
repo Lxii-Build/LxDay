@@ -20,23 +20,30 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// 一起听只同步第三方平台的逻辑曲目和时间轴，不代替本机播放器。网易云 Cookie、
-// 密码和解析出的播放地址永远留在设备端；房间只保存 song_id/标题等展示元数据。
+// 一起听/一起看只同步第三方平台的逻辑媒体和时间轴，不代替本机播放器。网易云 Cookie、
+// 密码和解析出的播放地址永远留在设备端；房间只保存 song_id/标题或经过 HTTPS
+// 校验的观看链接。观看链接只返回给配对用户，后台审计列表会主动脱敏。
 // audio_url 是旧协议兼容字段，但服务端始终丢弃它，不能成为新的客户端上传凭据
 // 或媒体代理。
 type listenRoomState struct {
-	Title      string `json:"title"`
-	Artist     string `json:"artist"`
-	Source     string `json:"source,omitempty"`
-	SongID     int64  `json:"song_id,omitempty"`
-	Album      string `json:"album,omitempty"`
-	CoverURL   string `json:"cover_url,omitempty"`
-	AudioURL   string `json:"audio_url,omitempty"`
-	DurationMs int64  `json:"duration_ms"`
-	PositionMs int64  `json:"position_ms"`
-	Playing    bool   `json:"playing"`
-	Mode       string `json:"mode"` // list/repeat/shuffle
-	UpdatedAt  int64  `json:"updated_at"`
+	Kind            string `json:"kind,omitempty"` // audio/watch
+	Title           string `json:"title"`
+	Artist          string `json:"artist"`
+	Source          string `json:"source,omitempty"`
+	SongID          int64  `json:"song_id,omitempty"`
+	Album           string `json:"album,omitempty"`
+	CoverURL        string `json:"cover_url,omitempty"`
+	AudioURL        string `json:"audio_url,omitempty"`
+	DurationMs      int64  `json:"duration_ms"`
+	PositionMs      int64  `json:"position_ms"`
+	Playing         bool   `json:"playing"`
+	Mode            string `json:"mode"` // list/repeat/shuffle
+	UpdatedAt       int64  `json:"updated_at"`
+	WatchURL        string `json:"watch_url,omitempty"`
+	WatchTitle      string `json:"watch_title,omitempty"`
+	WatchDurationMs int64  `json:"watch_duration_ms,omitempty"`
+	WatchPositionMs int64  `json:"watch_position_ms,omitempty"`
+	WatchPlaying    bool   `json:"watch_playing,omitempty"`
 }
 
 type listenRoomSettings struct {
@@ -62,18 +69,23 @@ type listenSession struct {
 }
 
 type listenControlRequest struct {
-	Action     string `json:"action"`
-	Title      string `json:"title"`
-	Artist     string `json:"artist"`
-	Source     string `json:"source"`
-	SongID     int64  `json:"song_id"`
-	Album      string `json:"album"`
-	CoverURL   string `json:"cover_url"`
-	AudioURL   string `json:"audio_url"`
-	DurationMs int64  `json:"duration_ms"`
-	PositionMs int64  `json:"position_ms"`
-	Playing    *bool  `json:"playing"`
-	Mode       string `json:"mode"`
+	Action          string `json:"action"`
+	Title           string `json:"title"`
+	Artist          string `json:"artist"`
+	Source          string `json:"source"`
+	SongID          int64  `json:"song_id"`
+	Album           string `json:"album"`
+	CoverURL        string `json:"cover_url"`
+	AudioURL        string `json:"audio_url"`
+	DurationMs      int64  `json:"duration_ms"`
+	PositionMs      int64  `json:"position_ms"`
+	Playing         *bool  `json:"playing"`
+	Mode            string `json:"mode"`
+	WatchURL        string `json:"watch_url"`
+	WatchTitle      string `json:"watch_title"`
+	WatchDurationMs int64  `json:"watch_duration_ms"`
+	WatchPositionMs int64  `json:"watch_position_ms"`
+	WatchPlaying    *bool  `json:"watch_playing"`
 }
 
 type listenWSClient struct {
@@ -169,7 +181,7 @@ func listenToken() (string, error) {
 }
 
 func listenDefaultState() listenRoomState {
-	return listenRoomState{Mode: "list"}
+	return listenRoomState{Kind: "audio", Mode: "list"}
 }
 
 func listenSettingsFromRuntime() listenRoomSettings {
@@ -608,6 +620,9 @@ func normalizeListenSource(raw string) string {
 }
 
 func normalizeListenState(state listenRoomState) listenRoomState {
+	if state.Kind != "watch" {
+		state.Kind = "audio"
+	}
 	state.Title = trimListenText(state.Title, 160)
 	state.Artist = trimListenText(state.Artist, 160)
 	state.Album = trimListenText(state.Album, 160)
@@ -627,6 +642,33 @@ func normalizeListenState(state listenRoomState) listenRoomState {
 	state.PositionMs = clampListenPosition(state.PositionMs, state.DurationMs)
 	if state.Mode != "list" && state.Mode != "repeat" && state.Mode != "shuffle" {
 		state.Mode = "list"
+	}
+	state.WatchTitle = trimListenText(state.WatchTitle, 160)
+	state.WatchURL = safeListenWatchURL(state.WatchURL)
+	state.WatchDurationMs = maxListenInt64(state.WatchDurationMs, 0)
+	state.WatchPositionMs = clampListenPosition(state.WatchPositionMs, state.WatchDurationMs)
+	if state.Kind == "watch" && state.WatchURL == "" {
+		state.Kind = "audio"
+	}
+	if state.Kind == "watch" {
+		// A room has one authoritative medium at a time. Do not leave stale
+		// audio metadata around when a couple switches to a watch link.
+		state.Title = state.WatchTitle
+		state.Artist = ""
+		state.Source = ""
+		state.SongID = 0
+		state.Album = ""
+		state.CoverURL = ""
+		state.AudioURL = ""
+		state.Playing = state.WatchPlaying
+		state.PositionMs = state.WatchPositionMs
+		state.DurationMs = state.WatchDurationMs
+	} else {
+		state.WatchURL = ""
+		state.WatchTitle = ""
+		state.WatchDurationMs = 0
+		state.WatchPositionMs = 0
+		state.WatchPlaying = false
 	}
 	return state
 }
@@ -788,11 +830,23 @@ func (h *ListenHub) applyControl(session listenSession, req listenControlRequest
 	state := room.State
 	switch strings.ToLower(strings.TrimSpace(req.Action)) {
 	case "play":
-		state.Playing = true
+		if state.Kind == "watch" {
+			state.WatchPlaying = true
+		} else {
+			state.Playing = true
+		}
 	case "pause":
-		state.Playing = false
+		if state.Kind == "watch" {
+			state.WatchPlaying = false
+		} else {
+			state.Playing = false
+		}
 	case "seek":
-		state.PositionMs = clampListenPosition(req.PositionMs, state.DurationMs)
+		if state.Kind == "watch" {
+			state.WatchPositionMs = clampListenPosition(req.PositionMs, state.WatchDurationMs)
+		} else {
+			state.PositionMs = clampListenPosition(req.PositionMs, state.DurationMs)
+		}
 	case "set_track":
 		if err := validateListenTrack(req.Source, req.SongID); err != nil {
 			return err
@@ -809,19 +863,86 @@ func (h *ListenHub) applyControl(session listenSession, req listenControlRequest
 		state.AudioURL = ""
 		state.DurationMs = maxListenInt64(req.DurationMs, 0)
 		state.PositionMs = 0
+		state.Kind = "audio"
+		state.WatchURL = ""
+		state.WatchTitle = ""
+		state.WatchDurationMs = 0
+		state.WatchPositionMs = 0
+		state.WatchPlaying = false
 		if req.Playing != nil {
 			state.Playing = *req.Playing
 		}
+	case "watch_set":
+		watchURL := safeListenWatchURL(req.WatchURL)
+		if watchURL == "" {
+			return errors.New("观看链接必须是有效的 HTTPS 地址")
+		}
+		state.Kind = "watch"
+		state.WatchURL = watchURL
+		state.WatchTitle = trimListenText(req.WatchTitle, 160)
+		if state.WatchTitle == "" {
+			state.WatchTitle = trimListenText(req.Title, 160)
+		}
+		state.WatchDurationMs = maxListenInt64(req.WatchDurationMs, 0)
+		state.WatchPositionMs = 0
+		state.WatchPlaying = req.WatchPlaying != nil && *req.WatchPlaying
+	case "watch_play":
+		if state.Kind != "watch" || state.WatchURL == "" {
+			return errors.New("请先设置观看链接")
+		}
+		state.WatchPlaying = true
+	case "watch_pause":
+		if state.Kind != "watch" || state.WatchURL == "" {
+			return errors.New("请先设置观看链接")
+		}
+		state.WatchPlaying = false
+	case "watch_seek":
+		if state.Kind != "watch" || state.WatchURL == "" {
+			return errors.New("请先设置观看链接")
+		}
+		state.WatchPositionMs = clampListenPosition(req.WatchPositionMs, state.WatchDurationMs)
+	case "watch_heartbeat":
+		if state.Kind != "watch" || state.WatchURL == "" {
+			return errors.New("请先设置观看链接")
+		}
+		state.WatchPositionMs = clampListenPosition(req.WatchPositionMs, state.WatchDurationMs)
+		if req.WatchPlaying != nil {
+			state.WatchPlaying = *req.WatchPlaying
+		}
+	case "watch_clear":
+		state.Kind = "audio"
+		state.WatchURL = ""
+		state.WatchTitle = ""
+		state.WatchDurationMs = 0
+		state.WatchPositionMs = 0
+		state.WatchPlaying = false
+		state.Title = ""
+		state.Artist = ""
+		state.Source = ""
+		state.SongID = 0
+		state.Album = ""
+		state.CoverURL = ""
+		state.AudioURL = ""
+		state.DurationMs = 0
+		state.PositionMs = 0
+		state.Playing = false
 	case "playback_mode":
 		if req.Mode != "list" && req.Mode != "repeat" && req.Mode != "shuffle" {
 			return errors.New("不支持的播放模式")
 		}
 		state.Mode = req.Mode
 	case "heartbeat":
-		if req.Playing != nil {
-			state.Playing = *req.Playing
+		if state.Kind == "watch" {
+			state.WatchPositionMs = clampListenPosition(req.PositionMs, state.WatchDurationMs)
+			if req.Playing != nil {
+				state.WatchPlaying = *req.Playing
+			}
+		} else {
+			if req.Playing != nil {
+				state.Playing = *req.Playing
+			}
+			state.PositionMs = clampListenPosition(req.PositionMs, state.DurationMs)
 		}
-		state.PositionMs = clampListenPosition(req.PositionMs, state.DurationMs)
 	default:
 		return errors.New("不支持的播放操作")
 	}
@@ -847,6 +968,21 @@ func (h *ListenHub) applyControl(session listenSession, req listenControlRequest
 func safeListenCoverURL(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if len(raw) > 2048 {
+		return ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || !strings.EqualFold(parsed.Scheme, "https") || parsed.Host == "" || parsed.User != nil {
+		return ""
+	}
+	return raw
+}
+
+// safeListenWatchURL validates a client-provided media/page URL without
+// fetching it on the server. HTTPS-only and no userinfo prevent credential
+// leakage and make the value safe to hand back to the paired clients.
+func safeListenWatchURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if len(raw) == 0 || len(raw) > 4096 {
 		return ""
 	}
 	parsed, err := url.Parse(raw)
@@ -899,8 +1035,10 @@ func (h *ListenHub) listRooms(c *gin.Context) {
 		}
 		state = normalizeListenState(state)
 		// 后台只需审计房间是否活跃及正在播放的标题；第三方音频地址是
-		// 用户侧可选的私密元数据，不应随普通管理员列表返回。
+		// 用户侧可选的私密元数据，不应随普通管理员列表返回。观看链接同样
+		// 可能携带短期签名参数，不能随后台列表返回。
 		state.AudioURL = ""
+		state.WatchURL = ""
 		h.mu.RLock()
 		members := len(h.clients[id])
 		h.mu.RUnlock()

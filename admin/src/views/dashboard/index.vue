@@ -115,13 +115,39 @@
   const loadError = ref(false)
   const hasLoaded = ref(false)
   const lastUpdated = ref<Date | null>(null)
-  const stats = ref<Api.Admin.DashboardStats>({
+  const emptyStats: Api.Admin.DashboardStats = {
     users: 0,
     pairs: 0,
     todos: 0,
     new_users_7d: 0,
     daily_new: []
-  })
+  }
+  const stats = ref<Api.Admin.DashboardStats>({ ...emptyStats })
+
+  // 后台页面不能因为旧服务端少一个可选字段而白屏。这里把信封内的
+  // 数据收敛成看板需要的最小形状，数字缺失显示 0，趋势缺失显示空态，
+  // 同时保留真正的 HTTP/业务失败给 loadError 处理。
+  const normalizeStats = (raw: Partial<Api.Admin.DashboardStats> | null | undefined) => {
+    const numberOrZero = (value: unknown): number => {
+      const number = typeof value === 'number' ? value : Number(value)
+      return Number.isFinite(number) ? number : 0
+    }
+    const daily = Array.isArray(raw?.daily_new)
+      ? raw.daily_new.flatMap((item) => {
+          if (!item || typeof item !== 'object') return []
+          const date = String((item as { date?: unknown }).date ?? '')
+          if (!date) return []
+          return [{ date, count: numberOrZero((item as { count?: unknown }).count) }]
+        })
+      : []
+    return {
+      users: numberOrZero(raw?.users),
+      pairs: numberOrZero(raw?.pairs),
+      todos: numberOrZero(raw?.todos),
+      new_users_7d: numberOrZero(raw?.new_users_7d),
+      daily_new: daily
+    }
+  }
 
   const numberFormatter = computed(() => new Intl.NumberFormat(locale.value))
   const formatNumber = (value: number) => numberFormatter.value.format(value)
@@ -180,7 +206,7 @@
     loading.value = true
     loadError.value = false
     try {
-      stats.value = await fetchDashboardStats()
+      stats.value = normalizeStats(await fetchDashboardStats())
       lastUpdated.value = new Date()
       hasLoaded.value = true
     } catch {

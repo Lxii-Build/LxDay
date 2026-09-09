@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -13,6 +14,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
@@ -74,38 +76,44 @@ fun LxConfirmDialog(
         onDismissRequest = { if (!busy) onDismiss() },
         renderInRootScaffold = true,
     ) {
-        Column(Modifier.fillMaxWidth()) {
-            if (message.isNotBlank()) {
-                Text(
-                    message,
-                    fontSize = 14.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
-                Spacer(Modifier.height(12.dp))
-            }
-            extraContent?.let {
-                it()
-                Spacer(Modifier.height(12.dp))
-            }
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                LxButton(
-                    text = cancelText,
-                    onClick = onDismiss,
-                    enabled = !busy,
-                    variant = LxButtonVariant.Neutral,
-                    modifier = Modifier.weight(1f),
-                )
-                LxButton(
-                    text = if (busy) busyText else confirmText,
-                    onClick = onConfirm,
-                    enabled = !busy && armed,
-                    // 危险操作红、常规操作蓝——两侧背景色必然不同。
-                    variant = if (destructive) LxButtonVariant.Negative else LxButtonVariant.Positive,
-                    modifier = Modifier.weight(1f),
-                )
+        LxSurface(
+            modifier = Modifier.fillMaxWidth(),
+            tone = LxSurfaceTone.Floating,
+            shape = RoundedCornerShape(20.dp),
+        ) {
+            Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                if (message.isNotBlank()) {
+                    Text(
+                        message,
+                        fontSize = 14.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                }
+                extraContent?.let {
+                    it()
+                    Spacer(Modifier.height(12.dp))
+                }
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    LxButton(
+                        text = cancelText,
+                        onClick = onDismiss,
+                        enabled = !busy,
+                        variant = LxButtonVariant.Neutral,
+                        modifier = Modifier.weight(1f),
+                    )
+                    LxButton(
+                        text = if (busy) busyText else confirmText,
+                        onClick = onConfirm,
+                        enabled = !busy && armed,
+                        // 危险操作红、常规操作蓝——两侧背景色必然不同。
+                        variant = if (destructive) LxButtonVariant.Negative else LxButtonVariant.Positive,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
         }
     }
@@ -135,26 +143,32 @@ fun LxFormDialog(
         onDismissRequest = { if (!busy) onDismiss() },
         renderInRootScaffold = true,
     ) {
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            content()
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                LxButton(
-                    text = cancelText,
-                    onClick = onDismiss,
-                    enabled = !busy,
-                    variant = LxButtonVariant.Neutral,
-                    modifier = Modifier.weight(1f),
-                )
-                LxButton(
-                    text = if (busy) busyText else confirmText,
-                    onClick = onConfirm,
-                    enabled = confirmEnabled && !busy,
-                    variant = LxButtonVariant.Positive,
-                    modifier = Modifier.weight(1f),
-                )
+        LxSurface(
+            modifier = Modifier.fillMaxWidth(),
+            tone = LxSurfaceTone.Floating,
+            shape = RoundedCornerShape(20.dp),
+        ) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                content()
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    LxButton(
+                        text = cancelText,
+                        onClick = onDismiss,
+                        enabled = !busy,
+                        variant = LxButtonVariant.Neutral,
+                        modifier = Modifier.weight(1f),
+                    )
+                    LxButton(
+                        text = if (busy) busyText else confirmText,
+                        onClick = onConfirm,
+                        enabled = confirmEnabled && !busy,
+                        variant = LxButtonVariant.Positive,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
         }
     }

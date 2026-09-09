@@ -1,6 +1,7 @@
 package com.linxi.diary.ui.components
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
@@ -22,7 +23,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import com.linxi.diary.ui.navigation.LocalMainBottomPadding
+import com.linxi.diary.ui.navigation.LocalPlaybackBottomPadding
+import com.linxi.diary.ui.theme.LocalLxSurfaceTokens
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
@@ -49,6 +53,7 @@ fun KernelScreen(
     actions: @Composable () -> Unit = {},
     enableBlur: Boolean = true,
     bottomPadding: androidx.compose.ui.unit.Dp = 12.dp,
+    horizontalPadding: Dp = 16.dp,
     listState: LazyListState = rememberLazyListState(),
     floatingActionButton: @Composable () -> Unit = {},
     header: (@Composable () -> Unit)? = null,
@@ -66,8 +71,10 @@ fun KernelScreen(
     val backdrop = rememberBlurBackdrop(enableBlur)
     val blurActive = backdrop != null
     val barColor = if (blurActive) Color.Transparent else colorScheme.surface
+    val surfaceTokens = LocalLxSurfaceTokens.current
 
     Scaffold(
+        modifier = Modifier.background(surfaceTokens.canvas),
         topBar = {
             BlurredBar(backdrop, blurActive) {
                 TopAppBar(
@@ -93,10 +100,13 @@ fun KernelScreen(
                         .scrollEndHaptic()
                         .overScrollVertical()
                         .nestedScroll(scrollBehavior.nestedScrollConnection)
-                        .padding(horizontal = 12.dp),
+                        .padding(horizontal = horizontalPadding),
                     contentPadding = PaddingValues(
                         top = if (header != null) 8.dp else innerPadding.calculateTopPadding(),
-                        bottom = innerPadding.calculateBottomPadding() + LocalMainBottomPadding.current + bottomPadding
+                        bottom = innerPadding.calculateBottomPadding() +
+                            LocalMainBottomPadding.current +
+                            LocalPlaybackBottomPadding.current +
+                            bottomPadding
                     ),
                     overscrollEffect = null,
                 ) {
@@ -118,7 +128,7 @@ fun KernelScreen(
         }
         Column(Modifier.fillMaxHeight()) {
             if (header != null) {
-                Box(Modifier.padding(top = innerPadding.calculateTopPadding(), start = 12.dp, end = 12.dp)) {
+                Box(Modifier.padding(top = innerPadding.calculateTopPadding(), start = horizontalPadding, end = horizontalPadding)) {
                     header()
                 }
             }

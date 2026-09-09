@@ -22,8 +22,9 @@ import com.linxi.diary.ui.NeteaseQrLoginActivity
 import com.linxi.diary.ui.NeteaseWebLoginActivity
 import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.components.KernelScreen
+import com.linxi.diary.ui.components.LxSurface
+import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.util.UserPrefs
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Lock
@@ -65,7 +66,7 @@ fun MusicSettingsScreen(onBack: () -> Unit, onOpenMusic: () -> Unit) {
     KernelScreen(title = "音乐设置", navigationIcon = { BackAction(onBack) }) {
         item {
             SmallTitle("网易云账号")
-            Card(Modifier.padding(top = 6.dp).fillMaxWidth()) {
+            LxSurface(Modifier.padding(top = 6.dp).fillMaxWidth(), tone = LxSurfaceTone.Raised) {
                 ArrowPreference(
                     title = if (loggedIn) "网易云账号已绑定" else "绑定网易云账号",
                     summary = if (loggedIn) "本机账号可用于搜索、收藏、歌词和播放" else "使用官方网页登录，Cookie 只保存在本机",
@@ -103,7 +104,7 @@ fun MusicSettingsScreen(onBack: () -> Unit, onOpenMusic: () -> Unit) {
 
         item {
             SmallTitle("播放行为")
-            Card(Modifier.padding(top = 6.dp).fillMaxWidth()) {
+            LxSurface(Modifier.padding(top = 6.dp).fillMaxWidth(), tone = LxSurfaceTone.Raised) {
                 val qualityItems = listOf("标准 128k", "高品质 192k", "极高 320k", "无损 FLAC")
                 val qualityValues = listOf("standard", "higher", "exhigh", "lossless")
                 val qualityIndex = qualityValues.indexOf(quality).coerceAtLeast(0)
@@ -160,7 +161,7 @@ fun MusicSettingsScreen(onBack: () -> Unit, onOpenMusic: () -> Unit) {
 
         item {
             SmallTitle("歌词")
-            Card(Modifier.padding(top = 6.dp).fillMaxWidth()) {
+            LxSurface(Modifier.padding(top = 6.dp).fillMaxWidth(), tone = LxSurfaceTone.Raised) {
                 SwitchPreference(
                     title = "显示同步歌词",
                     summary = "播放页按时间轴高亮歌词，点按歌词可跳转",

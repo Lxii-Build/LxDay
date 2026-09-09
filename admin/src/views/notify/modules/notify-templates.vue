@@ -16,42 +16,72 @@
       </ElButton>
     </div>
 
-    <ElTable v-loading="loading" :data="templates" border>
-      <ElTableColumn prop="code" :label="$t('notify.templates.table.code')" width="180" />
-      <ElTableColumn prop="title" :label="$t('notify.templates.table.title')" min-width="160" />
-      <ElTableColumn
-        prop="body"
-        :label="$t('notify.templates.table.body')"
-        min-width="240"
-        show-overflow-tooltip
-      />
-      <ElTableColumn :label="$t('notify.templates.table.enabled')" width="90">
-        <template #default="{ row }">
-          <ElTag :type="row.enabled ? 'success' : 'info'">
-            {{ row.enabled ? $t('common.enabled') : $t('common.disabled') }}
-          </ElTag>
-        </template>
-      </ElTableColumn>
-      <ElTableColumn :label="$t('notify.templates.table.updatedAt')" width="180">
-        <template #default="{ row }">{{ formatDateTime(row.updated_at) }}</template>
-      </ElTableColumn>
-      <ElTableColumn :label="$t('common.operation')" width="140" fixed="right">
-        <template #default="{ row }">
-          <template v-if="isSuper">
-            <ElButton type="primary" link @click="openDialog(row)">{{
-              $t('common.edit')
-            }}</ElButton>
-            <ElButton type="danger" link @click="handleDelete(row)">
-              {{ $t('common.delete') }}
-            </ElButton>
-          </template>
-          <span v-else class="art-text-gray-400">{{ $t('systemSettings.runtime.superOnly') }}</span>
-        </template>
-      </ElTableColumn>
-      <template #empty>
-        <ElEmpty :description="$t('notify.templates.empty')" :image-size="120" />
+    <LxMobileRecordList
+      :rows="templates"
+      :fields="mobileFields"
+      :loading="loading"
+      :empty-text="$t('notify.templates.empty')"
+      aria-label="通知模板移动端列表"
+    >
+      <template #enabled="{ row }">
+        <ElTag :type="row.enabled ? 'success' : 'info'">
+          {{ row.enabled ? $t('common.enabled') : $t('common.disabled') }}
+        </ElTag>
       </template>
-    </ElTable>
+      <template #updated_at="{ row }">{{ formatDateTime(row.updated_at) }}</template>
+      <template #actions="{ row }">
+        <template v-if="isSuper">
+          <ElButton type="primary" @click="openDialog(asTemplate(row))">
+            {{ $t('common.edit') }}
+          </ElButton>
+          <ElButton type="danger" @click="handleDelete(asTemplate(row))">
+            {{ $t('common.delete') }}
+          </ElButton>
+        </template>
+        <span v-else class="art-text-gray-400">{{ $t('systemSettings.runtime.superOnly') }}</span>
+      </template>
+    </LxMobileRecordList>
+
+    <div class="notify-templates-desktop-table">
+      <ElTable v-loading="loading" :data="templates" border>
+        <ElTableColumn prop="code" :label="$t('notify.templates.table.code')" width="180" />
+        <ElTableColumn prop="title" :label="$t('notify.templates.table.title')" min-width="160" />
+        <ElTableColumn
+          prop="body"
+          :label="$t('notify.templates.table.body')"
+          min-width="240"
+          show-overflow-tooltip
+        />
+        <ElTableColumn :label="$t('notify.templates.table.enabled')" width="90">
+          <template #default="{ row }">
+            <ElTag :type="row.enabled ? 'success' : 'info'">
+              {{ row.enabled ? $t('common.enabled') : $t('common.disabled') }}
+            </ElTag>
+          </template>
+        </ElTableColumn>
+        <ElTableColumn :label="$t('notify.templates.table.updatedAt')" width="180">
+          <template #default="{ row }">{{ formatDateTime(row.updated_at) }}</template>
+        </ElTableColumn>
+        <ElTableColumn :label="$t('common.operation')" width="140" fixed="right">
+          <template #default="{ row }">
+            <template v-if="isSuper">
+              <ElButton type="primary" link @click="openDialog(row)">{{
+                $t('common.edit')
+              }}</ElButton>
+              <ElButton type="danger" link @click="handleDelete(row)">
+                {{ $t('common.delete') }}
+              </ElButton>
+            </template>
+            <span v-else class="art-text-gray-400">{{
+              $t('systemSettings.runtime.superOnly')
+            }}</span>
+          </template>
+        </ElTableColumn>
+        <template #empty>
+          <ElEmpty :description="$t('notify.templates.empty')" :image-size="120" />
+        </template>
+      </ElTable>
+    </div>
 
     <ElDialog
       v-model="dialogVisible"
@@ -101,6 +131,7 @@
   import { useUserStore } from '@/store/modules/user'
   import { formatDateTime } from '@/utils/format/datetime'
   import { ElAlert, ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+  import LxMobileRecordList from '@/components/linxi/LxMobileRecordList.vue'
 
   defineOptions({ name: 'NotifyTemplates' })
 
@@ -121,6 +152,17 @@
     body: '',
     enabled: 1
   })
+
+  const mobileFields = computed(() => [
+    { key: 'code', label: t('notify.templates.table.code') },
+    { key: 'title', label: t('notify.templates.table.title') },
+    { key: 'body', label: t('notify.templates.table.body') },
+    { key: 'enabled', label: t('notify.templates.table.enabled') },
+    { key: 'updated_at', label: t('notify.templates.table.updatedAt') }
+  ])
+
+  const asTemplate = (row: Record<string, any>): Api.Admin.NotifyTemplate =>
+    row as Api.Admin.NotifyTemplate
 
   const rules = computed<FormRules>(() => ({
     code: [{ required: true, message: t('notify.rules.code'), trigger: 'blur' }],
@@ -185,3 +227,11 @@
 
   onMounted(loadTemplates)
 </script>
+
+<style lang="scss" scoped>
+  @media (width < 768px) {
+    .notify-templates-desktop-table {
+      display: none;
+    }
+  }
+</style>

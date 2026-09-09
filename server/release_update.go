@@ -371,17 +371,42 @@ func handleCheckUpdate(c *gin.Context) {
 func handleAdminListAppReleases(c *gin.Context) {
 	releases, err := fetchGitHubReleases(c.Request.Context())
 	if err != nil {
-		afail(c, http.StatusBadGateway, 502, "GitHub 版本信息暂时不可用")
+		// The admin page is an operational surface, not the release transport
+		// itself.  A temporary GitHub outage must leave the page usable (and
+		// must not turn every mobile audit into a 502) while still making the
+		// degraded state explicit to the operator.
+		slog.Warn("fetch github releases for admin failed", "err", err)
+		aok(c, gin.H{
+			"repository":     githubRepoURL,
+			"releases":       []gin.H{},
+			"server_version": serverVersion,
+			"server_commit":  shortCommit(serverCommit),
+			"server_go":      serverGoVersion(),
+			"degraded":       true,
+			"warning":        "GitHub 版本信息暂时不可用，稍后可重试",
+		})
 		return
 	}
 	changelog, err := fetchGitHubChangelog(c.Request.Context())
+	degraded := false
+	warning := ""
 	if err != nil {
 		slog.Warn("fetch root changelog for admin failed", "err", err)
 		changelog = map[string]string{}
+		degraded = true
+		warning = "GitHub 更新说明暂时不可用，版本列表仍可查看"
 	}
 	items := make([]gin.H, 0, len(releases))
 	for _, release := range releases {
 		items = append(items, releaseJSON(release, changelog))
 	}
-	aok(c, gin.H{"repository": githubRepoURL, "releases": items, "server_version": serverVersion, "server_commit": shortCommit(serverCommit), "server_go": serverGoVersion()})
+	aok(c, gin.H{
+		"repository":     githubRepoURL,
+		"releases":       items,
+		"server_version": serverVersion,
+		"server_commit":  shortCommit(serverCommit),
+		"server_go":      serverGoVersion(),
+		"degraded":       degraded,
+		"warning":        warning,
+	})
 }

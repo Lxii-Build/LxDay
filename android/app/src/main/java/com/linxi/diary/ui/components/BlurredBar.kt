@@ -10,7 +10,7 @@ import top.yukonga.miuix.kmp.blur.LayerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.blur.textureBlur
 import top.yukonga.miuix.kmp.shader.isRenderEffectSupported
-import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.linxi.diary.ui.theme.LocalLxSurfaceTokens
 
 /**
  * 照抄 KernelSU BlurExt.kt：页面级毛玻璃背景 + 毛玻璃顶栏。
@@ -21,7 +21,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 fun rememberBlurBackdrop(enableBlur: Boolean): LayerBackdrop? {
     if (!enableBlur || !isRenderEffectSupported()) return null
-    val surfaceColor = MiuixTheme.colorScheme.surface
+    val surfaceColor = LocalLxSurfaceTokens.current.canvas
     return rememberLayerBackdrop {
         drawRect(surfaceColor)
         drawContent()
@@ -42,7 +42,7 @@ fun BlurredBar(
                 blurRadius = 25f,
                 colors = BlurColors(
                     blendColors = listOf(
-                        BlendColorEntry(color = MiuixTheme.colorScheme.surface.copy(0.87f)),
+                        BlendColorEntry(color = LocalLxSurfaceTokens.current.surface.copy(0.92f)),
                     ),
                 ),
             )

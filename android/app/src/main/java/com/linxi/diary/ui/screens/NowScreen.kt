@@ -26,29 +26,33 @@ import com.linxi.diary.core.DeviceStatusHolder
 import com.linxi.diary.core.RingHelper
 import com.linxi.diary.data.ProfileRuntime
 import com.linxi.diary.data.RelationshipDays
+import com.linxi.diary.data.Live2DModelStore
 import com.linxi.diary.sync.InteractionEvents
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.sync.StatusFreshness
 import com.linxi.diary.ui.components.KernelScreen
+import com.linxi.diary.ui.components.LxButton
+import com.linxi.diary.ui.components.LxButtonVariant
+import com.linxi.diary.ui.components.LxClickableSurface
+import com.linxi.diary.ui.components.LxSurface
+import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.ui.components.WarningCard
 import com.linxi.diary.ui.components.WarningLevel
 import com.linxi.diary.ui.theme.BrandBlue
-import com.linxi.diary.ui.theme.LocalLinxiDarkTheme
+import com.linxi.diary.ui.theme.LocalLxSurfaceTokens
 import com.linxi.diary.util.UserPrefs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.ui.platform.LocalContext
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.FavoritesFill
 import top.yukonga.miuix.kmp.icon.extended.Messages
+import top.yukonga.miuix.kmp.icon.extended.MindMap
 import top.yukonga.miuix.kmp.icon.extended.Ok
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
-import top.yukonga.miuix.kmp.theme.MiuixTheme.isDynamicColor
-import top.yukonga.miuix.kmp.utils.PressFeedbackType
 
 /**
  * 主页（照抄 KernelSU HomeMiuix）：
@@ -57,8 +61,10 @@ import top.yukonga.miuix.kmp.utils.PressFeedbackType
  */
 @Composable
 fun NowScreen(
-    onOpenBind: () -> Unit = {}
+    onOpenBind: () -> Unit = {},
+    onOpenLive2D: () -> Unit = {},
 ) {
+    val context = LocalContext.current
     val demo = UserPrefs.demoMode
     // 订阅 StateFlow 而非直读字段：此前读的是普通 @Volatile var，
     // Compose 不会建立订阅，服务端推到了 UI 也不重组 —— 这才是"状态同步不实时"的真因。
@@ -98,7 +104,19 @@ fun NowScreen(
     }
 
     var refreshing by remember { mutableStateOf(false) }
+    var localLive2DCount by remember { mutableStateOf(0) }
+    var localLive2DActiveName by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        val models = Live2DModelStore.list(context)
+        localLive2DCount = models.size
+        val storedActiveId = Live2DModelStore.activeId(context)
+        val activeId = models.firstOrNull { it.id == storedActiveId }?.id
+            ?: models.firstOrNull()?.id?.also { Live2DModelStore.setActive(context, it) }
+        if (activeId == null && storedActiveId != null) Live2DModelStore.setActive(context, null)
+        localLive2DActiveName = models.firstOrNull { it.id == activeId }?.name
+    }
 
     KernelScreen(
         title = "主页",
@@ -138,6 +156,11 @@ fun NowScreen(
 
                 // 伴侣状态卡（KernelSU StatusCard：绿色卡片 + 右下大图标叠层）
                 PartnerStatusCard(partner, partnerName)
+
+                // 伴侣状态之后是 Live2D 的自然位置：它是陪伴内容，不抢远程互动
+                // 的主层级。没有原生 Cubism Core 时仍明确展示管理入口和状态，
+                // 不用静态 PNG 假装模型已经在运行。
+                Live2DCompanionCard(localLive2DCount, localLive2DActiveName, onOpenLive2D)
 
                 // 远程互动（KernelSU Card 风格）；调试模式不发送真实事件。
                 SectionTitle("远程互动", "把此刻的需要直接告诉对方")
@@ -232,18 +255,69 @@ fun NowScreen(
     }
 }
 
+@Composable
+private fun Live2DCompanionCard(modelCount: Int, activeName: String?, onOpen: () -> Unit) {
+    LxSurface(
+        modifier = Modifier.fillMaxWidth(),
+        tone = LxSurfaceTone.Raised,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .background(
+                        color = colorScheme.secondaryContainer,
+                        shape = RoundedCornerShape(18.dp),
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = MiuixIcons.MindMap,
+                    contentDescription = "Live2D 陪伴角",
+                    tint = colorScheme.primary,
+                    modifier = Modifier.size(30.dp),
+                )
+            }
+            Column(Modifier.weight(1f)) {
+                Text("Live2D 陪伴角", fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                Text(
+                    if (activeName != null) {
+                        "当前使用：$activeName${if (modelCount > 1) " · 共 $modelCount 个模型" else ""}"
+                    } else if (modelCount > 0) {
+                        "本机已导入 $modelCount 个模型，进入管理页选择当前角色"
+                    } else {
+                        "导入 Cubism model3.json 模型包，让陪伴角更有陪伴感"
+                    },
+                    fontSize = 12.sp,
+                    color = colorScheme.onSurfaceVariantSummary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            LxButton(
+                text = "管理",
+                onClick = onOpen,
+                variant = LxButtonVariant.Neutral,
+                horizontalPadding = 14,
+            )
+        }
+    }
+}
+
 /** 恋爱天数卡（纪念日当天为第 1 天）。 */
 @Composable
 private fun RelationshipDaysCard(days: Long, anniversary: java.time.LocalDate, partnerName: String) {
-    val cardColor = when {
-        isDynamicColor -> colorScheme.primaryContainer
-        LocalLinxiDarkTheme.current -> Color(0xFF3A2233)
-        else -> Color(0xFFFCE4F1)
-    }
-    Card(
+    val tokens = LocalLxSurfaceTokens.current
+    LxSurface(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.defaultColors(color = cardColor),
-        pressFeedbackType = PressFeedbackType.Tilt
+        tone = LxSurfaceTone.Raised,
+        color = tokens.surface,
     ) {
         Box(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
             Box(
@@ -253,7 +327,7 @@ private fun RelationshipDaysCard(days: Long, anniversary: java.time.LocalDate, p
                 Icon(
                     imageVector = MiuixIcons.FavoritesFill,
                     contentDescription = null,
-                    tint = if (isDynamicColor) colorScheme.primary.copy(alpha = 0.8f) else Color(0xFFF06AA8),
+                    tint = colorScheme.primary.copy(alpha = 0.76f),
                     modifier = Modifier.size(110.dp)
                 )
             }
@@ -309,12 +383,8 @@ private fun rememberNowTick(): Long {
 /** 伴侣状态卡：优先展示可信度，再把高频信息拆成可扫读的指标。 */
 @Composable
 private fun PartnerStatusCard(partner: DeviceStatus?, partnerName: String) {
-    val cardColor = when {
-        isDynamicColor -> colorScheme.secondaryContainer
-        LocalLinxiDarkTheme.current -> Color(0xFF1A3825)
-        else -> Color(0xFFDFFAE4)
-    }
-    val iconTint = if (isDynamicColor) colorScheme.primary.copy(alpha = 0.8f) else Color(0xFF36D167)
+    val tokens = LocalLxSurfaceTokens.current
+    val iconTint = colorScheme.primary.copy(alpha = 0.8f)
     val nowTick = rememberNowTick()
     val level = StatusFreshness.levelOf(partner?.ts ?: 0L, nowTick)
     val stale = level != StatusFreshness.Level.Fresh
@@ -348,12 +418,12 @@ private fun PartnerStatusCard(partner: DeviceStatus?, partnerName: String) {
         }
     }
 
-    Card(
+    LxSurface(
         modifier = Modifier
             .fillMaxWidth()
             .clearAndSetSemantics { contentDescription = statusSummary },
-        colors = CardDefaults.defaultColors(color = cardColor),
-        pressFeedbackType = PressFeedbackType.Tilt
+        tone = LxSurfaceTone.Raised,
+        color = tokens.surface,
     ) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
             Row(
@@ -509,11 +579,6 @@ private fun ActionCard(
     val fg = if (active) Color.White else colorScheme.onSurface
     val enabled = !active || allowClickWhenActive
     val visibleTitle = if (active) activeTitle else title
-    val colors = if (active) {
-        CardDefaults.defaultColors(color = BrandBlue, contentColor = Color.White)
-    } else {
-        CardDefaults.defaultColors()
-    }
     val cardModifier = modifier
         .defaultMinSize(minHeight = 64.dp)
         .semantics {
@@ -524,13 +589,17 @@ private fun ActionCard(
         }
 
     if (enabled) {
-        Card(modifier = cardModifier, onClick = onClick, colors = colors) {
-            ActionCardContent(icon, visibleTitle, fg)
-        }
+        LxClickableSurface(
+            modifier = cardModifier,
+            color = if (active) BrandBlue else null,
+            onClick = onClick,
+            contentDescription = visibleTitle,
+        ) { ActionCardContent(icon, visibleTitle, fg) }
     } else {
-        Card(modifier = cardModifier, colors = colors) {
-            ActionCardContent(icon, visibleTitle, fg)
-        }
+        LxSurface(
+            modifier = cardModifier,
+            color = if (active) BrandBlue else null,
+        ) { ActionCardContent(icon, visibleTitle, fg) }
     }
 }
 
@@ -584,7 +653,7 @@ private fun MyPhoneInfoCard(current: DeviceStatus?, demo: Boolean) {
         }
     }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    LxSurface(modifier = Modifier.fillMaxWidth(), tone = LxSurfaceTone.Raised) {
         val my = current
         if (my != null) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {

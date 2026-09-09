@@ -26,6 +26,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import com.linxi.diary.data.ApiClient
 import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.components.KernelScreen
+import com.linxi.diary.ui.components.LxButton
+import com.linxi.diary.ui.components.LxButtonVariant
+import com.linxi.diary.ui.components.LxClickableSurface
+import com.linxi.diary.ui.components.WarningCard
+import com.linxi.diary.ui.components.WarningLevel
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Music
@@ -33,10 +38,8 @@ import top.yukonga.miuix.kmp.icon.extended.Photos
 import top.yukonga.miuix.kmp.icon.extended.RecordingTape
 import top.yukonga.miuix.kmp.icon.extended.Tune
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
-import top.yukonga.miuix.kmp.utils.PressFeedbackType
 
 /**
  * Tab ③ 发现：相册 / 一起听 / 一起看 入口卡。
@@ -57,13 +60,15 @@ fun DiscoverScreen(
     var loading by remember { mutableStateOf(true) }
     var refreshing by remember { mutableStateOf(false) }
     var albumCount by remember { mutableStateOf<Int?>(null) }
+    var loadError by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     suspend fun fetch() {
+        loadError = false
         // 单项失败不影响另一项：任一为 null 时卡片只是不显示数量，不报错。
         runCatching { ApiClient.albumSummary() }
             .onSuccess { albumCount = it }
-            .onFailure { albumCount = null }
+            .onFailure { albumCount = null; loadError = true }
     }
 
     LaunchedEffect(albumEnabled) {
@@ -87,6 +92,21 @@ fun DiscoverScreen(
         item {
             Column(Modifier.padding(top = 12.dp)) {
                 if (albumEnabled) {
+                    if (loadError) {
+                        WarningCard(
+                            message = "相册摘要暂时加载失败",
+                            level = WarningLevel.Error,
+                            action = {
+                                LxButton(
+                                    text = "重试",
+                                    onClick = { scope.launch { fetch() } },
+                                    variant = LxButtonVariant.Neutral,
+                                    horizontalPadding = 14,
+                                )
+                            },
+                        )
+                        Spacer(Modifier.height(12.dp))
+                    }
                     DiscoverCard(
                         "相册",
                         albumCount?.let { "已收藏 $it 张照片" } ?: "记录你们的共同瞬间",
@@ -107,10 +127,10 @@ fun DiscoverScreen(
 
 @Composable
 private fun DiscoverCard(title: String, subtitle: String, icon: ImageVector, onClick: () -> Unit) {
-    Card(
+    LxClickableSurface(
         modifier = Modifier.fillMaxWidth(),
         onClick = onClick,
-        pressFeedbackType = PressFeedbackType.Sink,
+        contentDescription = "$title：$subtitle",
     ) {
         Box(Modifier.fillMaxWidth().height(96.dp)) {
             Box(
@@ -130,29 +150,6 @@ private fun DiscoverCard(title: String, subtitle: String, icon: ImageVector, onC
                     Spacer(Modifier.height(2.dp))
                     Text(subtitle, fontSize = 14.sp, color = colorScheme.onSurfaceVariantSummary)
                 }
-            }
-        }
-    }
-}
-
-/** 发现二级页“开发中”占位。 */
-@Composable
-fun DiscoverPlaceholderScreen(title: String, onBack: () -> Unit) {
-    BackHandler { onBack() }
-    KernelScreen(title = title, navigationIcon = { BackAction(onBack) }) {
-        item {
-            Column(
-                Modifier.fillMaxWidth().padding(top = 96.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Icon(
-                    MiuixIcons.Tune,
-                    contentDescription = null,
-                    tint = colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.size(72.dp),
-                )
-                Spacer(Modifier.height(16.dp))
-                Text("当前功能开发中，尽请期待", color = colorScheme.onSurface.copy(alpha = 0.78f))
             }
         }
     }

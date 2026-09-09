@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.sp
 import com.linxi.diary.BuildConfig
 import com.linxi.diary.R
 import com.linxi.diary.data.ApiClient
+import com.linxi.diary.data.ListenSessionController
 import com.linxi.diary.data.ProfileRuntime
 import com.linxi.diary.service.StatusForegroundService
 import com.linxi.diary.sync.StatusSyncManager
@@ -45,6 +46,8 @@ import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.components.KernelScreen
 import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
+import com.linxi.diary.ui.components.LxSurface
+import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.ui.theme.BrandRed
 import com.linxi.diary.util.Logs
 import com.linxi.diary.util.UserPrefs
@@ -54,7 +57,6 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.File
 import top.yukonga.miuix.kmp.icon.extended.Update
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.preference.ArrowPreference
@@ -168,7 +170,7 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit)
             }
         }
         item {
-            Card(Modifier.padding(top = 12.dp).fillMaxWidth()) {
+            LxSurface(Modifier.padding(top = 12.dp).fillMaxWidth(), tone = LxSurfaceTone.Raised) {
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("关于林曦日记", fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                     Text(
@@ -190,7 +192,7 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit)
             }
         }
         item {
-            Card(Modifier.padding(top = 8.dp).fillMaxWidth()) {
+            LxSurface(Modifier.padding(top = 8.dp).fillMaxWidth(), tone = LxSurfaceTone.Raised) {
                 ArrowPreference(
                     title = "检查更新",
                     summary = when {
@@ -251,7 +253,7 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit)
             }
         }
         item {
-            Card(Modifier.padding(top = 12.dp).fillMaxWidth()) {
+            LxSurface(Modifier.padding(top = 12.dp).fillMaxWidth(), tone = LxSurfaceTone.Raised) {
                 if (UserPrefs.pairId > 0) {
                     Row(
                         Modifier
@@ -275,6 +277,7 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit)
                             UserPrefs.demoMode = false
                             UserPrefs.sharingEnabled = false
                             UserPrefs.privacyConsented = false
+                            ListenSessionController.clearForLogout()
                             StatusSyncManager.disconnect()
                             ProfileRuntime.clearSession()
                             StatusForegroundService.stop(context)
@@ -337,6 +340,7 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit)
                                 UserPrefs.pairId = 0
                                 UserPrefs.partnerName = ""
                                 UserPrefs.sharingEnabled = false
+                                ListenSessionController.clearForLogout()
                                 StatusSyncManager.disconnect()
                                 StatusForegroundService.stop(context)
                                 ProfileRuntime.clearSession()
@@ -409,7 +413,7 @@ fun UpdateDialog(info: UpdateInfo, onDismiss: () -> Unit) {
                 if (info.history.isNotEmpty()) {
                     Text("历史版本", fontWeight = FontWeight.Medium, color = colorScheme.onBackground)
                     info.history.forEach { release ->
-                        Card(Modifier.fillMaxWidth()) {
+                        LxSurface(Modifier.fillMaxWidth(), tone = LxSurfaceTone.Inset) {
                             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(
                                     "v${release.versionName} · ${if (release.prerelease) "测试版" else "正式版"}",

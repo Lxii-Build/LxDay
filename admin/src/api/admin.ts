@@ -257,3 +257,44 @@ export function fetchListenRooms(options?: ListRequestOptions) {
 export function closeListenRoom(roomId: string) {
   return request.del<{ closed: boolean }>({ url: `/api/admin/listen-rooms/${roomId}` })
 }
+
+// ---------- Live2D 模型资源库（仅超管） ----------
+export function fetchLive2DModels(options?: ListRequestOptions) {
+  return request.get<Api.Admin.Live2DModelList>({
+    url: '/api/admin/live2d/models',
+    params: { current: 1, size: 200 },
+    ...options,
+    showErrorMessage: false
+  })
+}
+
+export function uploadLive2DModel(file: File) {
+  const data = new FormData()
+  data.append('model', file)
+  return request.post<Api.Admin.Live2DModel>({
+    url: '/api/admin/live2d/models',
+    data,
+    showSuccessMessage: true
+  })
+}
+
+export function publishLive2DModel(id: string) {
+  return request.post<{ ok: boolean }>({
+    url: `/api/admin/live2d/models/${encodeURIComponent(id)}/publish`,
+    showSuccessMessage: true
+  })
+}
+
+export function withdrawLive2DModel(id: string) {
+  return request.post<{ ok: boolean }>({
+    url: `/api/admin/live2d/models/${encodeURIComponent(id)}/withdraw`,
+    showSuccessMessage: true
+  })
+}
+
+export function deleteLive2DModel(id: string) {
+  return request.del<{ ok: boolean }>({
+    url: `/api/admin/live2d/models/${encodeURIComponent(id)}`,
+    showSuccessMessage: true
+  })
+}

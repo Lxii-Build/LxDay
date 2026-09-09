@@ -92,6 +92,37 @@ func TestListenNeteaseTrackPolicy(t *testing.T) {
 	}
 }
 
+func TestListenWatchURLPolicyAndState(t *testing.T) {
+	if got := safeListenWatchURL("http://example.com/video.mp4"); got != "" {
+		t.Fatalf("insecure watch URL accepted: %q", got)
+	}
+	if got := safeListenWatchURL("https://user:pass@example.com/video.mp4"); got != "" {
+		t.Fatalf("watch URL with userinfo accepted: %q", got)
+	}
+	if got := safeListenWatchURL("https://cdn.example.com/video.mp4?token=short"); got == "" {
+		t.Fatal("valid HTTPS watch URL rejected")
+	}
+	state := normalizeListenState(listenRoomState{
+		Kind:            "watch",
+		WatchURL:        "https://cdn.example.com/video.mp4",
+		WatchTitle:      "  我们的电影  ",
+		WatchDurationMs: 1_000,
+		WatchPositionMs: 2_000,
+		WatchPlaying:    true,
+		Source:          "netease",
+		SongID:          123,
+	})
+	if state.Kind != "watch" || state.WatchTitle != "我们的电影" || state.Title != "我们的电影" {
+		t.Fatalf("watch state metadata not normalized: %+v", state)
+	}
+	if state.WatchPositionMs != 1_000 || state.PositionMs != 1_000 || state.DurationMs != 1_000 {
+		t.Fatalf("watch position was not clamped: %+v", state)
+	}
+	if state.SongID != 0 || state.Source != "" {
+		t.Fatalf("audio metadata leaked into watch state: %+v", state)
+	}
+}
+
 func TestListenSessionRevocation(t *testing.T) {
 	h := NewListenHub(nil)
 	token, err := h.issueSession("ABC123", 7, true)

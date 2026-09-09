@@ -62,7 +62,11 @@ fun LinxiTheme(appearance: AppearanceSettings, content: @Composable () -> Unit) 
         style = MaterialKolorMapping.paletteStyle(appearance.paletteStyle),
         specVersion = MaterialKolorMapping.specVersion(appearance.colorSpec, appearance.paletteStyle),
     )
-    CompositionLocalProvider(LocalLinxiDarkTheme provides darkTheme) {
+    val surfaceTokens = if (darkTheme) LxDarkSurfaceTokens else LxLightSurfaceTokens
+    CompositionLocalProvider(
+        LocalLinxiDarkTheme provides darkTheme,
+        LocalLxSurfaceTokens provides surfaceTokens,
+    ) {
         MiuixTheme(controller = controller) {
             MaterialTheme(colorScheme = materialColors, typography = Typography(), content = content)
         }

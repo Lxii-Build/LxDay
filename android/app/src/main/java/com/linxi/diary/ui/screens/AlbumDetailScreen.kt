@@ -46,6 +46,8 @@ import com.linxi.diary.ui.components.LoadingRow
 import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
 import com.linxi.diary.ui.components.LxConfirmDialog
+import com.linxi.diary.ui.components.LxSurface
+import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.ui.theme.BrandBlue
 import com.linxi.diary.util.Logs
 import kotlinx.coroutines.launch
@@ -54,7 +56,6 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
@@ -382,7 +383,7 @@ fun AlbumDetailScreen(
             }
             when {
                 loading -> LoadingRow()
-                error != null -> Card(Modifier.fillMaxWidth().padding(12.dp)) {
+                error != null -> LxSurface(Modifier.fillMaxWidth().padding(12.dp), tone = LxSurfaceTone.Raised) {
                     Column(Modifier.padding(16.dp)) {
                         Text(error!!, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         Spacer(Modifier.height(12.dp))
@@ -393,7 +394,7 @@ fun AlbumDetailScreen(
                         )
                     }
                 }
-                photos.isEmpty() -> Card(Modifier.fillMaxWidth().padding(12.dp)) {
+                photos.isEmpty() -> LxSurface(Modifier.fillMaxWidth().padding(12.dp), tone = LxSurfaceTone.Raised) {
                     Column(Modifier.padding(20.dp)) {
                         Text("这个相册还是空的", style = MiuixTheme.textStyles.headline1)
                         Spacer(Modifier.height(6.dp))
@@ -547,7 +548,7 @@ private fun UploadProgressCard(
     onDismiss: () -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    Card(Modifier.fillMaxWidth().padding(12.dp)) {
+    LxSurface(Modifier.fillMaxWidth().padding(12.dp), tone = LxSurfaceTone.Inset) {
         Column(Modifier.padding(12.dp)) {
             Text(
                 if (uploading) "正在上传 ${done + failures.size + 1} / $total"

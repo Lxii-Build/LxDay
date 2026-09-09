@@ -29,6 +29,8 @@ import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.components.KernelScreen
 import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
+import com.linxi.diary.ui.components.LxSurface
+import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.ui.theme.BrandBlue
 import androidx.compose.ui.platform.LocalContext
 import coil3.compose.AsyncImage
@@ -38,7 +40,6 @@ import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Contacts
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
@@ -230,7 +231,7 @@ private fun ProfileEditContent(
         }
         item {
             SmallTitle("名称")
-            Card(Modifier.fillMaxWidth()) {
+            LxSurface(Modifier.fillMaxWidth(), tone = LxSurfaceTone.Inset) {
                 Column(Modifier.padding(16.dp)) {
                     TextField(value = nickname, onValueChange = onNickname, label = "名称", singleLine = true, modifier = Modifier.fillMaxWidth())
                 }
@@ -238,7 +239,7 @@ private fun ProfileEditContent(
         }
         item {
             SmallTitle("性别")
-            Card(Modifier.fillMaxWidth()) {
+            LxSurface(Modifier.fillMaxWidth(), tone = LxSurfaceTone.Inset) {
                 Row(
                     Modifier.fillMaxWidth().padding(16.dp),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -251,7 +252,7 @@ private fun ProfileEditContent(
         }
         item {
             SmallTitle("简介")
-            Card(Modifier.fillMaxWidth()) {
+            LxSurface(Modifier.fillMaxWidth(), tone = LxSurfaceTone.Inset) {
                 Column(Modifier.padding(16.dp)) {
                     TextField(value = signature, onValueChange = onSignature, label = "一句话介绍自己", modifier = Modifier.fillMaxWidth())
                 }
@@ -259,7 +260,7 @@ private fun ProfileEditContent(
         }
         item {
             SmallTitle("生日")
-            Card(Modifier.fillMaxWidth()) {
+            LxSurface(Modifier.fillMaxWidth(), tone = LxSurfaceTone.Inset) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     StepperRow("年", year, 1900, 2100, onYear)
                     StepperRow("月", month, 1, 12, onMonth)
@@ -270,7 +271,7 @@ private fun ProfileEditContent(
         if (showAnniversary) {
             item {
                 SmallTitle("纪念日")
-                Card(Modifier.fillMaxWidth()) {
+                LxSurface(Modifier.fillMaxWidth(), tone = LxSurfaceTone.Inset) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
                             "你们在一起的起点（双方共用）",
@@ -369,5 +370,4 @@ private fun StepBtn(text: String, enabled: Boolean, onClick: () -> Unit) {
         Text(text, fontSize = 16.sp, color = colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.4f))
     }
 }
-
 

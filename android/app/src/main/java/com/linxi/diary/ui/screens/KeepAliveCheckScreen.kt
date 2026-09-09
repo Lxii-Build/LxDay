@@ -31,8 +31,9 @@ import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.components.KernelScreen
 import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
+import com.linxi.diary.ui.components.LxSurface
+import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.ui.theme.BrandRed
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
@@ -78,7 +79,7 @@ fun KeepAliveCheckScreen(onBack: () -> Unit) {
         navigationIcon = { BackAction(onBack) },
     ) {
         item {
-            Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+            LxSurface(Modifier.fillMaxWidth().padding(top = 12.dp), tone = LxSurfaceTone.Raised) {
                 Column(Modifier.padding(16.dp)) {
                     Text(
                         if (failed == 0) "全部就绪" else "有 $failed 项待开启",
@@ -105,7 +106,7 @@ fun KeepAliveCheckScreen(onBack: () -> Unit) {
             }
         }
         item {
-            Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+            LxSurface(Modifier.fillMaxWidth().padding(top = 12.dp), tone = LxSurfaceTone.Raised) {
                 Column(Modifier.padding(16.dp)) {
                     Text("为什么需要这些权限", fontWeight = FontWeight.Medium)
                     Spacer(Modifier.height(6.dp))
@@ -127,7 +128,7 @@ fun KeepAliveCheckScreen(onBack: () -> Unit) {
 @Composable
 private fun CheckRow(item: CheckItem) {
     val context = LocalContext.current
-    Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+    LxSurface(Modifier.fillMaxWidth().padding(top = 12.dp), tone = LxSurfaceTone.Raised) {
         Row(
             Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,

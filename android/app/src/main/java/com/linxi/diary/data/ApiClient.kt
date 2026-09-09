@@ -29,6 +29,17 @@ data class ApiException(
     val httpCode: Int? = null,
 ) : Exception(message)
 
+data class Live2DRemoteModel(
+    val id: String,
+    val name: String,
+    val version: String,
+    val bytes: Long,
+    val sha256: String,
+    val textureCount: Int,
+    val clientMinVersion: String,
+    val updatedAt: String,
+)
+
 object ApiClient {
 
     private val BASE = BuildConfig.BASE_URL.trimEnd('/')
@@ -448,6 +459,68 @@ object ApiClient {
 
     /** 客户端配置（上限值/功能开关/保留天数）。失败时调用方用内置默认值。 */
     suspend fun clientConfig(): JSONObject = get("/client-config")
+
+    suspend fun live2dModels(): List<Live2DRemoteModel> = getArray("/live2d/models").let { array ->
+        buildList {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                add(
+                    Live2DRemoteModel(
+                        id = item.optString("id"),
+                        name = item.optString("name", "未命名模型"),
+                        version = item.optString("version", ""),
+                        bytes = item.optLong("bytes", 0L),
+                        sha256 = item.optString("sha256", ""),
+                        textureCount = item.optInt("texture_count", 0),
+                        clientMinVersion = item.optString("client_min_version", ""),
+                        updatedAt = item.optString("updated_at", ""),
+                    ),
+                )
+            }
+        }
+    }
+
+    /** Download a published model into a private staging file for local validation. */
+    suspend fun downloadLive2DModel(id: String, target: File): File = withContext(Dispatchers.IO) {
+        require(id.matches(Regex("model-[0-9]+(?:-[a-f0-9]+)?"))) { "模型 ID 非法" }
+        netCall {
+            val parent = target.parentFile ?: throw ApiException(-1, "无法准备模型存储目录")
+            parent.mkdirs()
+            val temp = File(parent, ".${target.name}.part")
+            try {
+                client.newCall(request("GET", "/live2d/models/$id/download", null).build()).execute().use { resp ->
+                    val body = resp.body
+                    if (!resp.isSuccessful) {
+                        val text = body?.string().orEmpty()
+                        failUnsuccessful(resp.code, text)
+                    }
+                    if (body == null) throw ApiException(-1, "服务器没有返回模型文件")
+                    if (body.contentLength() > 300L * 1024L * 1024L) {
+                        throw ApiException(413, "模型文件超过本机导入上限")
+                    }
+                    body.byteStream().use { source ->
+                        temp.outputStream().buffered().use { sink ->
+                            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                            var total = 0L
+                            while (true) {
+                                val count = source.read(buffer)
+                                if (count < 0) break
+                                total += count
+                                if (total > 300L * 1024L * 1024L) throw ApiException(413, "模型文件超过本机导入上限")
+                                sink.write(buffer, 0, count)
+                            }
+                        }
+                    }
+                }
+                if (target.exists() && !target.delete()) throw ApiException(-1, "无法替换模型文件")
+                if (!temp.renameTo(target)) throw ApiException(-1, "无法保存模型文件")
+                target
+            } catch (error: Throwable) {
+                temp.delete()
+                throw error
+            }
+        }
+    }
 
     /** 删评论。服务端只允许删自己的。 */
     suspend fun deletePhotoComment(photoId: Long, commentId: Long): JSONObject =

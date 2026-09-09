@@ -218,6 +218,9 @@ func main() {
 	// 对外路径不变（见 handleAlbumByID / handlePhotoByID）。
 	// 客户端配置下发：只读，不含密钥，未绑定用户也能拉（Q41=B）。
 	auth.GET("/client-config", handleClientConfig)
+	// Live2D 资源库只返回已发布模型，并通过用户 JWT 流式下载；本机私有导入不会上传。
+	auth.GET("/live2d/models", handleClientListLive2DModels)
+	auth.GET("/live2d/models/:id/download", handleClientDownloadLive2DModel)
 
 	// 相册总开关 requireAlbumEnabled 挂在这一组上。
 	//

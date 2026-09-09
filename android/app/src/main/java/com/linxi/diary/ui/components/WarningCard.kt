@@ -11,12 +11,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.linxi.diary.ui.theme.LocalLinxiDarkTheme
-import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 import top.yukonga.miuix.kmp.theme.MiuixTheme.isDynamicColor
-import top.yukonga.miuix.kmp.utils.PressFeedbackType
 
 enum class WarningLevel { Error, Notice }
 
@@ -32,16 +29,9 @@ fun WarningCard(
     onClick: (() -> Unit)? = null,
     action: (@Composable () -> Unit)? = null,
 ) {
-    Card(
-        modifier = modifier,
-        onClick = { onClick?.invoke() },
-        colors = CardDefaults.defaultColors(
-            color = level.containerColor(),
-            contentColor = level.contentColor(),
-        ),
-        showIndication = onClick != null,
-        pressFeedbackType = PressFeedbackType.Sink
-    ) {
+    val containerColor = level.containerColor()
+    val textColor = level.contentColor()
+    val body: @Composable () -> Unit = {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -51,10 +41,26 @@ fun WarningCard(
         ) {
             Text(
                 text = message,
-                fontSize = 14.sp
+                fontSize = 14.sp,
+                color = textColor,
             )
             action?.invoke()
         }
+    }
+    if (onClick != null) {
+        LxClickableSurface(
+            modifier = modifier,
+            color = containerColor,
+            onClick = onClick,
+            contentDescription = message,
+            content = body,
+        )
+    } else {
+        LxSurface(
+            modifier = modifier,
+            color = containerColor,
+            content = body,
+        )
     }
 }
 
@@ -66,8 +72,9 @@ private fun WarningLevel.containerColor(): Color = when {
     }
 
     LocalLinxiDarkTheme.current -> when (this) {
-        WarningLevel.Error -> Color(0xFF310808)
-        WarningLevel.Notice -> Color(0xFF3E2F1B)
+        // 深色页面保持石墨表面，语义色只留给文字；大面积红/黄底会破坏拟物层级。
+        WarningLevel.Error -> Color(0xFF2C292D)
+        WarningLevel.Notice -> Color(0xFF2C2B28)
     }
 
     else -> when (this) {

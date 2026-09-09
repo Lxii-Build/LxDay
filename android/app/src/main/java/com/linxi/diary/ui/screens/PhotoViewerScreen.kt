@@ -35,13 +35,14 @@ import com.linxi.diary.data.AppImageLoader
 import com.linxi.diary.data.PhotoCommentItem
 import com.linxi.diary.ui.components.LxButton as Button
 import com.linxi.diary.ui.components.LxButtonVariant
+import com.linxi.diary.ui.components.LxSurface
+import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.data.PhotoItem
 import com.linxi.diary.data.PhotoLoadSource
 import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.theme.BrandRed
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
@@ -320,7 +321,7 @@ fun PhotoViewerScreen(
             }
 
             if (editingCaption) {
-                Card(Modifier.fillMaxWidth().padding(12.dp)) {
+                LxSurface(Modifier.fillMaxWidth().padding(12.dp), tone = LxSurfaceTone.Inset) {
                     Column(
                         Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -364,7 +365,7 @@ fun PhotoViewerScreen(
             }
 
             if (showComments && photoSocialEnabled) {
-                Card(Modifier.fillMaxWidth().padding(12.dp)) {
+                LxSurface(Modifier.fillMaxWidth().padding(12.dp), tone = LxSurfaceTone.Inset) {
                     Column(
                         Modifier.padding(12.dp).heightIn(max = 260.dp).verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(8.dp),

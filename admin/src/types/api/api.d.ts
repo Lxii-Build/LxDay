@@ -241,6 +241,7 @@ declare namespace Api {
       created_at: string
       updated_at: string
       state: {
+        kind?: 'audio' | 'watch'
         title: string
         artist: string
         source?: string
@@ -252,7 +253,32 @@ declare namespace Api {
         playing: boolean
         mode: string
         updated_at: number
+        watch_title?: string
+        watch_duration_ms?: number
+        watch_position_ms?: number
+        watch_playing?: boolean
       }
+    }
+
+    /** Live2D 资源库项；模型包永远不走公开静态目录。 */
+    interface Live2DModel {
+      id: string
+      name: string
+      version: string
+      status: 'draft' | 'published' | 'withdrawn'
+      bytes: number
+      sha256: string
+      texture_count: number
+      client_min_version: string
+      created_at: string
+      updated_at: string
+    }
+
+    interface Live2DModelList {
+      records: Live2DModel[]
+      current: number
+      size: number
+      total: number
     }
 
     /**
@@ -317,6 +343,8 @@ declare namespace Api {
       server_version: string
       server_commit: string
       server_go: string
+      degraded?: boolean
+      warning?: string
     }
 
     interface AlbumUpdateParams {

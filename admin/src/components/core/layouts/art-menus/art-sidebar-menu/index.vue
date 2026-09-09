@@ -3,7 +3,13 @@
   <div
     class="layout-sidebar"
     v-if="showLeftMenu || isDualMenu"
-    :class="{ 'no-border': menuList.length === 0 }"
+    :class="{
+      'no-border': menuList.length === 0,
+      'is-mobile': isMobileScreen,
+      'is-mobile-open': isMobileScreen && menuOpen
+    }"
+    :aria-hidden="isMobileScreen && !menuOpen ? 'true' : undefined"
+    :inert="isMobileScreen && !menuOpen"
   >
     <!-- 双列菜单（左侧） -->
     <div

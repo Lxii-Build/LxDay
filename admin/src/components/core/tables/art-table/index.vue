@@ -5,7 +5,7 @@
 <template>
   <div
     ref="tableRootRef"
-    class="art-table"
+    class="art-table lx-responsive-table lx-responsive-table-cards lx-responsive-table-scroll"
     :class="{ 'is-empty': isEmpty }"
     :style="containerHeight"
   >
