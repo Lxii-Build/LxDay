@@ -51,7 +51,11 @@ fun KernelScreen(
     title: String,
     navigationIcon: @Composable () -> Unit = {},
     actions: @Composable () -> Unit = {},
-    enableBlur: Boolean = true,
+    // Miuix textureBlur is visually attractive but its RenderEffect sampling
+    // duplicates text on several Android 15/16 GPU drivers in light mode.  The
+    // app's cards already carry the neumorphic depth, so the stable default is
+    // an opaque top bar; pages may opt in only after device-specific validation.
+    enableBlur: Boolean = false,
     bottomPadding: androidx.compose.ui.unit.Dp = 12.dp,
     horizontalPadding: Dp = 16.dp,
     listState: LazyListState = rememberLazyListState(),

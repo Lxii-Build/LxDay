@@ -29,9 +29,6 @@ import top.yukonga.miuix.kmp.icon.extended.Share
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
-import top.yukonga.miuix.kmp.preference.ArrowPreference
-import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
-import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 import com.linxi.diary.core.PermissionHelper
 import com.linxi.diary.service.StatusForegroundService
@@ -41,6 +38,8 @@ import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
 import com.linxi.diary.ui.components.LxSurface
 import com.linxi.diary.ui.components.LxSurfaceTone
+import com.linxi.diary.ui.components.LxArrowPreference
+import com.linxi.diary.ui.components.LxSwitchPreference
 import com.linxi.diary.util.DiagnosticExporter
 import com.linxi.diary.util.UserPrefs
 
@@ -117,13 +116,13 @@ fun SettingsScreen(
         // 顶部只保留两个最常用入口，避免“编辑资料”和“伴侣”被埋在长列表里。
         item {
             LxSurface(Modifier.padding(top = 12.dp).fillMaxWidth(), tone = LxSurfaceTone.Raised) {
-                ArrowPreference(
+                LxArrowPreference(
                     title = "我的资料",
                     summary = "头像、名称、性别、简介与生日",
                     startAction = { PrefIcon(MiuixIcons.ContactsCircle, "我的资料") },
                     onClick = onOpenProfileEdit,
                 )
-                ArrowPreference(
+                LxArrowPreference(
                     title = if (bound) "已绑定 · $partnerName" else "绑定伴侣",
                     summary = if (bound) "共同相册、状态和待办已连接" else "绑定后才能同步状态与共同内容",
                     startAction = { PrefIcon(MiuixIcons.Contacts, "伴侣") },
@@ -134,7 +133,7 @@ fun SettingsScreen(
 
         item {
             LxSurface(Modifier.padding(top = 12.dp).fillMaxWidth(), tone = LxSurfaceTone.Raised) {
-                ArrowPreference(
+                LxArrowPreference(
                     title = "音乐设置",
                     summary = "网易云账号、收藏、播放行为、歌词与灵动岛",
                     startAction = { PrefIcon(MiuixIcons.Messages, "音乐设置") },
@@ -146,7 +145,7 @@ fun SettingsScreen(
         // 隐私与共享：把原先分散在三张卡里的状态、常驻卡片和静默通知放到一个语义组。
         item {
             LxSurface(Modifier.padding(top = 12.dp).fillMaxWidth(), tone = LxSurfaceTone.Raised) {
-                SwitchPreference(
+                LxSwitchPreference(
                     title = "状态共享",
                     summary = if (demo) "调试模式不采集、不上传真实状态" else "总开关：状态、常驻卡片和动态通知",
                     startAction = { PrefIcon(MiuixIcons.FavoritesFill, "状态共享") },
@@ -164,7 +163,7 @@ fun SettingsScreen(
                         }
                     },
                 )
-                SwitchPreference(
+                LxSwitchPreference(
                     title = "状态卡片与静默提醒",
                     summary = when {
                         !sharing -> "先开启状态共享"
@@ -185,7 +184,7 @@ fun SettingsScreen(
                         else StatusForegroundService.stop(context)
                     },
                 )
-                ArrowPreference(
+                LxArrowPreference(
                     title = "知情同意与状态历史",
                     summary = if (!UserPrefs.privacyConsented) "需先完成知情授权" else if (demo) "调试模式不读取服务端历史" else "查看状态时间线与电量曲线",
                     startAction = { PrefIcon(MiuixIcons.Ok, "知情同意与状态历史") },
@@ -197,13 +196,13 @@ fun SettingsScreen(
         // 连接与保活：单独入口打开完整自检，避免六个跳转项占满“我的”页。
         item {
             LxSurface(Modifier.padding(top = 12.dp).fillMaxWidth(), tone = LxSurfaceTone.Raised) {
-                ArrowPreference(
+                LxArrowPreference(
                     title = "连接与后台运行",
                     summary = if (keepAliveFailed > 0) "$keepAliveFailed 项权限待处理 · 点击查看详情" else "权限和后台保活均已就绪",
                     startAction = { PrefIcon(MiuixIcons.Lock, "连接与后台运行") },
                     onClick = onOpenKeepAliveCheck,
                 )
-                ArrowPreference(
+                LxArrowPreference(
                     title = "主题与界面",
                     summary = "配色、壁纸、动态取色与界面开关",
                     startAction = { PrefIcon(MiuixIcons.Settings, "主题与界面") },
@@ -214,13 +213,13 @@ fun SettingsScreen(
 
         item {
             LxSurface(Modifier.padding(top = 12.dp, bottom = 8.dp).fillMaxWidth(), tone = LxSurfaceTone.Raised) {
-                ArrowPreference(
+                LxArrowPreference(
                     title = "诊断与关于",
                     summary = "发送日志、版本信息、检查更新和退出登录",
                     startAction = { PrefIcon(MiuixIcons.Info, "诊断与关于") },
                     onClick = onOpenAbout,
                 )
-                ArrowPreference(
+                LxArrowPreference(
                     title = "发送日志",
                     summary = "保存到设备文件或分享诊断包",
                     startAction = { PrefIcon(MiuixIcons.Send, "发送日志") },
@@ -238,7 +237,7 @@ fun SettingsScreen(
             renderInRootScaffold = true,
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                ArrowPreference(
+                LxArrowPreference(
                     title = "保存日志",
                     summary = "保存诊断包到设备文件",
                     startAction = { PrefIcon(MiuixIcons.Backup, "保存日志") },
@@ -247,7 +246,7 @@ fun SettingsScreen(
                         saveLogLauncher.launch("linxi-diagnostics-${System.currentTimeMillis()}.zip")
                     }
                 )
-                ArrowPreference(
+                LxArrowPreference(
                     title = "发送日志",
                     summary = "通过系统分享导出诊断包",
                     startAction = { PrefIcon(MiuixIcons.Share, "发送日志") },

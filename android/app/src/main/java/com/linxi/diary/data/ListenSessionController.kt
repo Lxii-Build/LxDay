@@ -388,10 +388,14 @@ object ListenSessionController {
             runCatching {
                 if (runGeneration != generation) return@runCatching
                 val local = NeteasePlaybackManager.stateFlow.value
-                if (local.track?.id != remote.id) {
+                if (local.track?.id != remote.id || !NeteasePlaybackManager.hasSource(remote.id)) {
                     val url = NeteaseClient.resolvePlaybackUrl(remote.id)
-                    NeteasePlaybackManager.play(remote, url, remoteState.positionMs)
-                    if (!remoteState.playing) NeteasePlaybackManager.pause()
+                    NeteasePlaybackManager.play(
+                        remote,
+                        url,
+                        remoteState.positionMs,
+                        autoplay = remoteState.playing,
+                    )
                 } else {
                     if (kotlin.math.abs(local.positionMs - remoteState.positionMs) > 2_000L) {
                         NeteasePlaybackManager.seekTo(remoteState.positionMs)

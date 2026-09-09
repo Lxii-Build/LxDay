@@ -59,7 +59,7 @@ import top.yukonga.miuix.kmp.icon.extended.Update
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
-import top.yukonga.miuix.kmp.preference.ArrowPreference
+import com.linxi.diary.ui.components.LxArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -193,7 +193,7 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit)
         }
         item {
             LxSurface(Modifier.padding(top = 8.dp).fillMaxWidth(), tone = LxSurfaceTone.Raised) {
-                ArrowPreference(
+                LxArrowPreference(
                     title = "检查更新",
                     summary = when {
                         checking -> "检查中…"
@@ -222,13 +222,13 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit)
                         }
                     },
                 )
-                ArrowPreference(
+                LxArrowPreference(
                     title = "开源仓库",
                     summary = REPO_URL,
                     startAction = { AboutIcon(MiuixIcons.File) },
                     onClick = { runCatching { uriHandler.openUri(REPO_URL) } },
                 )
-                ArrowPreference(
+                LxArrowPreference(
                     title = "查看更新日志",
                     summary = "仓库 CHANGELOG · 统一更新流",
                     startAction = { AboutIcon(MiuixIcons.Update) },

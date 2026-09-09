@@ -24,6 +24,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.LinkedHashMap
 import com.linxi.diary.util.UserPrefs
+import com.linxi.diary.util.Logs
 
 data class NeteasePlaybackState(
     val track: NeteaseTrack? = null,
@@ -91,6 +92,12 @@ object NeteasePlaybackManager {
                 }
 
                 override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                    val host = runCatching { currentUrl?.let { java.net.URI(it).host } }.getOrNull()
+                    Logs.e(
+                        "NeteasePlayback",
+                        "ExoPlayer error code=${error.errorCode} name=${error.errorCodeName} host=${host ?: "-"}",
+                        error,
+                    )
                     state.value = state.value.copy(
                         playing = false,
                         loading = false,
@@ -130,7 +137,12 @@ object NeteasePlaybackManager {
         return lyrics.original.getOrNull(index)?.text?.lineSequence()?.firstOrNull { it.isNotBlank() }
     }
 
-    fun play(track: NeteaseTrack, url: String, positionMs: Long = 0L) {
+    fun play(
+        track: NeteaseTrack,
+        url: String,
+        positionMs: Long = 0L,
+        autoplay: Boolean = true,
+    ) {
         ensureInitialized()
         require(url.startsWith("https://", ignoreCase = true)) { "播放地址必须使用 HTTPS" }
         val current = state.value
@@ -174,13 +186,28 @@ object NeteasePlaybackManager {
             track = track,
             queue = queue,
             queueIndex = queueIndex,
+            durationMs = track.durationMs.coerceAtLeast(0L),
+            playing = autoplay,
             loading = true,
             error = null,
         )
-        player.play()
-        startProgressTicker()
+        if (autoplay) {
+            player.play()
+            startProgressTicker()
+        } else {
+            player.pause()
+            progressJob?.cancel()
+        }
         refreshProgress()
     }
+
+    /** True only while the current track still has a usable local media source. */
+    fun hasSource(trackId: Long): Boolean =
+        initialized &&
+            state.value.track?.id == trackId &&
+            state.value.error == null &&
+            !currentUrl.isNullOrBlank() &&
+            player.currentMediaItem?.mediaId == state.value.track?.stableKey
 
     /** 把搜索/收藏结果放入播放队列，保留当前歌曲位置。 */
     fun setQueue(tracks: List<NeteaseTrack>, startIndex: Int = 0) {
@@ -193,6 +220,7 @@ object NeteasePlaybackManager {
             queue = distinct,
             queueIndex = safeIndex,
             track = distinct[safeIndex],
+            durationMs = distinct[safeIndex].durationMs.coerceAtLeast(0L),
         )
     }
 

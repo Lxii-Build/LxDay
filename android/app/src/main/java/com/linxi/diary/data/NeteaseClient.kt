@@ -76,8 +76,8 @@ object NeteaseClient {
         val root = JSONObject(response)
         val code = root.optInt("code", -1)
         val data = root.optJSONArray("data")
-        val url = data?.optJSONObject(0)?.optString("url").orEmpty()
-        if (code != 200 || url.isBlank()) {
+        val rawUrl = data?.optJSONObject(0)?.optString("url").orEmpty()
+        if (code != 200 || rawUrl.isBlank()) {
             throw IOException(
                 when (code) {
                     301 -> "网易云账号登录已失效，请重新绑定"
@@ -86,8 +86,8 @@ object NeteaseClient {
                 },
             )
         }
-        url.takeIf { it.startsWith("https://", ignoreCase = true) }
-            ?: throw IOException("网易云返回了不安全的播放地址")
+        NeteasePlaybackUrlPolicy.normalize(rawUrl)
+            ?: throw IOException("网易云返回了不安全或不受支持的播放地址")
     }
 
     suspend fun verifyLogin(): Boolean = withContext(Dispatchers.IO) {

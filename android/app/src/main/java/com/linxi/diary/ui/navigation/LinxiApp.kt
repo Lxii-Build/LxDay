@@ -542,7 +542,10 @@ private fun MainTabs(
             LocalMainFabState provides mainFabState,
         ) {
             HorizontalPager(
-                modifier = Modifier.fillMaxSize().layerBackdrop(backdrop),
+                    // Do not record the pager into a RenderEffect backdrop by
+                    // default.  On the affected light-theme path this caused
+                    // preference text and the mini-player to be painted twice.
+                    modifier = Modifier.fillMaxSize(),
                 state = pagerState
             ) { page ->
                 when (page) {
@@ -587,7 +590,11 @@ private fun MainTabs(
                 onSelected = mainState::animateToPage,
                 backdrop = backdrop,
                 tabsCount = tabs.size,
-                isBlurEnabled = true
+                // Keep the liquid interaction/selection animation, but use an
+                // opaque surface until the RenderEffect path is validated on
+                // the target device.  This prevents the light-theme ghost text
+                // visible in settings and the mini-player screenshots.
+                isBlurEnabled = false
             ) {
                 tabs.forEachIndexed { index, item ->
                     FloatingBottomBarItem(
