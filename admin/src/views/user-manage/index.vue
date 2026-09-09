@@ -94,6 +94,7 @@
   import { useUserStore } from '@/store/modules/user'
   import { formatDate, formatDateTime } from '@/utils/format/datetime'
   import {
+    ElAvatar,
     ElButton,
     ElDatePicker,
     ElForm,
@@ -167,18 +168,35 @@
           prop: 'nickname',
           label: t('userManage.table.user'),
           minWidth: 220,
-          formatter: (row) =>
-            h('div', { class: 'flex-c' }, [
-              h(ElImage, {
-                class: 'size-9 rounded-md',
-                src: row.avatar_thumbnail_url || '',
-                fit: 'cover'
-              }),
+          formatter: (row) => {
+            const name = row.nickname || row.username || `#${row.id}`
+            const initial = name.trim().charAt(0) || '?'
+            const avatar = row.avatar_thumbnail_url
+              ? h(ElImage, {
+                  class: 'size-9 rounded-md',
+                  src: row.avatar_thumbnail_url,
+                  fit: 'cover',
+                  alt: name
+                })
+              : h(
+                  ElAvatar,
+                  {
+                    class: 'size-9 rounded-md',
+                    size: 36,
+                    shape: 'square',
+                    'aria-label': t('userManage.noAvatar')
+                  },
+                  () => initial
+                )
+
+            return h('div', { class: 'flex-c' }, [
+              avatar,
               h('div', { class: 'ml-2' }, [
                 h('p', { class: 'font-medium' }, row.nickname || '-'),
                 h('p', { class: 'text-xs art-text-gray-500' }, row.username || '-')
               ])
             ])
+          }
         },
         {
           prop: 'email',

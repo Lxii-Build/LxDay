@@ -305,6 +305,7 @@
   "userManage": {
     "searchPlaceholder": "搜索用户名 / 昵称 / 邮箱",
     "empty": "暂无用户",
+    "noAvatar": "暂无头像",
     "table": {
       "id": "ID",
       "user": "用户",

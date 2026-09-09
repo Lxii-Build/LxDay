@@ -305,6 +305,7 @@
   "userManage": {
     "searchPlaceholder": "Search by username, nickname or email",
     "empty": "No users yet",
+    "noAvatar": "No avatar",
     "table": {
       "id": "ID",
       "user": "User",

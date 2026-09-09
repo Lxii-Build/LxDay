@@ -1,12 +1,6 @@
 name: 构建安卓 APK
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'android/**'
-      - '.github/workflows/build-android.yml'
   workflow_dispatch:
     inputs:
       server_url:
@@ -152,6 +146,6 @@ jobs:
         if: (inputs.build_type || 'Release') == 'Release'
         uses: actions/upload-artifact@v4
         with:
-          name: lxday-mapping-${{ inputs.version_name }}-${{ github.sha }}
+          name: lxday-mapping-${{ inputs.version_name || '1.1.0' }}-${{ github.sha }}
           path: android/app/build/outputs/mapping/**/mapping.txt
           if-no-files-found: warn
