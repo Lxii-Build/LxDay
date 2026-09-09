@@ -23,7 +23,7 @@ Draft1.2最新范围：[REFINEMENTS-1.2.md](REFINEMENTS-1.2.md)。石墨暗色�
 - `LxClickableSurface` 现在共享 `MutableInteractionSource`：点击与长按均移除平台 ripple，按下时切换为 Inset 边界，所有复用它的相册、发现、音乐与一起听卡片保持同一拟态按压反馈；描边半径可随 8dp 缩略图或圆形按钮调整，不再用固定 16dp 圆角。
 - 主页面待办 FAB 从 Miuix `FloatingActionButton` 迁移到 `LxIconButton`，保留 48dp 触达下限、品牌蓝语义、圆形造型和中文无障碍描述；不再与其他拟态图标动作出现原生外观差异。
 - 相册详情照片网格、本机选图网格改用共享可点击表面；照片网格继续保留长按进入选择、选中状态和预览独立入口，选图控件声明 Checkbox 角色与状态文案。
-- 回归验证：JDK 21 + Gradle 9.7 下 `:app:compileDebugKotlin`、`:app:testDebugUnitTest`、`:app:lintDebug` 均通过；仅保留既有 Kotlin/Android API 警告。
+- 回归验证以 GitHub Actions 质量门禁为准：`e0faf68` 的质量门禁 #29 已成功完成服务端、后台和“安卓编译、单测与 Lint”三项 job；仅保留既有 Kotlin/Android API 警告。
 
 - 首页陪伴角现在读取本机当前模型并通过 `ui/components/Live2DPreviewHost.kt` 嵌入真实 `GLSurfaceView`；管理页预览也复用同一宿主。宿主用进程级单活跃租约处理 `AnimatedContent` 转场，避免两个页面同时初始化 Cubism Framework。缺少授权 Core AAR/Framework 或模型宿主创建失败时，仍显示可读的降级状态，不用 PNG/线框冒充渲染。
 - Live2D 导入安全边界继续收口：APP 与服务端现在同时限制压缩 ZIP 50 MiB、单文件 64 MiB、moc3 20 MiB，并按 `model3.json` 实际引用汇总全部贴图像素，避免多张“单张合规”纹理合计耗尽显存。新增服务端与 JVM 回归测试覆盖聚合预算。
