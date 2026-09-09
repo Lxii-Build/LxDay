@@ -10,6 +10,7 @@ Draft1.2最新范围：[REFINEMENTS-1.2.md](REFINEMENTS-1.2.md)。石墨暗色�
 
 ### 2026-09-09 会话与门禁收口（本轮新增）
 
+- 首页陪伴角现在读取本机当前模型并通过 `ui/components/Live2DPreviewHost.kt` 嵌入真实 `GLSurfaceView`；管理页预览也复用同一宿主。宿主用进程级单活跃租约处理 `AnimatedContent` 转场，避免两个页面同时初始化 Cubism Framework。缺少授权 Core AAR/Framework 或模型宿主创建失败时，仍显示可读的降级状态，不用 PNG/线框冒充渲染。
 - Live2D 导入安全边界继续收口：APP 与服务端现在同时限制压缩 ZIP 50 MiB、单文件 64 MiB、moc3 20 MiB，并按 `model3.json` 实际引用汇总全部贴图像素，避免多张“单张合规”纹理合计耗尽显存。新增服务端与 JVM 回归测试覆盖聚合预算。
 - 新增 `Live2DRenderPolicy`（纯策略）与 30fps 上限：静态模型不启动自由运行 ticker，卡片离屏、被遮挡、未选中或尺寸为零时停止绘制。新增 `Live2DNativeRuntime`/`Live2DRendererBridge`，可探测官方 Core/Framework，并保持缺少许可 AAR 时的真实降级态。
 - Android `src/cubism` 提供可选的官方 Java Framework `GLSurfaceView` 适配器：只有显式提供匹配的 `Live2DCubismCore.aar` 与 Framework 根目录才编译；适配器加载私有 model3/moc3/PNG、校验路径、在 GL 线程绑定纹理和释放资源。默认仓库构建不携带专有 Core，也不把静态图或占位框伪称 Live2D 成功。
@@ -37,7 +38,7 @@ Draft1.2最新范围：[REFINEMENTS-1.2.md](REFINEMENTS-1.2.md)。石墨暗色�
 - 全屏播放器继续消费唯一 `NeteasePlaybackManager`：加入自适应封面（含失败占位）、小屏可滚动布局、真实进度语义与点击 seek；不创建第二个 ExoPlayer。全局 mini 播放条的高度通过新的 `LocalPlaybackBottomPadding` 传给 `KernelScreen`，二级页末尾内容不会再被浮层盖住。
 
 - Android `KernelScreen` 现在默认使用 16dp 页面边距，并把石墨/浅色 `canvas` 作为所有列表页的底层材质；模糊顶栏的采样底色也从 Miuix 动态表面收敛到同一套 `LxSurfaceTokens`。
-- Live2D 本机模型现在有单一“当前使用”选择：选择结果只写入本机 `SharedPreferences`，导入首个模型时自动选中；主页陪伴角展示当前模型名，删除当前模型会清理并自动回退到剩余模型。资源库下载与 SAF 导入共用同一同步路径，不会把选择状态上传服务端。
+- Live2D 本机模型现在有单一“当前使用”选择：选择结果只写入本机 `SharedPreferences`，导入首个模型时自动选中；主页陪伴角展示当前模型并在可选运行时就地渲染，缺少运行时则明确显示等待 Core 的状态。删除当前模型会清理并自动回退到剩余模型。资源库下载与 SAF 导入共用同一同步路径，不会把选择状态上传服务端。
 - 主页的纪念日、伴侣状态、手机信息和 Live2D 入口，音乐馆/一起听的主卡与结果行，Live2D 管理页的导入/资源库/预览/模型行，以及“我的/主题与界面”分组，已使用 `LxSurface`；深色不再使用大面积粉色/绿色/蓝灰底，语义色仅保留为小面积强调。
 - 剩余的照片选择器、歌词候选、相册入口、待办、绑定模式和发现入口也已收口到 `LxSurface`／`LxClickableSurface`；后者只给真正的操作卡挂点击语义，装饰面不会意外变成大按钮，长按相册与嵌套管理按钮继续保留。
 - 发现页的相册摘要请求增加了“有数据/失败可重试”的可见错误态；错误不再伪装成空数据。
@@ -54,10 +55,10 @@ Draft1.2最新范围：[REFINEMENTS-1.2.md](REFINEMENTS-1.2.md)。石墨暗色�
 
 - 已落地 P0 材质层：Android `LxSurfaceTokens`、`LxSurface`、按钮按压态与 `KernelScreen.horizontalPadding`；Vue 后台 `linxi-neumorphic.scss` 已接入全局 token、卡片/输入/按钮/弹窗/表格和 360～桌面响应式规则。
 - 已落地播放器第一批：`MusicPlayerOverlay` 挂在 App shell（登录/注册/绑定页外）而不是某个音乐列表；音乐页移除重复局部 mini；同一 `NeteasePlaybackManager` 驱动 mini/full，底部上滑展开与返回收起，控制使用已核验的 Miuix 图标。
-- 已落地 APP Live2D 文件管理第一批：系统 `OpenDocument` 选择 ZIP、本机 no-backup 隔离目录、路径穿越/条目数/解压体积/必需文件校验、取消/失败不覆盖旧模型、删除入口；原生 Cubism 渲染器尚未接入，预览明确标为待接入。
+- 已落地 APP Live2D 文件管理第一批：系统 `OpenDocument` 选择 ZIP、本机 no-backup 隔离目录、路径穿越/条目数/解压体积/必需文件校验、取消/失败不覆盖旧模型、删除入口；原生 Cubism 宿主已接入为可选 source set，默认构建仍因许可边界不携带 Core/Framework，预览会明确显示等待运行时。
 - APP 导入校验已追加 `Live2DImportPolicy`：嵌套根目录和 manifest 相对路径（含包内安全 `../`）按运行时语义解析，大小写冲突拒绝，VTube Studio sidecar/预览图/可选动作、表情、物理资源保留；失败时返回分项兼容性报告，因此用户提供的包会明确显示缺少 moc3 与 8192×8192 贴图预算，而不是静默丢包。
 - 已落地后台 B18 资源库与服务端 L4 基础：超管菜单、拖放文件暂存、发布/撤回/删除状态、私有目录、SQLite 迁移 5、流式 ZIP/manifest 校验与审计；同时接入 APP 已发布目录查询和 JWT 下载后本机再校验导入。原生 Cubism 渲染验收仍未完成，不把结构校验冒充渲染成功。
-- 已实际验证：`server` 的 `go test -timeout 400s ./...`、`go vet ./...`，以及 `admin` 的 `npm run build`、`npm run lint` 通过；后台真实隔离服务四档视口审计通过。Android 未在本机安装／启动 APK；此前 Gradle daemon loopback 环境问题仍记录为未验证项，Cubism Core、真实模型和真机渲染也仍未接入/验收。禁止据此声称 Android 三端全通过。
+- 已实际验证：`server` 的 `go test -timeout 400s ./...`、`go vet ./...`，以及 `admin` 的 `npm run build`、`npm run lint` 通过；后台真实隔离服务四档视口审计通过。Android 未在本机安装／启动 APK；此前 Gradle daemon loopback 环境问题仍记录为未验证项。Cubism 宿主已接入，但 Core AAR、完整授权模型与真机首帧仍未验收，禁止据此声称 Android 三端全通过。
 
 ## 1. 必须遵守的改造边界
 

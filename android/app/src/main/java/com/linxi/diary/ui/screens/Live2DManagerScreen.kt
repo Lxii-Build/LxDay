@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -24,7 +23,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import com.linxi.diary.data.Live2DImportResult
 import com.linxi.diary.data.Live2DImportPolicy
 import com.linxi.diary.data.Live2DModelRecord
@@ -33,7 +31,6 @@ import com.linxi.diary.data.ApiClient
 import com.linxi.diary.data.Live2DRemoteModel
 import com.linxi.diary.data.Live2DNativeRuntime
 import com.linxi.diary.data.Live2DNativeRuntimeInfo
-import com.linxi.diary.data.Live2DRendererBridge
 import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.components.KernelScreen
 import com.linxi.diary.ui.components.LxButton
@@ -41,6 +38,7 @@ import com.linxi.diary.ui.components.LxButtonVariant
 import com.linxi.diary.ui.components.LxConfirmDialog
 import com.linxi.diary.ui.components.LxSurface
 import com.linxi.diary.ui.components.LxSurfaceTone
+import com.linxi.diary.ui.components.Live2DPreviewHost
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
@@ -160,20 +158,6 @@ fun Live2DManagerScreen(onBack: () -> Unit) {
     }
 
     val activeModel = models.firstOrNull { it.id == activeModelId }
-    val nativeView = remember(activeModel?.id, runtimeInfo.status) {
-        if (activeModel != null &&
-            runtimeInfo.canCreateRenderer &&
-            Live2DRendererBridge.isInstalled()
-        ) {
-            Live2DRendererBridge.create(context, activeModel.directory, activeModel.manifestPath)
-        } else {
-            null
-        }
-    }
-    DisposableEffect(nativeView) {
-        onDispose { nativeView?.let(Live2DRendererBridge::close) }
-    }
-
     KernelScreen(title = "Live2D 伴侣", navigationIcon = { BackAction(onBack) }, loading = initialLoading) {
         item {
             LxSurface(Modifier.fillMaxWidth().padding(top = 12.dp), tone = LxSurfaceTone.Raised) {
@@ -266,25 +250,20 @@ fun Live2DManagerScreen(onBack: () -> Unit) {
                 Column(Modifier.padding(18.dp)) {
                     Text("预览区域", fontSize = 16.sp)
                     Spacer(Modifier.height(10.dp))
-                    Box(
+                    Live2DPreviewHost(
+                        model = activeModel,
+                        runtimeInfo = runtimeInfo,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(180.dp)
-                            .padding(horizontal = 12.dp)
-                            .then(Modifier),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (nativeView != null) {
-                            AndroidView(
-                                factory = { nativeView },
-                                modifier = Modifier.fillMaxWidth().height(180.dp),
-                            )
-                        } else {
+                            .padding(horizontal = 12.dp),
+                    ) { runtime ->
+                        Box(Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Icon(
                                     MiuixIcons.MindMap,
                                     contentDescription = "Live2D 运行状态",
-                                    tint = if (runtimeInfo.canCreateRenderer) {
+                                    tint = if (runtime.canCreateRenderer) {
                                         MiuixTheme.colorScheme.primary
                                     } else {
                                         MiuixTheme.colorScheme.onSurfaceVariantSummary
@@ -294,13 +273,13 @@ fun Live2DManagerScreen(onBack: () -> Unit) {
                                 Text(
                                     when {
                                         models.isEmpty() -> "先导入完整的 model3.json / moc3 模型包"
-                                        !runtimeInfo.canCreateRenderer -> "${runtimeInfo.detail}；当前仅完成安全导入，未伪造模型画面"
+                                        !runtime.canCreateRenderer -> "${runtime.detail}；当前仅完成安全导入，未伪造模型画面"
                                         else -> "模型宿主创建失败，请重试或重新导入角色"
                                     },
                                     fontSize = 13.sp,
                                 )
                                 Text(
-                                    "状态：${runtimeStatusLabel(runtimeInfo.status)}",
+                                    "状态：${runtimeStatusLabel(runtime.status)}",
                                     fontSize = 11.sp,
                                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                     modifier = Modifier.padding(top = 4.dp),

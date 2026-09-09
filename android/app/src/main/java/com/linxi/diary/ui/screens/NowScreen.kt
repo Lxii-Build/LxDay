@@ -27,6 +27,8 @@ import com.linxi.diary.core.RingHelper
 import com.linxi.diary.data.ProfileRuntime
 import com.linxi.diary.data.RelationshipDays
 import com.linxi.diary.data.Live2DModelStore
+import com.linxi.diary.data.Live2DModelRecord
+import com.linxi.diary.data.Live2DNativeRuntime
 import com.linxi.diary.sync.InteractionEvents
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.sync.StatusFreshness
@@ -36,6 +38,7 @@ import com.linxi.diary.ui.components.LxButtonVariant
 import com.linxi.diary.ui.components.LxClickableSurface
 import com.linxi.diary.ui.components.LxSurface
 import com.linxi.diary.ui.components.LxSurfaceTone
+import com.linxi.diary.ui.components.Live2DPreviewHost
 import com.linxi.diary.ui.components.WarningCard
 import com.linxi.diary.ui.components.WarningLevel
 import com.linxi.diary.ui.theme.BrandBlue
@@ -105,7 +108,7 @@ fun NowScreen(
 
     var refreshing by remember { mutableStateOf(false) }
     var localLive2DCount by remember { mutableStateOf(0) }
-    var localLive2DActiveName by remember { mutableStateOf<String?>(null) }
+    var localLive2DActiveModel by remember { mutableStateOf<Live2DModelRecord?>(null) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
@@ -115,7 +118,7 @@ fun NowScreen(
         val activeId = models.firstOrNull { it.id == storedActiveId }?.id
             ?: models.firstOrNull()?.id?.also { Live2DModelStore.setActive(context, it) }
         if (activeId == null && storedActiveId != null) Live2DModelStore.setActive(context, null)
-        localLive2DActiveName = models.firstOrNull { it.id == activeId }?.name
+        localLive2DActiveModel = models.firstOrNull { it.id == activeId }
     }
 
     KernelScreen(
@@ -160,7 +163,7 @@ fun NowScreen(
                 // 伴侣状态之后是 Live2D 的自然位置：它是陪伴内容，不抢远程互动
                 // 的主层级。没有原生 Cubism Core 时仍明确展示管理入口和状态，
                 // 不用静态 PNG 假装模型已经在运行。
-                Live2DCompanionCard(localLive2DCount, localLive2DActiveName, onOpenLive2D)
+                Live2DCompanionCard(localLive2DCount, localLive2DActiveModel, onOpenLive2D)
 
                 // 远程互动（KernelSU Card 风格）；调试模式不发送真实事件。
                 SectionTitle("远程互动", "把此刻的需要直接告诉对方")
@@ -256,7 +259,8 @@ fun NowScreen(
 }
 
 @Composable
-private fun Live2DCompanionCard(modelCount: Int, activeName: String?, onOpen: () -> Unit) {
+private fun Live2DCompanionCard(modelCount: Int, activeModel: Live2DModelRecord?, onOpen: () -> Unit) {
+    val runtimeInfo = remember { Live2DNativeRuntime.probe() }
     LxSurface(
         modifier = Modifier.fillMaxWidth(),
         tone = LxSurfaceTone.Raised,
@@ -268,27 +272,36 @@ private fun Live2DCompanionCard(modelCount: Int, activeName: String?, onOpen: ()
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Box(
+            Live2DPreviewHost(
+                model = activeModel,
+                runtimeInfo = runtimeInfo,
                 modifier = Modifier
-                    .size(56.dp)
-                    .background(
-                        color = colorScheme.secondaryContainer,
-                        shape = RoundedCornerShape(18.dp),
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = MiuixIcons.MindMap,
-                    contentDescription = "Live2D 陪伴角",
-                    tint = colorScheme.primary,
-                    modifier = Modifier.size(30.dp),
-                )
+                    .size(76.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(colorScheme.secondaryContainer),
+            ) { runtime ->
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = MiuixIcons.MindMap,
+                        contentDescription = "Live2D 陪伴角",
+                        tint = if (runtime.canCreateRenderer) {
+                            colorScheme.primary
+                        } else {
+                            colorScheme.onSurfaceVariantSummary
+                        },
+                        modifier = Modifier.size(30.dp),
+                    )
+                }
             }
             Column(Modifier.weight(1f)) {
                 Text("Live2D 陪伴角", fontSize = 15.sp, fontWeight = FontWeight.Medium)
                 Text(
-                    if (activeName != null) {
-                        "当前使用：$activeName${if (modelCount > 1) " · 共 $modelCount 个模型" else ""}"
+                    if (activeModel != null) {
+                        buildString {
+                            append("当前使用：${activeModel.name}")
+                            if (modelCount > 1) append(" · 共 $modelCount 个模型")
+                            if (!runtimeInfo.canCreateRenderer) append(" · ${runtimeInfo.detail}")
+                        }
                     } else if (modelCount > 0) {
                         "本机已导入 $modelCount 个模型，进入管理页选择当前角色"
                     } else {

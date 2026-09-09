@@ -10,6 +10,7 @@ package com.linxi.diary.live2d;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.PixelFormat;
 import android.opengl.GLES20;
 import android.opengl.GLSurfaceView;
 import android.opengl.GLUtils;
@@ -47,6 +48,12 @@ public final class CubismRendererView extends GLSurfaceView {
     CubismRendererView(Context context, File modelDirectory, String manifestPath) {
         super(context);
         setEGLContextClientVersion(2);
+        // Keep the model's transparent canvas over the neumorphic Compose
+        // surface instead of forcing a black rectangle behind every role.
+        // The alpha channel must be requested before the renderer is set.
+        setEGLConfigChooser(8, 8, 8, 8, 16, 0);
+        getHolder().setFormat(PixelFormat.TRANSLUCENT);
+        setZOrderOnTop(true);
         setPreserveEGLContextOnPause(false);
         renderer = new Renderer(context.getApplicationContext(), modelDirectory, manifestPath);
         setRenderer(renderer);
