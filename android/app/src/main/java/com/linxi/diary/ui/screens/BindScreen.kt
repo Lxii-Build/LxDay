@@ -1,9 +1,6 @@
 package com.linxi.diary.ui.screens
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -11,8 +8,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -21,7 +16,9 @@ import androidx.compose.ui.unit.sp
 import com.linxi.diary.data.ApiClient
 import com.linxi.diary.data.ProfileRuntime
 import com.linxi.diary.ui.components.LxButton as Button
+import com.linxi.diary.ui.components.LxButtonVariant
 import com.linxi.diary.ui.components.LxClickableSurface
+import com.linxi.diary.ui.components.LxConfirmDialog
 import com.linxi.diary.ui.components.LxSurface
 import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.util.UserPrefs
@@ -49,6 +46,8 @@ fun BindScreen(onBound: () -> Unit, onBack: () -> Unit) {
     var copied by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var showCancelInviteDialog by remember { mutableStateOf(false) }
+    var cancellingInvite by remember { mutableStateOf(false) }
     val normalizedInviteCode = inviteCode.replace(" ", "").replace("-", "")
     val inviteCodeValid = normalizedInviteCode.length == 8 ||
         (normalizedInviteCode.length == 6 && normalizedInviteCode.all { it.isDigit() })
@@ -80,6 +79,21 @@ fun BindScreen(onBound: () -> Unit, onBack: () -> Unit) {
                 ProfileRuntime.connectAndRefreshIfEligible()
             }.onFailure { e -> error = e.message }
             busy = false
+        }
+    }
+
+    fun cancelInvite() {
+        scope.launch {
+            cancellingInvite = true
+            error = null
+            runCatching {
+                ApiClient.postJson("/pair/cancel-invite", JSONObject())
+            }.onSuccess {
+                myCode = ""
+                copied = false
+                showCancelInviteDialog = false
+            }.onFailure { e -> error = e.message }
+            cancellingInvite = false
         }
     }
 
@@ -149,30 +163,39 @@ fun BindScreen(onBound: () -> Unit, onBack: () -> Unit) {
                     } else {
                         Text("你的邀请码（点击复制）",
                             color = colorScheme.onSurface.copy(alpha = 0.78f), fontSize = 14.sp)
-                        Text(
-                            myCode,
-                            color = colorScheme.primary,
-                            fontSize = 32.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.clickable {
+                        LxClickableSurface(
+                            modifier = Modifier.fillMaxWidth(),
+                            tone = LxSurfaceTone.Inset,
+                            shape = RoundedCornerShape(12.dp),
+                            onClick = {
                                 clipboard.setText(AnnotatedString(myCode))
                                 copied = true
                             },
-                        )
+                            contentDescription = "复制邀请码",
+                            stateDescription = if (copied) "已复制" else "点击复制",
+                        ) {
+                            Box(
+                                Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    myCode,
+                                    color = colorScheme.primary,
+                                    fontSize = 32.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
                         Text(
                             if (copied) "已复制到剪贴板，发给对方绑定" else "让伴侣在对方手机上输入此码",
                             color = colorScheme.onSurface.copy(alpha = 0.78f), fontSize = 14.sp)
-                        Text(
-                            "取消邀请码",
-                            color = colorScheme.error,
-                            fontSize = 13.sp,
-                            modifier = Modifier.clickable {
-                                scope.launch {
-                                    runCatching { ApiClient.postJson("/pair/cancel-invite", JSONObject()) }
-                                    myCode = ""; copied = false
-                                }
-                            },
-                        )
+                        Button(
+                            onClick = { showCancelInviteDialog = true },
+                            variant = LxButtonVariant.Negative,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("取消邀请码")
+                        }
                     }
                     1 -> {
                         TextField(
@@ -193,6 +216,21 @@ fun BindScreen(onBound: () -> Unit, onBack: () -> Unit) {
             }
         }
     }
+
+    LxConfirmDialog(
+        show = showCancelInviteDialog,
+        title = "取消邀请码",
+        message = "取消后当前邀请码会立即失效，对方将无法继续使用它绑定。",
+        confirmText = "取消邀请码",
+        onConfirm = ::cancelInvite,
+        onDismiss = { if (!cancellingInvite) showCancelInviteDialog = false },
+        destructive = true,
+        busy = cancellingInvite,
+        busyText = "取消中…",
+        extraContent = {
+            error?.let { Text(it, color = colorScheme.error, fontSize = 13.sp) }
+        },
+    )
 }
 
 @Composable

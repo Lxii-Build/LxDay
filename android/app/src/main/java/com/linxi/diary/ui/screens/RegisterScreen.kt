@@ -2,11 +2,10 @@ package com.linxi.diary.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -40,6 +39,7 @@ import com.linxi.diary.R
 import com.linxi.diary.data.ApiClient
 import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
+import com.linxi.diary.ui.components.LxClickableSurface
 import com.linxi.diary.ui.components.LxSurface
 import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.util.Logs
@@ -248,17 +248,20 @@ fun RegisterScreen(
         }
 
         Spacer(Modifier.height(24.dp))
-        Text(
-            "已有账号？返回登录",
-            color = colorScheme.primary,
-            fontSize = 14.sp,
-            modifier = Modifier
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                ) { onBack() }
-                .padding(8.dp),
-        )
+        LxClickableSurface(
+            modifier = Modifier.defaultMinSize(minHeight = 48.dp),
+            tone = LxSurfaceTone.Flat,
+            shape = RoundedCornerShape(12.dp),
+            onClick = onBack,
+            contentDescription = "已有账号？返回登录",
+        ) {
+            Text(
+                "已有账号？返回登录",
+                color = colorScheme.primary,
+                fontSize = 14.sp,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            )
+        }
     }
 }
 
