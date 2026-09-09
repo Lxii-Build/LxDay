@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -78,6 +79,8 @@ import com.linxi.diary.ui.screens.RegisterScreen
 import com.linxi.diary.ui.screens.SettingsScreen
 import com.linxi.diary.ui.screens.TodoScreen
 import com.linxi.diary.ui.components.MusicPlayerOverlay
+import com.linxi.diary.ui.components.LxButtonVariant
+import com.linxi.diary.ui.components.LxIconButton
 import com.linxi.diary.ui.components.LxNoticeHost
 import com.linxi.diary.ui.theme.LocalLxSurfaceTokens
 import com.linxi.diary.ui.screens.UpdateDialog
@@ -94,7 +97,6 @@ import top.yukonga.miuix.kmp.icon.extended.Community
 import top.yukonga.miuix.kmp.icon.extended.Contacts
 import top.yukonga.miuix.kmp.icon.extended.FavoritesFill
 import top.yukonga.miuix.kmp.icon.extended.Ok
-import top.yukonga.miuix.kmp.basic.FloatingActionButton
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
@@ -622,8 +624,12 @@ private fun MainTabs(
                         animationSpec = tween(350),
                         label = "fabOffset",
                     )
-                    FloatingActionButton(
+                    LxIconButton(
                         onClick = { fabAction.invoke() },
+                        variant = LxButtonVariant.Positive,
+                        shape = CircleShape,
+                        edgeRadius = 24.dp,
+                        contentDescription = "添加待办",
                         modifier = Modifier.offset { IntOffset(0, fabOffsetY.roundToPx()) },
                     ) {
                         Icon(MiuixIcons.Add, contentDescription = "添加待办")

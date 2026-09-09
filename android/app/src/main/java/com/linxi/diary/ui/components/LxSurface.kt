@@ -4,9 +4,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
@@ -14,11 +18,13 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import com.linxi.diary.ui.theme.LocalLxSurfaceTokens
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 
 /** Visual surface roles.  A surface never owns click semantics. */
 enum class LxSurfaceTone { Flat, Raised, Inset, Floating }
@@ -36,6 +42,7 @@ fun LxSurface(
     tone: LxSurfaceTone = LxSurfaceTone.Raised,
     shape: Shape = RoundedCornerShape(16.dp),
     color: Color? = null,
+    edgeRadius: Dp = 15.dp,
     content: @Composable () -> Unit,
 ) {
     val tokens = LocalLxSurfaceTokens.current
@@ -73,7 +80,7 @@ fun LxSurface(
                     width = (size.width - 2.dp.toPx()).coerceAtLeast(0f),
                     height = (size.height - 2.dp.toPx()).coerceAtLeast(0f),
                 ),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(15.dp.toPx()),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(edgeRadius.toPx()),
             )
         }
     } else Modifier
@@ -90,7 +97,7 @@ fun LxSurface(
                     width = (size.width - 2.dp.toPx()).coerceAtLeast(0f),
                     height = (size.height - 2.dp.toPx()).coerceAtLeast(0f),
                 ),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(14.dp.toPx()),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius((edgeRadius - 1.dp).coerceAtLeast(1.dp).toPx()),
             )
             drawRoundRect(
                 color = tokens.insetHighlight,
@@ -100,7 +107,7 @@ fun LxSurface(
                     width = (size.width - 4.dp.toPx()).coerceAtLeast(0f),
                     height = (size.height - 4.dp.toPx()).coerceAtLeast(0f),
                 ),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(13.dp.toPx()),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius((edgeRadius - 2.dp).coerceAtLeast(1.dp).toPx()),
             )
         }
     } else Modifier
@@ -133,30 +140,46 @@ fun LxClickableSurface(
     tone: LxSurfaceTone = LxSurfaceTone.Raised,
     shape: Shape = RoundedCornerShape(16.dp),
     color: Color? = null,
+    edgeRadius: Dp = 15.dp,
     enabled: Boolean = true,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
     contentDescription: String? = null,
+    semanticRole: Role = Role.Button,
+    stateDescription: String? = null,
     content: @Composable () -> Unit,
 ) {
-    val semantics = if (contentDescription == null) {
-        Modifier.semantics { role = Role.Button }
-    } else {
-        Modifier.semantics {
-            role = Role.Button
-            this.contentDescription = contentDescription
-        }
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val semantics = Modifier.semantics {
+        role = semanticRole
+        contentDescription?.let { this.contentDescription = it }
+        stateDescription?.let { this.stateDescription = it }
     }
     val interaction = if (onLongClick == null) {
-        Modifier.clickable(enabled = enabled, onClick = onClick)
+        Modifier.clickable(
+            enabled = enabled,
+            interactionSource = interactionSource,
+            indication = null,
+            onClick = onClick,
+        )
     } else {
-        Modifier.combinedClickable(enabled = enabled, onClick = onClick, onLongClick = onLongClick)
+        Modifier.combinedClickable(
+            enabled = enabled,
+            interactionSource = interactionSource,
+            indication = null,
+            onClick = onClick,
+            onLongClick = onLongClick,
+        )
     }
     LxSurface(
         modifier = modifier.then(interaction).then(semantics),
-        tone = tone,
+        // The pressed state sinks into the same material instead of flashing a
+        // platform ripple over the neumorphic surface.
+        tone = if (pressed && enabled) LxSurfaceTone.Inset else tone,
         shape = shape,
         color = color,
+        edgeRadius = edgeRadius,
         content = content,
     )
 }

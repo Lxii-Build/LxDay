@@ -18,6 +18,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import com.linxi.diary.ui.theme.BrandBlue
 import com.linxi.diary.ui.theme.BrandRed
 import com.linxi.diary.ui.theme.LocalLxSurfaceTokens
@@ -38,6 +39,7 @@ fun LxIconButton(
     enabled: Boolean = true,
     variant: LxButtonVariant = LxButtonVariant.Neutral,
     shape: Shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+    edgeRadius: Dp = 13.dp,
     contentDescription: String? = null,
     content: @Composable () -> Unit,
 ) {
@@ -73,6 +75,7 @@ fun LxIconButton(
         tone = if (pressed && enabled) LxSurfaceTone.Inset else LxSurfaceTone.Raised,
         shape = shape,
         color = fill.copy(alpha = if (enabled) 1f else 0.45f),
+        edgeRadius = edgeRadius,
     ) {
         CompositionLocalProvider(LocalContentColor provides contentColor.copy(alpha = if (enabled) 1f else 0.55f)) {
             Box(

@@ -39,9 +39,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -56,6 +53,8 @@ import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.components.LoadingRow
 import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
+import com.linxi.diary.ui.components.LxClickableSurface
+import com.linxi.diary.ui.components.LxIconButton
 import com.linxi.diary.ui.components.LxSurface
 import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.ui.theme.BrandBlue
@@ -389,60 +388,55 @@ private fun PickerCell(
     onPreview: () -> Unit,
 ) {
     val context = LocalContext.current
-    Box(
-        Modifier
-            .aspectRatio(1f)
-            .clip(RoundedCornerShape(8.dp))
-            // 占位底色：缩略图还在解码或解码失败时，格子是可见的灰块而非透明。
-            .background(MiuixTheme.colorScheme.onBackground.copy(alpha = 0.06f))
+    LxClickableSurface(
+        modifier = Modifier.aspectRatio(1f),
+        tone = LxSurfaceTone.Flat,
+        shape = RoundedCornerShape(8.dp),
+        color = MiuixTheme.colorScheme.onBackground.copy(alpha = 0.06f),
+        edgeRadius = 7.dp,
+        onClick = onToggle,
+        contentDescription = "选择${image.monthLabel}的照片",
+        semanticRole = Role.Checkbox,
+        stateDescription = if (isSelected) "已选中" else "未选中",
     ) {
-        AsyncImage(
-            model = image.uri,
-            imageLoader = AppImageLoader.get(context),
-            contentDescription = "选择${image.monthLabel}的照片",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .fillMaxSize()
-                .semantics {
-                    role = Role.Checkbox
-                    stateDescription = if (isSelected) "已选中" else "未选中"
-                }
-                .clickable(role = Role.Checkbox) { onToggle() },
-        )
-        if (isSelected) {
-            Box(Modifier.fillMaxSize().background(BrandBlue.copy(alpha = 0.24f)))
-            Icon(
-                imageVector = MiuixIcons.Ok,
-                contentDescription = "已选中",
-                tint = Color.White,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(4.dp)
-                    .size(22.dp)
-                    .clip(CircleShape)
-                    .background(BrandBlue)
-                    .padding(4.dp),
+        Box(Modifier.fillMaxSize()) {
+            AsyncImage(
+                model = image.uri,
+                imageLoader = AppImageLoader.get(context),
+                contentDescription = "选择${image.monthLabel}的照片",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
             )
-        }
-        // 放大角标：单独的点击区，避免"想看大图却选中了"。
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .size(48.dp)
-                .clickable { onPreview() }
-                .padding(8.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = MiuixIcons.ZoomOut,
+            if (isSelected) {
+                Box(Modifier.fillMaxSize().background(BrandBlue.copy(alpha = 0.24f)))
+                Icon(
+                    imageVector = MiuixIcons.Ok,
+                    contentDescription = "已选中",
+                    tint = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp)
+                        .size(22.dp)
+                        .clip(CircleShape)
+                        .background(BrandBlue)
+                        .padding(4.dp),
+                )
+            }
+            // 放大角标：单独的点击区，避免"想看大图却选中了"。
+            LxIconButton(
+                onClick = onPreview,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(2.dp),
+                shape = CircleShape,
+                edgeRadius = 24.dp,
                 contentDescription = "预览",
-                tint = Color.White,
-                modifier = Modifier
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.42f))
-                    .padding(6.dp),
-            )
+            ) {
+                Icon(
+                    imageVector = MiuixIcons.ZoomOut,
+                    contentDescription = "预览",
+                    tint = MiuixTheme.colorScheme.onBackground,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
         }
     }
 }

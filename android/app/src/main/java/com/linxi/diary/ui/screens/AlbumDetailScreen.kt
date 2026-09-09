@@ -2,10 +2,8 @@ package com.linxi.diary.ui.screens
 
 import android.net.Uri
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,6 +44,7 @@ import com.linxi.diary.ui.components.LoadingRow
 import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
 import com.linxi.diary.ui.components.LxConfirmDialog
+import com.linxi.diary.ui.components.LxClickableSurface
 import com.linxi.diary.ui.components.LxSurface
 import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.ui.theme.BrandBlue
@@ -427,7 +426,6 @@ fun AlbumDetailScreen(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PhotoGrid(
     photos: List<PhotoItem>,
@@ -455,57 +453,59 @@ private fun PhotoGrid(
         // 500 张照片滚动时会明显掉帧。下标本来就是现成的，没必要再查一遍。
         itemsIndexed(photos, key = { _, p -> p.id }) { index, p ->
             val isSelected = selected.contains(p.id)
-            Box(
-                Modifier
-                    .aspectRatio(1f)
-                    .clip(RoundedCornerShape(8.dp))
-                    // 占位底色：**没有它，加载失败就是字面意义上的透明**——
-                    // 0822 管理员报的「缩略图貌似是透明的」正是如此（根因是服务端返回的
-                    // 相对路径没被补成绝对 URL，见 MediaUrlPolicy）。
-                    // 有个灰格子兜底，下次再出加载问题是看得见的。
-                    .background(MiuixTheme.colorScheme.onBackground.copy(alpha = 0.06f))
-                    .combinedClickable(
-                        onClick = {
-                            if (selecting) onToggle(p.id) else onOpenPhoto(photos, index)
-                        },
-                        onLongClick = { onEnterSelecting(p.id) },
-                    )
+            LxClickableSurface(
+                modifier = Modifier.aspectRatio(1f),
+                tone = LxSurfaceTone.Flat,
+                shape = RoundedCornerShape(8.dp),
+                color = MiuixTheme.colorScheme.onBackground.copy(alpha = 0.06f),
+                edgeRadius = 7.dp,
+                onClick = {
+                    if (selecting) onToggle(p.id) else onOpenPhoto(photos, index)
+                },
+                onLongClick = { onEnterSelecting(p.id) },
+                contentDescription = if (selecting) {
+                    "${p.caption.ifBlank { "照片" }}，${if (isSelected) "已选中" else "未选中"}"
+                } else {
+                    p.caption.ifBlank { "打开照片" }
+                },
             ) {
-                AsyncImage(
-                    model = p.displayUrl,
-                    imageLoader = AppImageLoader.get(context),
-                    contentDescription = p.caption.ifBlank { "照片" },
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                if (selecting) {
-                    // 选中态：半透明蒙层 + 右上角勾选圈。
-                    if (isSelected) {
+                Box(Modifier.fillMaxSize()) {
+                    AsyncImage(
+                        model = p.displayUrl,
+                        imageLoader = AppImageLoader.get(context),
+                        contentDescription = p.caption.ifBlank { "照片" },
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    if (selecting) {
+                        // 选中态：半透明蒙层 + 右上角勾选圈。
+                        if (isSelected) {
+                            Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .background(BrandBlue.copy(alpha = 0.28f))
+                            )
+                        }
                         Box(
                             Modifier
-                                .fillMaxSize()
-                                .background(BrandBlue.copy(alpha = 0.28f))
-                        )
-                    }
-                    Box(
-                        Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(4.dp)
-                            .size(22.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (isSelected) BrandBlue
-                                else Color.Black.copy(alpha = 0.35f)
-                            ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (isSelected) {
-                            Icon(
-                                imageVector = MiuixIcons.Ok,
-                                contentDescription = "已选中",
-                                tint = Color.White,
-                                modifier = Modifier.size(14.dp),
-                            )
+                                .align(Alignment.TopEnd)
+                                .padding(4.dp)
+                                .size(22.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (isSelected) BrandBlue
+                                    else Color.Black.copy(alpha = 0.35f)
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (isSelected) {
+                                Icon(
+                                    imageVector = MiuixIcons.Ok,
+                                    contentDescription = "已选中",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(14.dp),
+                                )
+                            }
                         }
                     }
                 }
