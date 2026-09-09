@@ -83,7 +83,6 @@
                 type="primary"
                 @click="handleSubmit"
                 :loading="loading"
-                v-ripple
               >
                 {{ $t('login.btnText') }}
               </ElButton>

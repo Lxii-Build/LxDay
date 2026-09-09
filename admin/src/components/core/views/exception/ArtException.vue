@@ -4,7 +4,7 @@
       <ThemeSvg :src="data.imgUrl" size="100%" class="!w-100" />
       <div class="ml-15 w-75 max-md:mx-auto max-md:mt-10 max-md:w-full max-md:text-center">
         <p class="text-xl leading-7 text-g-600 max-md:text-lg">{{ data.desc }}</p>
-        <ElButton type="primary" size="large" @click="backHome" v-ripple class="mt-5">{{
+        <ElButton type="primary" size="large" @click="backHome" class="mt-5">{{
           data.btnText
         }}</ElButton>
       </div>
