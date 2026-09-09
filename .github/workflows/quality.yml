@@ -76,7 +76,7 @@ jobs:
         with:
           gradle-version: '9.7.0'
       - run: gradle wrapper --gradle-version 9.7.0 --no-daemon
-      - run: ./gradlew :app:compileDebugKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon
+      - run: ./gradlew :app:compileDebugKotlin :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --no-daemon
       - name: 上传 Android Lint 报告
         if: always()
         uses: actions/upload-artifact@v4
@@ -84,3 +84,10 @@ jobs:
           name: android-lint-report
           path: android/app/build/reports/lint-results-*
           if-no-files-found: warn
+      - name: 上传 Debug APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk-${{ github.sha }}
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
