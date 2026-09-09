@@ -61,9 +61,11 @@ import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.basic.Close
 import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
 import top.yukonga.miuix.kmp.icon.extended.ChevronForward
 import top.yukonga.miuix.kmp.icon.extended.Messages
+import top.yukonga.miuix.kmp.icon.extended.Music
 import top.yukonga.miuix.kmp.icon.extended.Pause
 import top.yukonga.miuix.kmp.icon.extended.Play
 import top.yukonga.miuix.kmp.icon.extended.Playlist
@@ -277,7 +279,7 @@ private fun FullPlaybackSheet(
                 modifier = Modifier
                     .width(coverSize)
                     .height(coverSize)
-                    .align(Alignment.CenterHorizontally),
+                    .align(Alignment.Center),
                 tone = LxSurfaceTone.Raised,
                 shape = RoundedCornerShape(28.dp),
             ) {

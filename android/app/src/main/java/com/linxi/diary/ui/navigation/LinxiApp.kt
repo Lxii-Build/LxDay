@@ -443,12 +443,10 @@ fun LinxiApp() {
                     onOpenKeepAliveCheck = { navigate(Screen.KeepAliveCheck) },
                 )
                 }
-            }
-                    // Keep global chrome outside AnimatedContent: during a page
-                    // transition both old and new targets can be composed, and placing
-                    // the player inside the transition would briefly create two mini
-                    // players (and two BackHandlers). The player is one shell sibling.
-                }
+                // Keep global chrome outside AnimatedContent: during a page
+                // transition both old and new targets can be composed, and placing
+                // the player inside the transition would briefly create two mini
+                // players (and two BackHandlers). The player is one shell sibling.
                 // The playback chrome belongs to the app shell, not to the music page.
                 // It therefore survives switching tabs, opening lyrics, entering
                 // Together, and returning to the home page without duplicating during

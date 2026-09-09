@@ -112,7 +112,7 @@ object Live2DModelStore {
         val id = "model-" + System.currentTimeMillis()
         val staging = File(base, ".staging-" + id)
         val destination = File(base, id)
-        try {
+        return try {
             staging.mkdirs()
             val analysis = opened.use { extractArchive(it, staging) }
             val report = analysis.report
