@@ -6,6 +6,11 @@ Draft1.2最新范围：[REFINEMENTS-1.2.md](REFINEMENTS-1.2.md)。石墨暗色�
 
 ## 当前实现进度（代码已落地；Android 编译/真机仍由环境与管理员验收）
 
+### 2026-09-09 当前主分支增量
+
+- `04609bc` / `9e5a225`：一起看清除内容使用统一危险确认（冷静期、请求中不可关闭、失败留在弹窗内）；歌词跳转和“这一天”照片网格使用 `LxClickableSurface`，移除平台 ripple 并补齐无障碍语义；可选 Cubism GLSurfaceView 不再把透明角色提升到整个窗口最上层。
+- GitHub Actions 质量门禁 #34（`04609bc`）与 #35（`9e5a225`）均通过服务端、后台、Android 编译/单测/Lint；#35 产出非过期 Debug APK 与 Lint 报告 artifact。Android 仅以 GitHub Actions 为构建证据，本机不执行 Gradle/Java；授权 Core AAR、匹配 Framework、完整授权模型与一加 15 首帧仍是外部验收门槛。
+
 ### 2026-09-08 第二批覆盖（本轮新增）
 
 ### 2026-09-09 会话与门禁收口（本轮新增）

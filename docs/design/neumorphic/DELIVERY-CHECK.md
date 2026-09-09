@@ -1,6 +1,6 @@
 # 本次方案交付检查
 
-日期：2026-09-09。设计资料与业务实现并存；未提交或发布。代码完成度与未验证项以 IMPLEMENTATION.md 为准。
+日期：2026-09-09。设计资料与业务实现并存；当前代码已推送 `main`，但未创建发行版本或部署生产。代码完成度与未验证项以 IMPLEMENTATION.md 为准。
 
 ## 业务实现追加检查（当前工作树）
 
@@ -12,10 +12,11 @@
 - Android App shell 现统一承接权限拒绝、诊断导出和返回退出等短提示，使用 `AppNoticeBus` / `LxNoticeHost` 拟态通知，不再调用原生 Toast；系统文件选择器和 Sharesheet 仍明确属于系统边界。
 - Android 高频操作已继续收口：返回、相册/照片/待办图标动作使用 `LxIconButton`；播放器胶囊使用 `LxClickableSurface` 和共享 `NeteaseTrackCover`；歌词页提供随机/循环控制。根据用户验收边界，本机不执行 Android Gradle；Android 编译、单测、Lint 与 APK 打包只以 GitHub Actions 质量门禁为准。
 - 交互表面残留已继续收口：可点击/长按卡片使用共享 Inset 按压反馈并移除平台 ripple；主页待办 FAB、相册详情照片网格、本机选图网格均走语义拟态组件，选图保留 Checkbox 状态语义。GitHub Actions 质量门禁 #29（`e0faf68`）与本轮 #31（`5b4608a`）的服务端、后台、安卓编译/单测/Lint 均成功；#31 另产出 Debug APK 与 Lint 报告 artifact。
+- 本轮 `04609bc` / `9e5a225` 继续收口一起看与歌词/纪念日交互：清除一起看内容改为带 1 秒冷静期、busy 不可关闭、失败可重试的危险确认；歌词跳转和“这一天”照片格改为无 ripple 的语义拟态按压面；可选 Cubism GLSurfaceView 不再使用 `setZOrderOnTop(true)`，避免角色表面盖住弹窗与播放器。质量门禁 #34（`04609bc`）与 #35（`9e5a225`）均成功；#35 产出非过期 Debug APK（约 18.4 MB）与 Lint 报告 artifact。
 - 一起听的 WS、房间令牌、重连、心跳和远端同步现在由 `ListenSessionController` 持有；页面切换不会销毁会话，断线恢复会重新申请服务端内存令牌，避免复用被另一台设备撤销的旧令牌。播放命令仍只走服务端权威响应，远端快照不会反向发命令。
 - 发现页“ 一起看 ”已接入同一情侣房间的 `kind=watch` 权威状态：HTTPS 链接校验、成员控制、时间轴心跳、WS 推送、直接媒体本机播放与网页外部打开均有明确边界；后台列表只显示标题/时间轴并脱敏观看链接。
 - 真实隔离服务审计：`node admin/scripts/mobile-audit.mjs http://127.0.0.1:7793` 覆盖 412×915、360×640、390×844、768×1024；登录、首登改密、全部菜单及 Live2D 权限页通过，无横向溢出、白屏、控制台错误或失败请求。服务端临时数据库与上传目录已停止并与工作树隔离。
-- 实际通过：`server` 的 `gofmt`、`go vet ./...`、`go test -timeout 400s ./...`；`admin` 的 `npm run build`、`npm run lint`；设计 token JSON 与移动审计脚本语法检查。未运行 Android APK 安装／启动，也不在本机执行 Android Gradle；Android 编译、单测、Lint 与 APK artifact 以 GitHub Actions 质量门禁记录为准，Cubism 真机行为仍未验收。
+- 实际通过：`server` 的 `gofmt`、`go vet ./...`、`go test -timeout 400s ./...`；`admin` 的 `npm run build`、`npm run lint`；设计 token JSON 与移动审计脚本语法检查。未运行 Android APK 安装／启动，也不在本机执行 Android Gradle；Android 编译、单测、Lint 与 APK artifact 以 GitHub Actions 质量门禁记录为准，Cubism Core/Framework、授权模型与真机首帧行为仍未验收。
 
 ## Draft1.2 追加检查
 
