@@ -1,6 +1,12 @@
 name: 构建安卓 APK
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'android/**'
+      - '.github/workflows/build-android.yml'
   workflow_dispatch:
     inputs:
       server_url:
@@ -38,10 +44,10 @@ jobs:
       run:
         working-directory: android
     env:
-      IN_BASE_URL: ${{ inputs.server_url }}
-      IN_WS_URL: ${{ inputs.ws_url }}
-      IN_VERSION_NAME: ${{ inputs.version_name }}
-      IN_VERSION_CODE: ${{ inputs.version_code }}
+      IN_BASE_URL: ${{ inputs.server_url || 'https://love.lxii.cc/api/v1' }}
+      IN_WS_URL: ${{ inputs.ws_url || '' }}
+      IN_VERSION_NAME: ${{ inputs.version_name || '1.1.0' }}
+      IN_VERSION_CODE: ${{ inputs.version_code || '11005' }}
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -82,7 +88,7 @@ jobs:
 
       - name: 运行单元测试与 Lint
         run: |
-          ./gradlew :app:testDebugUnitTest :app:lint${{ inputs.build_type }} --no-daemon \
+          ./gradlew :app:testDebugUnitTest :app:lint${{ inputs.build_type || 'Release' }} --no-daemon \
             -PBASE_URL="$IN_BASE_URL" \
             -PWS_URL="$IN_WS_URL" \
             -PVERSION_NAME="$IN_VERSION_NAME" \
@@ -109,7 +115,7 @@ jobs:
               -PKEY_PASSWORD="$KS_KEY_PASSWORD"
             )
           fi
-          ./gradlew :app:assemble${{ inputs.build_type }} --no-daemon "${ARGS[@]}"
+          ./gradlew :app:assemble${{ inputs.build_type || 'Release' }} --no-daemon "${ARGS[@]}"
 
       # 把签名指纹打进 Job Summary：每次构建都能肉眼核对指纹是否恒定，
       # 让「签名统一」从口头断言变成每次构建都产出的机器证据。
@@ -136,7 +142,7 @@ jobs:
       - name: 上传 APK 产物
         uses: actions/upload-artifact@v4
         with:
-          name: lxday-${{ inputs.build_type }}-${{ inputs.version_name }}-${{ github.sha }}
+          name: lxday-${{ inputs.build_type || 'Release' }}-${{ inputs.version_name || '1.1.0' }}-${{ github.sha }}
           path: android/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
 
