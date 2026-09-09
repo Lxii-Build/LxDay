@@ -53,7 +53,10 @@ public final class CubismRendererView extends GLSurfaceView {
         // The alpha channel must be requested before the renderer is set.
         setEGLConfigChooser(8, 8, 8, 8, 16, 0);
         getHolder().setFormat(PixelFormat.TRANSLUCENT);
-        setZOrderOnTop(true);
+        // Keep this as an ordinary child surface.  Promoting the GLSurfaceView
+        // with setZOrderOnTop(true) would let a transparent model cover Compose
+        // buttons, dialogs, and the mini-player; the host must remain inside
+        // the normal view hierarchy so clipping and z-order stay testable.
         setPreserveEGLContextOnPause(false);
         renderer = new Renderer(context.getApplicationContext(), modelDirectory, manifestPath);
         setRenderer(renderer);
