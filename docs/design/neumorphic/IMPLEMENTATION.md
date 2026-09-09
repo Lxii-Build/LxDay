@@ -16,7 +16,12 @@ Draft1.2最新范围：[REFINEMENTS-1.2.md](REFINEMENTS-1.2.md)。石墨暗色�
 - 全局播放器的迷你胶囊改用 `LxClickableSurface`，移除原生 ripple；搜索结果、一起听结果、歌词页、迷你胶囊和全屏播放器共用 `NeteaseTrackCover`，远程封面失败时保留可见拟态底色，不渲染透明空白。
 - 歌词详情页补齐封面、随机播放和循环模式控制，仍只派发给唯一的 `NeteasePlaybackManager`，没有创建第二个播放器或本地假状态。
 - 资料页性别、日期步进、头像入口和待办重复选项迁移到统一拟态按钮/可点击表面；解绑、删除相册等危险操作不再使用无语义的红色可点击文字。
-- 验证：JDK 21 + Gradle 9.7 下 `:app:compileDebugKotlin`、`:app:testDebugUnitTest` 通过；`git diff --check` 通过。真实设备绘制和 Cubism 首帧仍需授权运行时、模型与真机验收，不能以编译结果替代。
+- 验证：Android 不在本机执行 Gradle；真实设备绘制和 Cubism 首帧仍需授权运行时、模型与真机验收，不能以静态检查或文档替代。Android 构建证据统一记录在对应 GitHub Actions 质量门禁。
+
+### 2026-09-09 默认点击反馈清零（本轮新增）
+
+- 待办详情展开、知情同意整行和本机相册分桶切换改用 `LxClickableSurface`；按下时统一进入 Inset、移除平台 ripple，并声明按钮/复选框/状态文案语义。嵌套的提醒开关、完成/删除动作和 Checkbox 仍保留各自事件，不改变业务操作。
+- 本轮不在本机执行 Android Gradle 或 Java；Android 编译、单测、Lint 与 Debug APK 打包只以 GitHub Actions 质量门禁为证据。提交后等待质量门禁 #30 完成，再记录其三端 job 与 APK artifact 结果。
 
 ### 2026-09-09 交互表面残留收口（本轮新增）
 

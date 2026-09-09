@@ -1,7 +1,6 @@
 package com.linxi.diary.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.items
@@ -23,6 +22,7 @@ import com.linxi.diary.data.TodoItem
 import com.linxi.diary.ui.components.KernelScreen
 import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
+import com.linxi.diary.ui.components.LxClickableSurface
 import com.linxi.diary.ui.components.LxSurface
 import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.ui.components.LxIconButton
@@ -290,12 +290,7 @@ private fun TodoCard(
 ) {
     var expanded by remember { mutableStateOf(false) }
     val hasNote = todo.note.isNotBlank()
-    LxSurface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(if (hasNote) Modifier.clickable { expanded = !expanded } else Modifier),
-        tone = LxSurfaceTone.Raised,
-    ) {
+    val cardContent: @Composable () -> Unit = {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -322,7 +317,7 @@ private fun TodoCard(
                         )
                     }
                 }
-                    Switch(checked = todo.remindEnabled, onCheckedChange = onToggleRemind)
+                Switch(checked = todo.remindEnabled, onCheckedChange = onToggleRemind)
             }
             if (hasNote) {
                 Spacer(Modifier.height(6.dp))
@@ -334,21 +329,36 @@ private fun TodoCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-                top.yukonga.miuix.kmp.basic.HorizontalDivider(
-                    Modifier.padding(vertical = 8.dp),
-                    thickness = 0.5.dp,
-                    color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.12f),
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Spacer(Modifier.weight(1f))
-                    LxIconButton(onClick = onComplete, contentDescription = "完成待办") {
-                        Icon(MiuixIcons.Basic.Check, contentDescription = "完成", tint = MiuixTheme.colorScheme.primary)
-                    }
-                    LxIconButton(onClick = onDelete, contentDescription = "删除待办") {
-                        Icon(MiuixIcons.Delete, contentDescription = "删除", tint = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.7f))
-                    }
+            top.yukonga.miuix.kmp.basic.HorizontalDivider(
+                Modifier.padding(vertical = 8.dp),
+                thickness = 0.5.dp,
+                color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(Modifier.weight(1f))
+                LxIconButton(onClick = onComplete, contentDescription = "完成待办") {
+                    Icon(MiuixIcons.Basic.Check, contentDescription = "完成", tint = MiuixTheme.colorScheme.primary)
                 }
+                LxIconButton(onClick = onDelete, contentDescription = "删除待办") {
+                    Icon(MiuixIcons.Delete, contentDescription = "删除", tint = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                }
+            }
         }
+    }
+    if (hasNote) {
+        LxClickableSurface(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = { expanded = !expanded },
+            contentDescription = "展开或收起待办详情",
+            stateDescription = if (expanded) "详情已展开" else "详情已收起",
+            content = cardContent,
+        )
+    } else {
+        LxSurface(
+            modifier = Modifier.fillMaxWidth(),
+            tone = LxSurfaceTone.Raised,
+            content = cardContent,
+        )
     }
 }
 

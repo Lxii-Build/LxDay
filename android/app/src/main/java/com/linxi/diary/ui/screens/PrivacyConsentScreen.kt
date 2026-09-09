@@ -1,6 +1,5 @@
 package com.linxi.diary.ui.screens
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
 import com.linxi.diary.service.StatusForegroundService
@@ -27,6 +27,8 @@ import com.linxi.diary.sync.SharingRuntimePolicy
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
+import com.linxi.diary.ui.components.LxClickableSurface
+import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.util.Logs
 import com.linxi.diary.util.UserPrefs
 import top.yukonga.miuix.kmp.basic.Checkbox
@@ -101,13 +103,18 @@ fun PrivacyConsentDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
             } else {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable { agreed = !agreed }
-                        .padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                LxClickableSurface(
+                    modifier = Modifier.fillMaxWidth(),
+                    tone = LxSurfaceTone.Flat,
+                    onClick = { agreed = !agreed },
+                    contentDescription = "我已了解并同意以上数据共享",
+                    semanticRole = Role.Checkbox,
+                    stateDescription = if (agreed) "已同意" else "未同意",
                 ) {
+                    Row(
+                        Modifier.padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                     Checkbox(
                         state = if (agreed) ToggleableState.On else ToggleableState.Off,
                         onClick = { agreed = !agreed },
@@ -116,6 +123,7 @@ fun PrivacyConsentDialog(
                         "我已了解并同意以上数据共享",
                         modifier = Modifier.padding(start = 10.dp),
                     )
+                    }
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     LxButton(

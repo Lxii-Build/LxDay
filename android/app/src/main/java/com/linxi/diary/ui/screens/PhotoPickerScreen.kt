@@ -10,7 +10,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -241,27 +240,26 @@ fun PhotoPickerScreen(
                 ) {
                     items(buckets, key = { it.name }) { b ->
                         val isCurrent = b.name == currentBucket
-                        Box(
-                            Modifier
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(
-                                    if (isCurrent) BrandBlue
-                                    else MiuixTheme.colorScheme.onBackground.copy(alpha = 0.06f)
-                                )
-                                .defaultMinSize(minHeight = 48.dp)
-                                .clickable {
+                        LxClickableSurface(
+                            modifier = Modifier.defaultMinSize(minHeight = 48.dp),
+                            tone = if (isCurrent) LxSurfaceTone.Flat else LxSurfaceTone.Raised,
+                            color = if (isCurrent) BrandBlue
+                            else MiuixTheme.colorScheme.onBackground.copy(alpha = 0.06f),
+                            shape = RoundedCornerShape(14.dp),
+                            onClick = {
                                     if (!isCurrent) {
                                         currentBucket = b.name
                                         visibleCount = MediaStoreImages.PAGE_SIZE
                                     }
-                                }
-                                .padding(horizontal = 12.dp, vertical = 7.dp),
+                                },
+                            contentDescription = "切换到${MediaStoreImages.bucketLabel(b.name)}相册",
                         ) {
                             Text(
                                 "${MediaStoreImages.bucketLabel(b.name)} ${b.count}",
                                 fontSize = 13.sp,
                                 color = if (isCurrent) Color.White
                                 else MiuixTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
                             )
                         }
                     }

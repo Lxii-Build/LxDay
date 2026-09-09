@@ -10,12 +10,12 @@
 - 服务端资源库校验与 APP 使用同一条安全边界：model3 引用按 manifest 所在目录解析，可接受包内安全的 `../` 兄弟路径；ZIP 条目拒绝大小写冲突，贴图会在后台上传阶段校验 PNG 头与 4096px/16M 像素预算，避免“后台发布后 APP 下载才失败”。
 - 后台已落地石墨／浅色拟态 token、桌面侧栏与手机抽屉、响应式表格／卡片、焦点与触达尺寸、统计异常降级、Live2D 超管资源库入口；GitHub Release 暂时不可达时版本页现在返回 200 降级提示而不是 502，页面继续可用。
 - Android App shell 现统一承接权限拒绝、诊断导出和返回退出等短提示，使用 `AppNoticeBus` / `LxNoticeHost` 拟态通知，不再调用原生 Toast；系统文件选择器和 Sharesheet 仍明确属于系统边界。
-- Android 高频操作已继续收口：返回、相册/照片/待办图标动作使用 `LxIconButton`；播放器胶囊使用 `LxClickableSurface` 和共享 `NeteaseTrackCover`；歌词页提供随机/循环控制。JDK 21 + Gradle 9.7 下 `:app:compileDebugKotlin` 与 `:app:testDebugUnitTest` 已通过。
+- Android 高频操作已继续收口：返回、相册/照片/待办图标动作使用 `LxIconButton`；播放器胶囊使用 `LxClickableSurface` 和共享 `NeteaseTrackCover`；歌词页提供随机/循环控制。根据用户验收边界，本机不执行 Android Gradle；Android 编译、单测、Lint 与 APK 打包只以 GitHub Actions 质量门禁为准。
 - 交互表面残留已继续收口：可点击/长按卡片使用共享 Inset 按压反馈并移除平台 ripple；主页待办 FAB、相册详情照片网格、本机选图网格均走语义拟态组件，选图保留 Checkbox 状态语义。GitHub Actions 质量门禁 #29（`e0faf68`）的服务端、后台、安卓编译/单测/Lint 均成功。
 - 一起听的 WS、房间令牌、重连、心跳和远端同步现在由 `ListenSessionController` 持有；页面切换不会销毁会话，断线恢复会重新申请服务端内存令牌，避免复用被另一台设备撤销的旧令牌。播放命令仍只走服务端权威响应，远端快照不会反向发命令。
 - 发现页“ 一起看 ”已接入同一情侣房间的 `kind=watch` 权威状态：HTTPS 链接校验、成员控制、时间轴心跳、WS 推送、直接媒体本机播放与网页外部打开均有明确边界；后台列表只显示标题/时间轴并脱敏观看链接。
 - 真实隔离服务审计：`node admin/scripts/mobile-audit.mjs http://127.0.0.1:7793` 覆盖 412×915、360×640、390×844、768×1024；登录、首登改密、全部菜单及 Live2D 权限页通过，无横向溢出、白屏、控制台错误或失败请求。服务端临时数据库与上传目录已停止并与工作树隔离。
-- 实际通过：`server` 的 `gofmt`、`go vet ./...`、`go test -timeout 400s ./...`；`admin` 的 `npm run build`、`npm run lint`；设计 token JSON 与移动审计脚本语法检查。未运行 Android APK 安装／启动；此前 Gradle daemon loopback 环境问题仍保留，Android 编译与真机行为不宣称通过。
+- 实际通过：`server` 的 `gofmt`、`go vet ./...`、`go test -timeout 400s ./...`；`admin` 的 `npm run build`、`npm run lint`；设计 token JSON 与移动审计脚本语法检查。未运行 Android APK 安装／启动，也不在本机执行 Android Gradle；Android 编译、单测、Lint 与 APK artifact 以 GitHub Actions 质量门禁记录为准，Cubism 真机行为仍未验收。
 
 ## Draft1.2 追加检查
 
