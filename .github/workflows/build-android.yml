@@ -21,11 +21,11 @@ on:
       version_name:
         description: 版本名（VERSION_NAME）
         required: false
-        default: '1.0.0'
+        default: '1.1.0'
       version_code:
         description: 版本号（VERSION_CODE）
         required: false
-        default: '1'
+        default: '11005'
 
 permissions:
   contents: read

@@ -38,6 +38,7 @@ import com.linxi.diary.BuildConfig
 import com.linxi.diary.R
 import com.linxi.diary.data.ApiClient
 import com.linxi.diary.data.ListenSessionController
+import com.linxi.diary.data.NeteasePlaybackManager
 import com.linxi.diary.data.ProfileRuntime
 import com.linxi.diary.service.StatusForegroundService
 import com.linxi.diary.sync.StatusSyncManager
@@ -291,6 +292,7 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit)
                             UserPrefs.sharingEnabled = false
                             UserPrefs.privacyConsented = false
                             ListenSessionController.clearForLogout()
+                            NeteasePlaybackManager.stopAndClear()
                             StatusSyncManager.disconnect()
                             ProfileRuntime.clearSession()
                             StatusForegroundService.stop(context)

@@ -1,5 +1,6 @@
 package com.linxi.diary.data
 
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
@@ -58,13 +59,13 @@ object MusicNotificationController {
                 if (!lyric.isNullOrBlank()) setSubText(track.artist.ifBlank { "网易云音乐" })
             }
             .setContentIntent(
-                android.app.PendingIntent.getActivity(
+                PendingIntent.getActivity(
                     context,
                     NotificationChannels.NOTIFY_ID_MUSIC,
                     Intent(context, MainActivity::class.java).apply {
                         addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                     },
-                    android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                 ),
             )
             .setProgress(
@@ -73,7 +74,46 @@ object MusicNotificationController {
                     .coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
                 state.durationMs <= 0L,
             )
-            .setStyle(MediaStyleNotificationHelper.MediaStyle(session))
+            // Keep the actions explicit. Some vendor media surfaces (including
+            // Oppo's fluid cloud) only expose buttons that are present on the
+            // NotificationCompat action list; a MediaSession alone is not enough
+            // when the player has one lazily-resolved media item.
+            .addAction(action(context, ACTION_PREVIOUS, "上一首", R.drawable.ic_skip_previous, 0))
+            .addAction(
+                action(
+                    context,
+                    if (state.playing) ACTION_PAUSE else ACTION_PLAY,
+                    if (state.playing) "暂停" else "播放",
+                    if (state.playing) R.drawable.ic_pause else R.drawable.ic_play_arrow,
+                    1,
+                )
+            )
+            .addAction(action(context, ACTION_NEXT, "下一首", R.drawable.ic_skip_next, 2))
+            .setStyle(
+                MediaStyleNotificationHelper.MediaStyle(session)
+                    .setShowActionsInCompactView(0, 1, 2)
+            )
         runCatching { manager.notify(NotificationChannels.NOTIFY_ID_MUSIC, builder.build()) }
     }
+
+    private fun action(
+        context: Context,
+        action: String,
+        title: String,
+        icon: Int,
+        requestCode: Int,
+    ): NotificationCompat.Action {
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            NotificationChannels.NOTIFY_ID_MUSIC + requestCode,
+            Intent(context, MusicMediaActionReceiver::class.java).setAction(action),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        return NotificationCompat.Action.Builder(icon, title, pendingIntent).build()
+    }
+
+    const val ACTION_PREVIOUS = "com.linxi.diary.action.MUSIC_PREVIOUS"
+    const val ACTION_PLAY = "com.linxi.diary.action.MUSIC_PLAY"
+    const val ACTION_PAUSE = "com.linxi.diary.action.MUSIC_PAUSE"
+    const val ACTION_NEXT = "com.linxi.diary.action.MUSIC_NEXT"
 }

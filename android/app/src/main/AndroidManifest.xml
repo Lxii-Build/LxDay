@@ -118,6 +118,11 @@
             </intent-filter>
         </receiver>
 
+        <!-- 系统媒体通知的上一首/播放/下一首动作；仅接受本应用创建的显式 PendingIntent。 -->
+        <receiver
+            android:name=".data.MusicMediaActionReceiver"
+            android:exported="false" />
+
         <!--
           周期同步心跳：按前台/后台/息屏分档重复触发状态采集与上报，
           并兼作前台服务存活自检（Android 15+ dataSync 前台服务有 6h/24h 运行上限，

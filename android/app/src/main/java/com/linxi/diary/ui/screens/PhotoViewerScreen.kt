@@ -22,7 +22,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -42,6 +41,8 @@ import com.linxi.diary.data.PhotoItem
 import com.linxi.diary.data.PhotoLoadSource
 import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.theme.BrandRed
+import com.linxi.diary.ui.theme.LocalLxSurfaceTokens
+import com.linxi.diary.ui.navigation.LocalPlaybackBottomPadding
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Scaffold
@@ -58,7 +59,8 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 /**
  * 大图查看：左右滑翻页 + 双指缩放 + 点赞 + 评论 + 删除。
  *
- * 这里加载的是原图 `/media/<id>`（非缩略图），由 Coil 做磁盘缓存与自动降采样。
+ * 首屏先加载预览图，放大后再切原图；两者都走 `/media/<id>` 鉴权代理，由 Coil
+ * 做磁盘缓存与自动降采样。
  */
 @Composable
 fun PhotoViewerScreen(
@@ -71,6 +73,8 @@ fun PhotoViewerScreen(
     BackHandler(onBack = onBack)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val surfaceTokens = LocalLxSurfaceTokens.current
+    val playbackBottomPadding = LocalPlaybackBottomPadding.current
 
     if (photos.isEmpty()) {
         LaunchedEffect(Unit) { onBack() }
@@ -120,7 +124,7 @@ fun PhotoViewerScreen(
                 runCatching {
                     loader.enqueue(
                         coil3.request.ImageRequest.Builder(context)
-                            .data(photos[idx].viewerUrl)
+                            .data(PhotoLoadSource.viewerModel(context, photos[idx]))
                             .build()
                     )
                 }
@@ -239,7 +243,14 @@ fun PhotoViewerScreen(
             )
         },
     ) { inner ->
-        Column(Modifier.fillMaxSize().padding(top = inner.calculateTopPadding())) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(
+                    top = inner.calculateTopPadding(),
+                    bottom = inner.calculateBottomPadding() + playbackBottomPadding,
+                ),
+        ) {
             // 一次性提示条（设封面成功/删除失败等），2 秒自动消失。
             hintText?.let { hint ->
                 Text(
@@ -254,7 +265,10 @@ fun PhotoViewerScreen(
             }
             HorizontalPager(
                 state = pagerState,
-                modifier = Modifier.weight(1f).background(Color.Black),
+                // Keep an explicit neutral canvas behind the image. A failed
+                // remote image must remain a visible empty tile, never a
+                // black/transparent hole that looks like the photo vanished.
+                modifier = Modifier.weight(1f).background(surfaceTokens.canvas),
             ) { page ->
                 // 本机有原图就直接读本机（自己传的照片），否则走云端 preview→origin 两档。
                 ZoomableImage(
@@ -460,6 +474,7 @@ private fun ZoomableImage(
     description: String,
 ) {
     val context = LocalContext.current
+    val surfaceTokens = LocalLxSurfaceTokens.current
     var scale by remember(cacheKey) { mutableStateOf(1f) }
     var offsetX by remember(cacheKey) { mutableStateOf(0f) }
     var offsetY by remember(cacheKey) { mutableStateOf(0f) }
@@ -469,6 +484,7 @@ private fun ZoomableImage(
     Box(
         Modifier
             .fillMaxSize()
+            .background(surfaceTokens.canvas)
             .pointerInput(cacheKey) {
                 // Do not consume a one-finger drag here: HorizontalPager owns
                 // that gesture and is what makes a multi-photo viewer usable.

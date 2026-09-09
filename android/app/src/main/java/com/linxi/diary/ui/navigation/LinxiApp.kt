@@ -205,6 +205,7 @@ fun LinxiApp() {
             UserPrefs.privacyConsented = false
             UserPrefs.sharingEnabled = false
             ListenSessionController.clearForLogout()
+            NeteasePlaybackManager.stopAndClear()
             StatusSyncManager.disconnect()
             StatusForegroundService.stop(context)
             ProfileRuntime.clearSession()
@@ -235,7 +236,7 @@ fun LinxiApp() {
             CompositionLocalProvider(
                 LocalPlaybackBottomPadding provides if (
                     playback.track != null && targetShowsPlaybackChrome(screen)
-                ) 88.dp else 0.dp,
+                ) PLAYBACK_CHROME_RESERVED_DP.dp else 0.dp,
             ) {
                 AnimatedContent(
                     targetState = screen,
@@ -464,7 +465,9 @@ fun LinxiApp() {
                 LxNoticeHost(
                     notice = notice,
                     onDismiss = { notice = null },
-                    bottomPadding = if (playback.track != null && targetShowsPlaybackChrome(screen)) 104.dp else 12.dp,
+                    bottomPadding = if (playback.track != null && targetShowsPlaybackChrome(screen)) {
+                        (PLAYBACK_CHROME_RESERVED_DP + 16).dp
+                    } else 12.dp,
                 )
             }
             pendingUpdate?.let { info -> UpdateDialog(info) { pendingUpdate = null } }

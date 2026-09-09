@@ -7,21 +7,28 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.database.StandaloneDatabaseProvider
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.cache.CacheDataSink
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
+import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.session.MediaSession
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.io.File
 import java.util.LinkedHashMap
 import com.linxi.diary.util.UserPrefs
 import com.linxi.diary.util.Logs
@@ -36,6 +43,7 @@ data class NeteasePlaybackState(
     val positionMs: Long = 0L,
     val durationMs: Long = 0L,
     val loading: Boolean = false,
+    val resolving: Boolean = false,
     val error: String? = null,
 )
 
@@ -48,9 +56,12 @@ object NeteasePlaybackManager {
     private val state = MutableStateFlow(NeteasePlaybackState())
     private lateinit var player: ExoPlayer
     private lateinit var mediaSession: MediaSession
+    private lateinit var musicCache: SimpleCache
     private var initialized = false
     private var currentUrl: String? = null
     private var progressJob: Job? = null
+    private var skipJob: Job? = null
+    private var skipGeneration = 0L
     private val lyricsCache = LinkedHashMap<Long, NeteaseLyrics>(16, 0.75f, true)
     private val playbackScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -58,13 +69,20 @@ object NeteasePlaybackManager {
 
     fun init(context: Context) {
         if (initialized) return
+        val appContext = context.applicationContext
         val repeatMode = when (UserPrefs.musicRepeatMode.lowercase()) {
             "one" -> NeteaseRepeatMode.ONE
             "off" -> NeteaseRepeatMode.OFF
             else -> NeteaseRepeatMode.ALL
         }
         state.value = state.value.copy(repeatMode = repeatMode, shuffle = UserPrefs.musicShuffle)
-        player = ExoPlayer.Builder(context.applicationContext).build().apply {
+        musicCache = SimpleCache(
+            File(appContext.cacheDir, MUSIC_CACHE_DIR),
+            LeastRecentlyUsedCacheEvictor(MUSIC_CACHE_MAX_BYTES),
+            StandaloneDatabaseProvider(appContext),
+        )
+
+        player = ExoPlayer.Builder(appContext).build().apply {
             setAudioAttributes(
                 AudioAttributes.Builder()
                     .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
@@ -77,6 +95,7 @@ object NeteasePlaybackManager {
                     state.value = state.value.copy(
                         playing = isPlaying,
                         loading = false,
+                        resolving = false,
                         error = null,
                     )
                     if (isPlaying) startProgressTicker() else progressJob?.cancel()
@@ -101,6 +120,7 @@ object NeteasePlaybackManager {
                     state.value = state.value.copy(
                         playing = false,
                         loading = false,
+                        resolving = false,
                         error = "网易云音频播放失败，请检查账号权限或网络",
                     )
                 }
@@ -112,7 +132,7 @@ object NeteasePlaybackManager {
         }
         // Use the platform media session so Android, not app-specific “island”
         // settings, owns playback controls and real-time media presentation.
-        mediaSession = MediaSession.Builder(context.applicationContext, player).build()
+        mediaSession = MediaSession.Builder(appContext, player).build()
         MusicNotificationController.init(context, mediaSession)
         playbackScope.launch {
             state.collect { MusicNotificationController.refresh(it) }
@@ -144,6 +164,12 @@ object NeteasePlaybackManager {
         autoplay: Boolean = true,
     ) {
         ensureInitialized()
+        // A direct play request (for example selecting a new search result or
+        // receiving a room-sync correction) supersedes an in-flight next/prev
+        // URL lookup. The lookup checks this generation before touching ExoPlayer.
+        skipGeneration++
+        skipJob?.cancel()
+        skipJob = null
         require(url.startsWith("https://", ignoreCase = true)) { "播放地址必须使用 HTTPS" }
         val current = state.value
         val queue = if (current.queue.any { it.stableKey == track.stableKey }) {
@@ -164,6 +190,9 @@ object NeteasePlaybackManager {
             }
             val mediaItem = MediaItem.Builder()
                     .setMediaId(track.stableKey)
+                    // 网易云播放地址带短时签名参数，不能直接拿完整 URL 当缓存键。
+                    // 逻辑歌曲 + 音质是稳定键；签名地址只作为当前缺失分片的上游地址。
+                    .setCustomCacheKey(musicCacheKey(track))
                     .setUri(url)
                     .setMediaMetadata(metadata.build())
                     .build()
@@ -171,11 +200,17 @@ object NeteasePlaybackManager {
                 .filterValues(String::isNotBlank)
                 .entries
                 .joinToString("; ") { (key, value) -> "$key=$value" }
-            val dataSourceFactory = DefaultHttpDataSource.Factory()
+            val upstreamFactory = DefaultHttpDataSource.Factory()
                 .setUserAgent(USER_AGENT)
                 .setAllowCrossProtocolRedirects(false)
                 .setDefaultRequestProperties(mapOf("Cookie" to cookies, "Referer" to "https://music.163.com/"))
-            val mediaSource = ProgressiveMediaSource.Factory(dataSourceFactory)
+            val mediaSource = ProgressiveMediaSource.Factory(
+                CacheDataSource.Factory()
+                    .setCache(musicCache)
+                    .setUpstreamDataSourceFactory(upstreamFactory)
+                    .setCacheWriteDataSinkFactory(CacheDataSink.Factory().setCache(musicCache))
+                    .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+            )
                 .createMediaSource(mediaItem)
             player.setMediaSource(mediaSource, positionMs.coerceAtLeast(0L))
             player.prepare()
@@ -189,6 +224,7 @@ object NeteasePlaybackManager {
             durationMs = track.durationMs.coerceAtLeast(0L),
             playing = autoplay,
             loading = true,
+            resolving = false,
             error = null,
         )
         if (autoplay) {
@@ -264,9 +300,16 @@ object NeteasePlaybackManager {
         return next
     }
 
-    /** 返回队列中上一首/下一首；地址解析和实际播放由页面协程完成。 */
+    /** 返回队列中上一首/下一首；调用方若要实际播放请使用 [skipToNext]/[skipToPrevious]。 */
     fun adjacentTrack(next: Boolean): NeteaseTrack? {
         val current = state.value
+        val target = adjacentTrack(current, next) ?: return null
+        val index = current.queue.indexOfFirst { it.stableKey == target.stableKey }
+        state.value = current.copy(queueIndex = index, track = target)
+        return target
+    }
+
+    private fun adjacentTrack(current: NeteasePlaybackState, next: Boolean): NeteaseTrack? {
         if (current.queue.isEmpty() || current.queueIndex !in current.queue.indices) return null
         if (!next && current.queueIndex == 0) return null
         if (next && current.repeatMode == NeteaseRepeatMode.OFF && current.queueIndex == current.queue.lastIndex) return null
@@ -281,8 +324,54 @@ object NeteasePlaybackManager {
         } else {
             (current.queueIndex - 1 + current.queue.size) % current.queue.size
         }
-        state.value = current.copy(queueIndex = index, track = current.queue[index])
         return current.queue[index]
+    }
+
+    /**
+     * 让 UI、系统媒体通知和耳机按键共用同一条切歌路径。
+     *
+     * 播放地址解析是网络操作，不能在 BroadcastReceiver 或点击回调里同步执行；
+     * 这里把它放进播放器自己的监督作用域，并以 resolving 状态抑制重复点击。
+     */
+    fun skipToNext(): Boolean = skipTo(next = true)
+
+    fun skipToPrevious(): Boolean = skipTo(next = false)
+
+    private fun skipTo(next: Boolean): Boolean {
+        ensureInitialized()
+        if (state.value.resolving) return false
+        val current = state.value
+        val target = adjacentTrack(current, next) ?: return false
+        val generation = ++skipGeneration
+        state.value = current.copy(
+            loading = true,
+            resolving = true,
+            error = null,
+        )
+        skipJob?.cancel()
+        skipJob = playbackScope.launch {
+            try {
+                val url = NeteaseClient.resolvePlaybackUrl(target.id)
+                // CancellationException must not be converted into a visible
+                // playback error, and a newer direct-play request must win.
+                if (!isActive || generation != skipGeneration) return@launch
+                skipJob = null
+                play(target, url)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (generation != skipGeneration) return@launch
+                state.value = state.value.copy(
+                    // Resolving a neighbouring track must not pause the song
+                    // that is still on the player when the lookup fails.
+                    playing = player.isPlaying,
+                    loading = false,
+                    resolving = false,
+                    error = error.message ?: "歌曲解析失败，请重试",
+                )
+            }
+        }
+        return true
     }
 
     fun currentPosition(): Long = if (!initialized) 0L else player.currentPosition.coerceAtLeast(0L)
@@ -295,18 +384,7 @@ object NeteasePlaybackManager {
             state.value = current.copy(playing = true, positionMs = 0L, loading = false)
             return
         }
-        val next = adjacentTrack(next = true) ?: return
-        playbackScope.launch {
-            runCatching { NeteaseClient.resolvePlaybackUrl(next.id) }
-                .onSuccess { url -> play(next, url) }
-                .onFailure { error ->
-                    state.value = state.value.copy(
-                        playing = false,
-                        loading = false,
-                        error = error.message ?: "下一首歌曲解析失败",
-                    )
-                }
-        }
+        skipToNext()
     }
 
     fun pause() {
@@ -328,6 +406,8 @@ object NeteasePlaybackManager {
     fun stopAndClear() {
         if (!initialized) return
         progressJob?.cancel()
+        skipGeneration++
+        skipJob?.cancel()
         player.stop()
         currentUrl = null
         val current = state.value
@@ -339,6 +419,7 @@ object NeteasePlaybackManager {
             positionMs = 0L,
             durationMs = 0L,
             loading = false,
+            resolving = false,
             error = null,
         )
     }
@@ -376,4 +457,11 @@ object NeteasePlaybackManager {
 
     private const val USER_AGENT =
         "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36"
+
+    private const val MUSIC_CACHE_DIR = "music_cache"
+    // 音频是可再生的第三方缓存，给出明确上限并交给 LRU 淘汰，避免长期播放无限占用磁盘。
+    private const val MUSIC_CACHE_MAX_BYTES = 128L * 1024L * 1024L
+
+    private fun musicCacheKey(track: NeteaseTrack): String =
+        "netease:${track.id}:${UserPrefs.musicQuality.ifBlank { "exhigh" }}"
 }

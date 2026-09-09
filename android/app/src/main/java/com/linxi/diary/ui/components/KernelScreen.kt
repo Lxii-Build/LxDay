@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
@@ -37,7 +38,7 @@ import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Back
+import top.yukonga.miuix.kmp.icon.basic.ArrowRight
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 
@@ -180,9 +181,13 @@ fun BackAction(onBack: () -> Unit) {
     LxIconButton(onClick = onBack, contentDescription = "返回") {
         // 用 miuix 的 Icon 而非 material3 的：全 App 统一 miuix 组件（管理员要求）。
         top.yukonga.miuix.kmp.basic.Icon(
-            imageVector = MiuixIcons.Back,
+            // The extended Back glyph has a slightly asymmetric optical
+            // center on some font-scale/render paths. A basic arrow rotated
+            // 180 degrees keeps the header action geometrically straight.
+            imageVector = MiuixIcons.Basic.ArrowRight,
             contentDescription = "返回",
-            tint = MiuixTheme.colorScheme.onBackground
+            tint = MiuixTheme.colorScheme.onBackground,
+            modifier = Modifier.rotate(180f),
         )
     }
 }

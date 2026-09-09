@@ -201,6 +201,7 @@ dependencies {
     // 网易云一起听：每台设备用自己的账号解析播放地址，再由 Media3 在本机播放。
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.datasource)
+    implementation(libs.androidx.media3.database)
     implementation(libs.androidx.media3.session)
     implementation(libs.zxing.core)
 
