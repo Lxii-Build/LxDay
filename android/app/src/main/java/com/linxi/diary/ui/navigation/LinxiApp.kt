@@ -443,6 +443,7 @@ fun LinxiApp() {
                     onOpenKeepAliveCheck = { navigate(Screen.KeepAliveCheck) },
                 )
                 }
+            }
                 // Keep global chrome outside AnimatedContent: during a page
                 // transition both old and new targets can be composed, and placing
                 // the player inside the transition would briefly create two mini
