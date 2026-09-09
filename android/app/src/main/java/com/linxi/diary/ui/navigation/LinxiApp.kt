@@ -663,8 +663,19 @@ private enum class Screen {
 }
 
 private fun targetShowsPlaybackChrome(screen: Screen): Boolean = when (screen) {
-    Screen.Login, Screen.Register, Screen.Bind -> false
-    else -> true
+    // Keep the playback session global, but only expose its dock on pages that
+    // have a stable bottom area to reserve for it. Photo actions, companion
+    // rooms, pickers and text-entry flows keep their full bottom edge free.
+    Screen.Main,
+    Screen.Music,
+    Screen.Lyrics,
+    Screen.DiscoverAlbum,
+    Screen.Appearance,
+    Screen.History,
+    Screen.About,
+    Screen.KeepAliveCheck,
+    Screen.MusicSettings -> true
+    else -> false
 }
 
 /** 选图器的用途。决定单选/多选、标题，以及选完该回哪个页面。 */
