@@ -179,12 +179,27 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit)
                         fontSize = 13.sp,
                     )
                     Text(
+                        "功能概览：主页查看伴侣状态与恋爱天数；相册支持分组、评论、点赞、回收站和这一天；待办支持重复提醒；一起听/一起看只同步房间需要的歌曲或观看时间轴。",
+                        color = colorScheme.onSurfaceVariantSummary,
+                        fontSize = 13.sp,
+                    )
+                    Text(
                         "网易云音乐登录只发生在本机。Cookie 使用 Android Keystore 加密，音乐搜索、收藏、歌词和播放不会把第三方凭据上传给林曦服务端；一起听房间只同步歌曲 ID 与时间轴。",
                         color = colorScheme.onSurfaceVariantSummary,
                         fontSize = 13.sp,
                     )
                     Text(
-                        "版本号用于发行追踪，提交短哈希用于定位对应源码；遇到问题时请一并提供这两项信息。",
+                        "音乐设置还可以控制音质、循环/随机、音频焦点、歌词翻译、搜索历史和播放胶囊通知；系统是否显示真正的胶囊/灵动岛由 Android 与厂商桌面决定，应用不申请悬浮窗权限。",
+                        color = colorScheme.onSurfaceVariantSummary,
+                        fontSize = 13.sp,
+                    )
+                    Text(
+                        "Live2D 角色只保存在本机。默认构建不携带授权的 Cubism Core，提供完整授权模型与匹配 SDK 后才会启用真实 GL 预览，否则页面会明确显示等待运行时，不用静态图片冒充模型。",
+                        color = colorScheme.onSurfaceVariantSummary,
+                        fontSize = 13.sp,
+                    )
+                    Text(
+                        "版本号用于发行追踪，提交短哈希用于定位对应源码；遇到问题时请一并提供版本名、versionCode 和提交短哈希。",
                         color = colorScheme.onSurfaceVariantSummary,
                         fontSize = 13.sp,
                     )
