@@ -29,27 +29,27 @@ type listenRoomState struct {
 	// Revision is the monotonic room-state version.  It is persisted inside the
 	// JSON blob so old databases can be upgraded without a table rewrite, and
 	// lets clients discard delayed WS/REST snapshots safely.
-	Revision        int64  `json:"revision"`
-	Kind            string `json:"kind,omitempty"` // audio/watch
-	Title           string `json:"title"`
-	Artist          string `json:"artist"`
-	Source          string `json:"source,omitempty"`
-	SongID          int64  `json:"song_id,omitempty"`
-	Album           string `json:"album,omitempty"`
-	CoverURL        string `json:"cover_url,omitempty"`
-	AudioURL        string `json:"audio_url,omitempty"`
-	DurationMs      int64  `json:"duration_ms"`
-	PositionMs      int64  `json:"position_ms"`
-	Playing         bool   `json:"playing"`
-	Mode            string `json:"mode"` // list/repeat/shuffle
-	UpdatedAt       int64  `json:"updated_at"`
-	WatchURL        string `json:"watch_url,omitempty"`
-	WatchTitle      string `json:"watch_title,omitempty"`
-	WatchDurationMs int64  `json:"watch_duration_ms,omitempty"`
-	WatchPositionMs int64  `json:"watch_position_ms,omitempty"`
-	WatchPlaying    bool   `json:"watch_playing,omitempty"`
+	Revision        int64             `json:"revision"`
+	Kind            string            `json:"kind,omitempty"` // audio/watch
+	Title           string            `json:"title"`
+	Artist          string            `json:"artist"`
+	Source          string            `json:"source,omitempty"`
+	SongID          int64             `json:"song_id,omitempty"`
+	Album           string            `json:"album,omitempty"`
+	CoverURL        string            `json:"cover_url,omitempty"`
+	AudioURL        string            `json:"audio_url,omitempty"`
+	DurationMs      int64             `json:"duration_ms"`
+	PositionMs      int64             `json:"position_ms"`
+	Playing         bool              `json:"playing"`
+	Mode            string            `json:"mode"` // list/repeat/shuffle
+	UpdatedAt       int64             `json:"updated_at"`
+	WatchURL        string            `json:"watch_url,omitempty"`
+	WatchTitle      string            `json:"watch_title,omitempty"`
+	WatchDurationMs int64             `json:"watch_duration_ms,omitempty"`
+	WatchPositionMs int64             `json:"watch_position_ms,omitempty"`
+	WatchPlaying    bool              `json:"watch_playing,omitempty"`
 	Queue           []listenRoomTrack `json:"queue,omitempty"`
-	QueueIndex      int    `json:"queue_index"`
+	QueueIndex      int               `json:"queue_index"`
 }
 
 type listenRoomTrack struct {
@@ -84,25 +84,25 @@ type listenSession struct {
 }
 
 type listenControlRequest struct {
-	Action          string `json:"action"`
-	Title           string `json:"title"`
-	Artist          string `json:"artist"`
-	Source          string `json:"source"`
-	SongID          int64  `json:"song_id"`
-	Album           string `json:"album"`
-	CoverURL        string `json:"cover_url"`
-	AudioURL        string `json:"audio_url"`
-	DurationMs      int64  `json:"duration_ms"`
-	PositionMs      int64  `json:"position_ms"`
-	Playing         *bool  `json:"playing"`
-	Mode            string `json:"mode"`
-	WatchURL        string `json:"watch_url"`
-	WatchTitle      string `json:"watch_title"`
-	WatchDurationMs int64  `json:"watch_duration_ms"`
-	WatchPositionMs int64  `json:"watch_position_ms"`
-	WatchPlaying    *bool  `json:"watch_playing"`
+	Action          string            `json:"action"`
+	Title           string            `json:"title"`
+	Artist          string            `json:"artist"`
+	Source          string            `json:"source"`
+	SongID          int64             `json:"song_id"`
+	Album           string            `json:"album"`
+	CoverURL        string            `json:"cover_url"`
+	AudioURL        string            `json:"audio_url"`
+	DurationMs      int64             `json:"duration_ms"`
+	PositionMs      int64             `json:"position_ms"`
+	Playing         *bool             `json:"playing"`
+	Mode            string            `json:"mode"`
+	WatchURL        string            `json:"watch_url"`
+	WatchTitle      string            `json:"watch_title"`
+	WatchDurationMs int64             `json:"watch_duration_ms"`
+	WatchPositionMs int64             `json:"watch_position_ms"`
+	WatchPlaying    *bool             `json:"watch_playing"`
 	Queue           []listenRoomTrack `json:"queue"`
-	QueueIndex      int    `json:"queue_index"`
+	QueueIndex      int               `json:"queue_index"`
 }
 
 type listenWSClient struct {
@@ -125,11 +125,11 @@ func (c *listenWSClient) writeJSON(v interface{}) error {
 // ListenHub 维护房间 WS 会话。房间和播放状态落 SQLite，进程重启后仍可用；
 // session token 只存在内存，重连时通过已绑定的情侣关系重新进入活动房间即可。
 type ListenHub struct {
-	store    *Store
-	mu       sync.RWMutex
+	store     *Store
+	mu        sync.RWMutex
 	controlMu sync.Mutex
-	sessions map[string]listenSession
-	clients  map[string]map[*listenWSClient]struct{}
+	sessions  map[string]listenSession
+	clients   map[string]map[*listenWSClient]struct{}
 }
 
 func NewListenHub(store *Store) *ListenHub {
