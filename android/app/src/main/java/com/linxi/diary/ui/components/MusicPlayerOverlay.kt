@@ -43,6 +43,8 @@ import com.linxi.diary.data.NeteasePlaybackManager
 import com.linxi.diary.data.NeteasePlaybackState
 import com.linxi.diary.data.NeteaseRepeatMode
 import com.linxi.diary.data.NeteaseTrack
+import com.linxi.diary.ui.navigation.PLAYBACK_CHROME_RESERVED_DP
+import com.linxi.diary.ui.navigation.PLAYBACK_CHROME_WIDTH_DP
 import com.linxi.diary.ui.theme.LocalLxSurfaceTokens
 import com.linxi.diary.ui.components.LxClickableSurface
 import com.linxi.diary.ui.components.LxIcon
@@ -128,9 +130,9 @@ private fun MiniPlaybackCard(
     LxClickableSurface(
         modifier = modifier
             .navigationBarsPadding()
-            .widthIn(max = 312.dp)
+            .widthIn(max = PLAYBACK_CHROME_WIDTH_DP.dp)
             .fillMaxWidth()
-            .padding(bottom = 84.dp)
+            .padding(bottom = PLAYBACK_CHROME_RESERVED_DP.dp)
             .height(64.dp),
         tone = LxSurfaceTone.Floating,
         shape = RoundedCornerShape(32.dp),

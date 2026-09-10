@@ -14,6 +14,9 @@ val LocalMainBottomPadding = staticCompositionLocalOf<Dp> { 0.dp }
  */
 const val PLAYBACK_CHROME_RESERVED_DP = 84
 
+/** Four 76dp tab targets plus the bar's 8dp horizontal inset. */
+const val PLAYBACK_CHROME_WIDTH_DP = 312
+
 /**
  * Space reserved by the global mini player.  Secondary pages do not use the
  * main tab Scaffold, so keeping this as a separate local prevents the player

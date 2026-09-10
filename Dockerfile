@@ -39,6 +39,10 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -mod=readonly -trim
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata wget su-exec \
     && adduser -D -u 10001 app
+ARG BUILD_VERSION=dev
+ARG BUILD_COMMIT=unknown
+LABEL org.opencontainers.image.version=$BUILD_VERSION \
+      org.opencontainers.image.revision=$BUILD_COMMIT
 WORKDIR /app
 COPY --from=build /out/linxi-server /app/linxi-server
 # SQLite 数据目录、公开资源与私密相册目录（对应 compose 的三个卷挂载点）；
