@@ -57,7 +57,7 @@ fun LxPreferenceRow(
         Modifier
     }
     val contentAlpha = if (enabled) 1f else 0.48f
-    Row(
+    Column(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 72.dp)
@@ -67,60 +67,69 @@ fun LxPreferenceRow(
             // switch in a dense settings card.
             .then(clickModifier)
             .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        if (startAction != null) {
-            Row(
-                modifier = Modifier.width(36.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                startAction()
-            }
-            Spacer(Modifier.width(8.dp))
-        }
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(3.dp),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = title,
-                fontSize = 16.sp,
-                lineHeight = 21.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                color = MiuixTheme.colorScheme.onBackground.copy(alpha = contentAlpha),
-            )
-            if (!summary.isNullOrBlank()) {
+            if (startAction != null) {
+                Box(
+                    modifier = Modifier
+                        .width(36.dp)
+                        .heightIn(min = 48.dp),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    startAction()
+                }
+                Spacer(Modifier.width(8.dp))
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
                 Text(
-                    text = summary,
-                    fontSize = 13.sp,
-                    lineHeight = 18.sp,
-                    maxLines = 3,
+                    text = title,
+                    fontSize = 16.sp,
+                    lineHeight = 21.sp,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = contentAlpha),
+                    color = MiuixTheme.colorScheme.onBackground.copy(alpha = contentAlpha),
+                )
+            }
+            if (endAction != null) {
+                Spacer(Modifier.width(12.dp))
+                // Keep the trailing control in a fixed, clipped slot.  The
+                // title row never shares vertical space with the summary, so
+                // long Chinese copy cannot paint underneath a switch/value.
+                Box(
+                    modifier = Modifier.width(72.dp),
+                    contentAlignment = Alignment.CenterEnd,
+                ) {
+                    endAction()
+                }
+            } else if (onClick != null) {
+                Spacer(Modifier.width(10.dp))
+                Icon(
+                    imageVector = MiuixIcons.ChevronForward,
+                    contentDescription = null,
+                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = contentAlpha),
+                    modifier = Modifier.size(22.dp),
                 )
             }
         }
-        if (endAction != null) {
-            Spacer(Modifier.width(12.dp))
-            // Vendor controls must have their own measured column.  Without a
-            // bounded slot, a long choice label or a Miuix Switch can measure
-            // against the same width as the summary and paint over it on some
-            // font-scale/layout paths.
-            Box(
-                modifier = Modifier
-                    .width(72.dp),
-                contentAlignment = Alignment.CenterEnd,
-            ) {
-                endAction()
-            }
-        } else if (onClick != null) {
-            Spacer(Modifier.width(10.dp))
-            Icon(
-                imageVector = MiuixIcons.ChevronForward,
-                contentDescription = null,
-                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = contentAlpha),
-                modifier = Modifier.size(22.dp),
+        if (!summary.isNullOrBlank()) {
+            Text(
+                text = summary,
+                modifier = Modifier.padding(
+                    start = if (startAction != null) 44.dp else 0.dp,
+                    end = if (endAction != null) 84.dp else if (onClick != null) 32.dp else 0.dp,
+                ),
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = contentAlpha),
             )
         }
     }

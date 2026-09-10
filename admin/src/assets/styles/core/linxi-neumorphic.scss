@@ -367,6 +367,16 @@ body {
   }
 }
 
+// 移动端侧栏是覆盖在主内容上的全屏抽屉容器。关闭时它仍保留
+// position: fixed 与 z-index，只靠 pointer-events: none 让点击穿透；
+// 不能让主题材质给这个容器铺不透明背景，否则主内容会被整屏遮住。
+@media only screen and (width <= 800px) {
+  .layout-sidebar.is-mobile:not(.is-mobile-open) {
+    background-color: transparent !important;
+    box-shadow: none;
+  }
+}
+
 // 旧页面的“border-mode/shadow-mode”仍由设置项控制，但两种模式都应保留
 // 林曦的可读边界和光影，而不是恢复 Element 默认灰框。
 [data-box-mode='border-mode'],
