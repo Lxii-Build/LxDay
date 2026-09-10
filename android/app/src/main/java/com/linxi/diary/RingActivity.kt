@@ -30,7 +30,7 @@ import com.linxi.diary.ui.components.LxButtonVariant
 import com.linxi.diary.ui.theme.BrandRed
 import com.linxi.diary.util.Logs
 import com.linxi.diary.ui.components.LxIcon as Icon
-import top.yukonga.miuix.kmp.basic.Text
+import com.linxi.diary.ui.components.LxText as Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Alarm
 import top.yukonga.miuix.kmp.theme.MiuixTheme

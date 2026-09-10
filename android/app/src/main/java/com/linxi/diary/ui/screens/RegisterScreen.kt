@@ -52,7 +52,7 @@ import top.yukonga.miuix.kmp.icon.extended.Email
 import top.yukonga.miuix.kmp.icon.extended.Lock
 import top.yukonga.miuix.kmp.icon.extended.Pin
 import com.linxi.diary.ui.components.LxIcon as Icon
-import top.yukonga.miuix.kmp.basic.Text
+import com.linxi.diary.ui.components.LxText as Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 

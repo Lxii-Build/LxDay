@@ -57,7 +57,7 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.File
 import top.yukonga.miuix.kmp.icon.extended.Update
 import com.linxi.diary.ui.components.LxIcon as Icon
-import top.yukonga.miuix.kmp.basic.Text
+import com.linxi.diary.ui.components.LxText as Text
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import com.linxi.diary.ui.components.LxArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme

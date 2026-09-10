@@ -44,7 +44,7 @@ import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.ui.components.NeteaseTrackCover
 import kotlinx.coroutines.launch
 import org.json.JSONObject
-import top.yukonga.miuix.kmp.basic.Text
+import com.linxi.diary.ui.components.LxText as Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 

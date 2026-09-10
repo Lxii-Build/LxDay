@@ -23,7 +23,7 @@ import androidx.compose.ui.unit.dp
 import com.linxi.diary.ui.theme.BrandBlue
 import com.linxi.diary.ui.theme.BrandRed
 import com.linxi.diary.ui.theme.LocalLxSurfaceTokens
-import top.yukonga.miuix.kmp.basic.Text
+import com.linxi.diary.ui.components.LxText as Text
 import top.yukonga.miuix.kmp.theme.LocalContentColor
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 

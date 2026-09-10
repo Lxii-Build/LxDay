@@ -32,7 +32,7 @@ import com.linxi.diary.ui.components.LxButton
 import com.linxi.diary.ui.components.LxButtonVariant
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Text
+import com.linxi.diary.ui.components.LxText as Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 网易云扫码登录：二维码只在设备上显示，轮询结果也不经过林曦服务端。 */

@@ -1,16 +1,8 @@
 package com.linxi.diary.ui.navigation
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedContentTransitionScope
-import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
-import androidx.compose.animation.ContentTransform
-import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -29,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -99,7 +92,7 @@ import top.yukonga.miuix.kmp.icon.extended.Contacts
 import top.yukonga.miuix.kmp.icon.extended.FavoritesFill
 import top.yukonga.miuix.kmp.icon.extended.Ok
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.Text
+import com.linxi.diary.ui.components.LxText as Text
 
 private data class TabItem(val label: String, val icon: ImageVector)
 
@@ -113,20 +106,6 @@ private val tabs = listOf(
 private enum class NavigationDirection {
     Forward,
     Back,
-}
-
-/**
- * 全局页面转场：所有 Screen 状态都从这里进出，避免某个二级页漏掉返回动画。
- * 进入子页时从右侧推入，返回父页时从左侧回退；不再叠加缩放，避免返回时弹跳。
- */
-private fun AnimatedContentTransitionScope<Screen>.globalScreenTransition(
-    direction: NavigationDirection,
-): ContentTransform {
-    val slideDirection =
-        if (direction == NavigationDirection.Forward) SlideDirection.Left else SlideDirection.Right
-    return ((slideIntoContainer(slideDirection, tween(320)) + fadeIn(tween(180))) togetherWith
-        (slideOutOfContainer(slideDirection, tween(320)) + fadeOut(tween(220))))
-        .using(SizeTransform(clip = true))
 }
 
 @Composable
@@ -237,238 +216,230 @@ fun LinxiApp() {
                     playback.track != null && targetShowsPlaybackChrome(screen)
                 ) PLAYBACK_CHROME_RESERVED_DP.dp else 0.dp,
             ) {
-                AnimatedContent(
-                    targetState = screen,
-                    modifier = Modifier.fillMaxSize(),
-                    transitionSpec = {
-                        globalScreenTransition(navigationDirection)
-                    },
-                    contentKey = { it },
-                    label = "global-screen-transition",
-                ) { target ->
-                when (target) {
-                Screen.Login -> LoginScreen(
-                    onLoggedIn = {
-                        // 已绑定则直接进主页（退出登录不解绑），未绑定才进绑定页。
-                        mainInitialPage = 0
-                        navigate(if (UserPrefs.pairId > 0) Screen.Main else Screen.Bind)
-                    },
-                    onNavigateRegister = { navigate(Screen.Register) },
-                )
-                Screen.Register -> RegisterScreen(
-                    onRegistered = { navigate(Screen.Bind) },
-                    onBack = { navigate(Screen.Login, NavigationDirection.Back) },
-                )
-                Screen.Bind -> BindScreen(
-                    onBound = {
-                        mainInitialPage = 0
-                        navigate(Screen.Main)
-                    },
-                    onBack = { navigate(Screen.Login, NavigationDirection.Back) },
-                )
-                Screen.History -> HistoryScreen(onBack = {
-                    mainInitialPage = 3
-                    navigate(Screen.Main, NavigationDirection.Back)
-                })
-                Screen.Appearance -> AppearanceScreen(
-                    onBack = {
-                        mainInitialPage = 3
-                        navigate(Screen.Main, NavigationDirection.Back)
-                    },
-                    onOpenLive2D = {
-                        live2DReturnScreen = Screen.Appearance
-                        navigate(Screen.Live2D)
-                    },
-                )
-                Screen.Live2D -> Live2DManagerScreen(
-                    onBack = {
-                        if (live2DReturnScreen == Screen.Main) mainInitialPage = 0 else mainInitialPage = 3
-                        navigate(live2DReturnScreen, NavigationDirection.Back)
-                    },
-                )
-                Screen.DiscoverAlbum -> if (!albumEnabled) {
-                    FeatureDisabledScreen("相册", onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) })
-                } else {
-                    AlbumListScreen(
-                        onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) },
-                        onOpenAlbum = { id, name -> albumArg = id to name; navigate(Screen.AlbumDetail) },
-                        onOpenOnThisDay = { navigate(Screen.OnThisDay) },
-                        onOpenRecycleBin = { navigate(Screen.RecycleBin) },
-                        onThisDayEnabled = onThisDayEnabled,
-                    )
-                }
-                Screen.RecycleBin -> if (!albumEnabled) {
-                    FeatureDisabledScreen("回收站", onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) })
-                } else {
-                    RecycleBinScreen(onBack = { navigate(Screen.DiscoverAlbum, NavigationDirection.Back) })
-                }
-                Screen.AlbumDetail -> if (!albumEnabled) {
-                    FeatureDisabledScreen("相册", onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) })
-                } else {
-                    AlbumDetailScreen(
-                        albumId = albumArg.first,
-                        albumName = albumArg.second,
-                        onBack = { navigate(Screen.DiscoverAlbum, NavigationDirection.Back) },
-                        onOpenPhoto = { list, index ->
-                            viewerPhotos = list
-                            viewerIndex = index
-                            viewerReturnScreen = Screen.AlbumDetail
-                            navigate(Screen.PhotoViewer)
-                        },
-                        onPickPhotos = {
-                            pickerTarget = PickerTarget.Album
-                            navigate(Screen.PhotoPicker)
-                        },
-                        pickedUris = pickedUris,
-                        onPickedConsumed = { pickedUris = emptyList() },
-                    )
-                }
-                Screen.PhotoPicker -> PhotoPickerScreen(
-                    title = if (pickerTarget == PickerTarget.Avatar) "选择头像" else "选择照片",
-                    multiple = pickerTarget == PickerTarget.Album,
-                    onBack = {
-                        navigate(
-                            if (pickerTarget == PickerTarget.Avatar) Screen.ProfileEdit else Screen.AlbumDetail,
-                            NavigationDirection.Back,
+                // A destination owns this slot exclusively. Keeping the
+                // outgoing and incoming full-screen Scaffolds alive during a
+                // transition exposed both text layers as ghosted/white
+                // text-sized rectangles on the affected OnePlus renderer and
+                // made settings cards appear to overlap. Navigation state
+                // still changes normally, but only one screen is composed.
+                key(screen) {
+                    when (screen) {
+                        Screen.Login -> LoginScreen(
+                            onLoggedIn = {
+                                // 已绑定则直接进主页（退出登录不解绑），未绑定才进绑定页。
+                                mainInitialPage = 0
+                                navigate(if (UserPrefs.pairId > 0) Screen.Main else Screen.Bind)
+                            },
+                            onNavigateRegister = { navigate(Screen.Register) },
                         )
-                    },
-                    onPicked = { uris ->
-                        if (pickerTarget == PickerTarget.Avatar) {
-                            // 头像是单选：拿第一张进裁剪页
-                            cropUri = uris.firstOrNull()
-                            navigate(
-                                if (cropUri != null) Screen.AvatarCrop else Screen.ProfileEdit,
-                                if (cropUri != null) NavigationDirection.Forward else NavigationDirection.Back,
-                            )
-                        } else {
-                            pickedUris = uris
-                            navigate(Screen.AlbumDetail, NavigationDirection.Back)
-                        }
-                    },
-                )
-                Screen.AvatarCrop -> {
-                    val target = cropUri
-                    if (target == null) {
-                        navigate(Screen.ProfileEdit, NavigationDirection.Back)
-                    } else {
-                        AvatarCropScreen(
-                            uri = target,
-                            onCancel = { cropUri = null; navigate(Screen.ProfileEdit, NavigationDirection.Back) },
-                            onCropped = { file ->
-                                croppedAvatar = file
-                                cropUri = null
-                                navigate(Screen.ProfileEdit, NavigationDirection.Back)
+                        Screen.Register -> RegisterScreen(
+                            onRegistered = { navigate(Screen.Bind) },
+                            onBack = { navigate(Screen.Login, NavigationDirection.Back) },
+                        )
+                        Screen.Bind -> BindScreen(
+                            onBound = {
+                                mainInitialPage = 0
+                                navigate(Screen.Main)
+                            },
+                            onBack = { navigate(Screen.Login, NavigationDirection.Back) },
+                        )
+                        Screen.History -> HistoryScreen(onBack = {
+                            mainInitialPage = 3
+                            navigate(Screen.Main, NavigationDirection.Back)
+                        })
+                        Screen.Appearance -> AppearanceScreen(
+                            onBack = {
+                                mainInitialPage = 3
+                                navigate(Screen.Main, NavigationDirection.Back)
+                            },
+                            onOpenLive2D = {
+                                live2DReturnScreen = Screen.Appearance
+                                navigate(Screen.Live2D)
                             },
                         )
-                    }
-                }
-                Screen.PhotoViewer -> PhotoViewerScreen(
-                    photos = viewerPhotos,
-                    initialIndex = viewerIndex,
-                    onBack = { navigate(viewerReturnScreen, NavigationDirection.Back) },
-                    onDeleted = { navigate(viewerReturnScreen, NavigationDirection.Back) },
-                    photoSocialEnabled = photoSocialEnabled,
-                )
-                Screen.OnThisDay -> if (!albumEnabled || !onThisDayEnabled) {
-                    FeatureDisabledScreen("这一天", onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) })
-                } else {
-                    OnThisDayScreen(
-                        onBack = { navigate(Screen.DiscoverAlbum, NavigationDirection.Back) },
-                        onOpenPhoto = { list, index ->
-                            viewerPhotos = list
-                            viewerIndex = index
-                            viewerReturnScreen = Screen.OnThisDay
-                            navigate(Screen.PhotoViewer)
-                        },
-                    )
-                }
-                Screen.DiscoverListen -> if (!ClientRuntimeConfig.listenTogetherEnabled) {
-                    FeatureDisabledScreen("一起听", onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) })
-                } else {
-                    ListenTogetherScreen(onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) })
-                }
-                Screen.Music -> MusicHomeScreen(
-                    onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) },
-                    onOpenLyrics = {
-                        track ->
-                        musicTrack = track
-                        lyricsReturnScreen = Screen.Music
-                        navigate(Screen.Lyrics)
-                    },
-                    onOpenListenTogether = { navigate(Screen.DiscoverListen) },
-                )
-                Screen.Player -> MusicPlayerScreen(
-                    state = playback,
-                    onBack = { navigate(playerReturnScreen, NavigationDirection.Back) },
-                    onOpenLyrics = { track ->
-                        musicTrack = track
-                        lyricsReturnScreen = Screen.Player
-                        navigate(Screen.Lyrics)
-                    },
-                    onOpenMusic = { navigate(Screen.Music) },
-                )
-                Screen.Lyrics -> {
-                    val track = musicTrack
-                    if (track == null) {
-                        navigate(Screen.Music, NavigationDirection.Back)
-                    } else {
-                        LyricsScreen(
-                            track = track,
-                            onBack = { navigate(lyricsReturnScreen, NavigationDirection.Back) },
+                        Screen.Live2D -> Live2DManagerScreen(
+                            onBack = {
+                                if (live2DReturnScreen == Screen.Main) mainInitialPage = 0 else mainInitialPage = 3
+                                navigate(live2DReturnScreen, NavigationDirection.Back)
+                            },
+                        )
+                        Screen.DiscoverAlbum -> if (!albumEnabled) {
+                            FeatureDisabledScreen("相册", onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) })
+                        } else {
+                            AlbumListScreen(
+                                onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) },
+                                onOpenAlbum = { id, name -> albumArg = id to name; navigate(Screen.AlbumDetail) },
+                                onOpenOnThisDay = { navigate(Screen.OnThisDay) },
+                                onOpenRecycleBin = { navigate(Screen.RecycleBin) },
+                                onThisDayEnabled = onThisDayEnabled,
+                            )
+                        }
+                        Screen.RecycleBin -> if (!albumEnabled) {
+                            FeatureDisabledScreen("回收站", onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) })
+                        } else {
+                            RecycleBinScreen(onBack = { navigate(Screen.DiscoverAlbum, NavigationDirection.Back) })
+                        }
+                        Screen.AlbumDetail -> if (!albumEnabled) {
+                            FeatureDisabledScreen("相册", onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) })
+                        } else {
+                            AlbumDetailScreen(
+                                albumId = albumArg.first,
+                                albumName = albumArg.second,
+                                onBack = { navigate(Screen.DiscoverAlbum, NavigationDirection.Back) },
+                                onOpenPhoto = { list, index ->
+                                    viewerPhotos = list
+                                    viewerIndex = index
+                                    viewerReturnScreen = Screen.AlbumDetail
+                                    navigate(Screen.PhotoViewer)
+                                },
+                                onPickPhotos = {
+                                    pickerTarget = PickerTarget.Album
+                                    navigate(Screen.PhotoPicker)
+                                },
+                                pickedUris = pickedUris,
+                                onPickedConsumed = { pickedUris = emptyList() },
+                            )
+                        }
+                        Screen.PhotoPicker -> PhotoPickerScreen(
+                            title = if (pickerTarget == PickerTarget.Avatar) "选择头像" else "选择照片",
+                            multiple = pickerTarget == PickerTarget.Album,
+                            onBack = {
+                                navigate(
+                                    if (pickerTarget == PickerTarget.Avatar) Screen.ProfileEdit else Screen.AlbumDetail,
+                                    NavigationDirection.Back,
+                                )
+                            },
+                            onPicked = { uris ->
+                                if (pickerTarget == PickerTarget.Avatar) {
+                                    // 头像是单选：拿第一张进裁剪页
+                                    cropUri = uris.firstOrNull()
+                                    navigate(
+                                        if (cropUri != null) Screen.AvatarCrop else Screen.ProfileEdit,
+                                        if (cropUri != null) NavigationDirection.Forward else NavigationDirection.Back,
+                                    )
+                                } else {
+                                    pickedUris = uris
+                                    navigate(Screen.AlbumDetail, NavigationDirection.Back)
+                                }
+                            },
+                        )
+                        Screen.AvatarCrop -> {
+                            val target = cropUri
+                            if (target == null) {
+                                navigate(Screen.ProfileEdit, NavigationDirection.Back)
+                            } else {
+                                AvatarCropScreen(
+                                    uri = target,
+                                    onCancel = { cropUri = null; navigate(Screen.ProfileEdit, NavigationDirection.Back) },
+                                    onCropped = { file ->
+                                        croppedAvatar = file
+                                        cropUri = null
+                                        navigate(Screen.ProfileEdit, NavigationDirection.Back)
+                                    },
+                                )
+                            }
+                        }
+                        Screen.PhotoViewer -> PhotoViewerScreen(
+                            photos = viewerPhotos,
+                            initialIndex = viewerIndex,
+                            onBack = { navigate(viewerReturnScreen, NavigationDirection.Back) },
+                            onDeleted = { navigate(viewerReturnScreen, NavigationDirection.Back) },
+                            photoSocialEnabled = photoSocialEnabled,
+                        )
+                        Screen.OnThisDay -> if (!albumEnabled || !onThisDayEnabled) {
+                            FeatureDisabledScreen("这一天", onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) })
+                        } else {
+                            OnThisDayScreen(
+                                onBack = { navigate(Screen.DiscoverAlbum, NavigationDirection.Back) },
+                                onOpenPhoto = { list, index ->
+                                    viewerPhotos = list
+                                    viewerIndex = index
+                                    viewerReturnScreen = Screen.OnThisDay
+                                    navigate(Screen.PhotoViewer)
+                                },
+                            )
+                        }
+                        Screen.DiscoverListen -> if (!ClientRuntimeConfig.listenTogetherEnabled) {
+                            FeatureDisabledScreen("一起听", onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) })
+                        } else {
+                            ListenTogetherScreen(onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) })
+                        }
+                        Screen.Music -> MusicHomeScreen(
+                            onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) },
+                            onOpenLyrics = { track ->
+                                musicTrack = track
+                                lyricsReturnScreen = Screen.Music
+                                navigate(Screen.Lyrics)
+                            },
+                            onOpenListenTogether = { navigate(Screen.DiscoverListen) },
+                        )
+                        Screen.Player -> MusicPlayerScreen(
+                            state = playback,
+                            onBack = { navigate(playerReturnScreen, NavigationDirection.Back) },
+                            onOpenLyrics = { track ->
+                                musicTrack = track
+                                lyricsReturnScreen = Screen.Player
+                                navigate(Screen.Lyrics)
+                            },
+                            onOpenMusic = { navigate(Screen.Music) },
+                        )
+                        Screen.Lyrics -> {
+                            val track = musicTrack
+                            if (track == null) {
+                                navigate(Screen.Music, NavigationDirection.Back)
+                            } else {
+                                LyricsScreen(
+                                    track = track,
+                                    onBack = { navigate(lyricsReturnScreen, NavigationDirection.Back) },
+                                )
+                            }
+                        }
+                        Screen.DiscoverWatch -> WatchTogetherScreen(onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) })
+                        Screen.ProfileEdit -> ProfileEditScreen(
+                            onBack = { mainInitialPage = 3; navigate(Screen.Main, NavigationDirection.Back) },
+                            onPickAvatar = {
+                                pickerTarget = PickerTarget.Avatar
+                                navigate(Screen.PhotoPicker)
+                            },
+                            croppedAvatar = croppedAvatar,
+                            onCroppedConsumed = { croppedAvatar = null },
+                        )
+                        Screen.KeepAliveCheck -> KeepAliveCheckScreen(
+                            onBack = { mainInitialPage = 3; navigate(Screen.Main, NavigationDirection.Back) },
+                        )
+                        Screen.About -> AboutScreen(
+                            onBack = { mainInitialPage = 3; navigate(Screen.Main, NavigationDirection.Back) },
+                            onLogout = { navigate(Screen.Login) },
+                            onUnbound = { navigate(Screen.Bind) },
+                        )
+                        Screen.MusicSettings -> MusicSettingsScreen(
+                            onBack = { mainInitialPage = 3; navigate(Screen.Main, NavigationDirection.Back) },
+                            onOpenMusic = { navigate(Screen.Music) },
+                        )
+                        Screen.Main -> MainTabs(
+                            initialPage = mainInitialPage,
+                            albumEnabled = albumEnabled,
+                            onOpenHistory = { navigate(Screen.History) },
+                            onOpenBind = { navigate(Screen.Bind) },
+                            onOpenAppearance = { navigate(Screen.Appearance) },
+                            onOpenLive2D = {
+                                live2DReturnScreen = Screen.Main
+                                navigate(Screen.Live2D)
+                            },
+                            onOpenAlbum = { navigate(Screen.DiscoverAlbum) },
+                            onOpenMusic = { navigate(Screen.Music) },
+                            onOpenListen = { navigate(Screen.DiscoverListen) },
+                            onOpenWatch = { navigate(Screen.DiscoverWatch) },
+                            onOpenProfileEdit = { navigate(Screen.ProfileEdit) },
+                            onOpenAbout = { navigate(Screen.About) },
+                            onOpenMusicSettings = { navigate(Screen.MusicSettings) },
+                            onOpenKeepAliveCheck = { navigate(Screen.KeepAliveCheck) },
                         )
                     }
                 }
-                Screen.DiscoverWatch -> WatchTogetherScreen(onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) })
-                Screen.ProfileEdit -> ProfileEditScreen(
-                    onBack = { mainInitialPage = 3; navigate(Screen.Main, NavigationDirection.Back) },
-                    onPickAvatar = {
-                        pickerTarget = PickerTarget.Avatar
-                        navigate(Screen.PhotoPicker)
-                    },
-                    croppedAvatar = croppedAvatar,
-                    onCroppedConsumed = { croppedAvatar = null },
-                )
-                Screen.KeepAliveCheck -> KeepAliveCheckScreen(
-                    onBack = { mainInitialPage = 3; navigate(Screen.Main, NavigationDirection.Back) },
-                )
-                Screen.About -> AboutScreen(
-                    onBack = { mainInitialPage = 3; navigate(Screen.Main, NavigationDirection.Back) },
-                    onLogout = { navigate(Screen.Login) },
-                    onUnbound = { navigate(Screen.Bind) },
-                )
-                Screen.MusicSettings -> MusicSettingsScreen(
-                    onBack = { mainInitialPage = 3; navigate(Screen.Main, NavigationDirection.Back) },
-                    onOpenMusic = { navigate(Screen.Music) },
-                )
-                Screen.Main -> MainTabs(
-                    initialPage = mainInitialPage,
-                    albumEnabled = albumEnabled,
-                    onOpenHistory = { navigate(Screen.History) },
-                    onOpenBind = { navigate(Screen.Bind) },
-                    onOpenAppearance = { navigate(Screen.Appearance) },
-                    onOpenLive2D = {
-                        live2DReturnScreen = Screen.Main
-                        navigate(Screen.Live2D)
-                    },
-                    onOpenAlbum = { navigate(Screen.DiscoverAlbum) },
-                    onOpenMusic = { navigate(Screen.Music) },
-                    onOpenListen = { navigate(Screen.DiscoverListen) },
-                    onOpenWatch = { navigate(Screen.DiscoverWatch) },
-                    onOpenProfileEdit = { navigate(Screen.ProfileEdit) },
-                    onOpenAbout = { navigate(Screen.About) },
-                    onOpenMusicSettings = { navigate(Screen.MusicSettings) },
-                    onOpenKeepAliveCheck = { navigate(Screen.KeepAliveCheck) },
-                )
-                }
-            }
-                // Keep global chrome outside AnimatedContent: during a page
-                // transition both old and new targets can be composed, and placing
-                // the player inside the transition would briefly create two mini
-                // players (and two BackHandlers). The player is one shell sibling.
-                // The playback chrome belongs to the app shell, not to the music page.
-                // It therefore survives switching tabs, opening lyrics, entering
-                // Together, and returning to the home page without duplicating during
-                // AnimatedContent transitions.
+                // Keep the mini player as one shell sibling of the single
+                // destination.  It is deliberately absent from every secondary
+                // screen, while playback state itself remains in the manager.
                 if (playback.track != null && targetShowsPlaybackChrome(screen)) {
                     MusicPlayerOverlay(
                         state = playback,
@@ -668,29 +639,21 @@ private fun MainTabs(
 
 // 注：Wallpaper 已移除——AppearanceScreen 精简后没有任何入口能到达它，
 // 整个壁纸裁剪页与 WallpaperProcessor 都是死代码（决策 Q29）。
-private enum class Screen {
+internal enum class Screen {
     Login, Register, Bind, Main, History, Appearance, ProfileEdit, About,
     DiscoverAlbum, AlbumDetail, PhotoPicker, PhotoViewer, OnThisDay, RecycleBin,
     AvatarCrop, KeepAliveCheck,
     DiscoverListen, DiscoverWatch, Music, Player, Lyrics, MusicSettings, Live2D,
 }
 
-private fun targetShowsPlaybackChrome(screen: Screen): Boolean = when (screen) {
-    // Keep the playback session global, but only expose its dock on pages that
-    // have a stable bottom area to reserve for it. Photo actions, companion
-    // rooms, pickers and text-entry flows keep their full bottom edge free.
-    Screen.Player -> false
-    Screen.Lyrics,
-    Screen.Main,
-    Screen.Music,
-    Screen.DiscoverAlbum,
-    Screen.Appearance,
-    Screen.History,
-    Screen.About,
-    Screen.KeepAliveCheck,
-    Screen.MusicSettings -> true
-    else -> false
-}
+/**
+ * The mini player is part of the four-tab home shell, not a global modal.
+ * Secondary destinations own their bottom edge (forms, photos, lyrics and
+ * dialogs), so showing the dock there both obscures content and changes their
+ * back/navigation semantics.  Playback itself remains alive in the manager;
+ * only this piece of chrome is scoped to [Screen.Main].
+ */
+internal fun targetShowsPlaybackChrome(screen: Screen): Boolean = screen == Screen.Main
 
 /** 选图器的用途。决定单选/多选、标题，以及选完该回哪个页面。 */
 private enum class PickerTarget { Album, Avatar }

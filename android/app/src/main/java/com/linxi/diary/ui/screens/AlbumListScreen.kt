@@ -42,7 +42,7 @@ import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.ui.components.LxIconButton
 import kotlinx.coroutines.launch
 import com.linxi.diary.ui.components.LxIcon as Icon
-import top.yukonga.miuix.kmp.basic.Text
+import com.linxi.diary.ui.components.LxText as Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.More

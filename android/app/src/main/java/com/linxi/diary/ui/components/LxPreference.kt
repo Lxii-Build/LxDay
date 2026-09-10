@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -26,7 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.linxi.diary.ui.components.LxIcon as Icon
 import top.yukonga.miuix.kmp.basic.Switch
-import top.yukonga.miuix.kmp.basic.Text
+import com.linxi.diary.ui.components.LxText as Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.ChevronForward
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
@@ -70,14 +71,16 @@ fun LxPreferenceRow(
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (startAction != null) {
                 Box(
                     modifier = Modifier
                         .width(36.dp)
-                        .heightIn(min = 48.dp),
+                        .height(48.dp),
                     contentAlignment = Alignment.CenterStart,
                 ) {
                     startAction()
@@ -85,7 +88,13 @@ fun LxPreferenceRow(
                 Spacer(Modifier.width(8.dp))
             }
             Column(
-                modifier = Modifier.weight(1f),
+                // A weighted child must be allowed to shrink.  Without the
+                // explicit zero minimum, long CJK summaries could retain an
+                // intrinsic width and push the trailing switch/chevron back
+                // over the text on narrow devices.
+                modifier = Modifier
+                    .weight(1f)
+                    .widthIn(min = 0.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Text(
@@ -105,7 +114,7 @@ fun LxPreferenceRow(
                 Box(
                     modifier = Modifier
                         .width(72.dp)
-                        .heightIn(min = 48.dp),
+                        .height(48.dp),
                     contentAlignment = Alignment.CenterEnd,
                 ) {
                     endAction()
@@ -123,10 +132,12 @@ fun LxPreferenceRow(
         if (!summary.isNullOrBlank()) {
             Text(
                 text = summary,
-                modifier = Modifier.padding(
-                    start = if (startAction != null) 44.dp else 0.dp,
-                    end = if (endAction != null) 84.dp else if (onClick != null) 32.dp else 0.dp,
-                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        start = if (startAction != null) 44.dp else 0.dp,
+                        end = if (endAction != null) 84.dp else if (onClick != null) 32.dp else 0.dp,
+                    ),
                 fontSize = 13.sp,
                 lineHeight = 18.sp,
                 maxLines = 3,

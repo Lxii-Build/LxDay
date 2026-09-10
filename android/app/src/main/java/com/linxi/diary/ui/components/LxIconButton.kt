@@ -4,9 +4,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -64,7 +64,17 @@ fun LxIconButton(
 
     LxSurface(
         modifier = modifier
-            .defaultMinSize(minWidth = MIN_TOUCH_DP.dp, minHeight = MIN_TOUCH_DP.dp)
+            // Icon actions are controls, not layout containers.  A TopAppBar
+            // may offer its slot the whole remaining width; a min size alone
+            // would make the clickable surface stretch into that slot.
+            // Keep the hit target exactly 48dp and center the visual glyph in
+            // that fixed square.
+            .sizeIn(
+                minWidth = MIN_TOUCH_DP.dp,
+                minHeight = MIN_TOUCH_DP.dp,
+                maxWidth = MIN_TOUCH_DP.dp,
+                maxHeight = MIN_TOUCH_DP.dp,
+            )
             .then(semantics)
             .clickable(
                 enabled = enabled,

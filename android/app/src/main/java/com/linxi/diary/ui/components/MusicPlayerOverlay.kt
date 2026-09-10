@@ -48,7 +48,7 @@ import com.linxi.diary.ui.navigation.PLAYBACK_CHROME_WIDTH_DP
 import com.linxi.diary.ui.theme.LocalLxSurfaceTokens
 import com.linxi.diary.ui.components.LxClickableSurface
 import com.linxi.diary.ui.components.LxIcon
-import top.yukonga.miuix.kmp.basic.Text
+import com.linxi.diary.ui.components.LxText as Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
 import top.yukonga.miuix.kmp.icon.extended.ChevronForward

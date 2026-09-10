@@ -38,7 +38,7 @@ import top.yukonga.miuix.kmp.icon.extended.Photos
 import top.yukonga.miuix.kmp.icon.extended.RecordingTape
 import top.yukonga.miuix.kmp.icon.extended.Tune
 import com.linxi.diary.ui.components.LxIcon as Icon
-import top.yukonga.miuix.kmp.basic.Text
+import com.linxi.diary.ui.components.LxText as Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 
 /**

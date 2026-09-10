@@ -60,7 +60,7 @@ import com.linxi.diary.ui.theme.BrandBlue
 import kotlinx.coroutines.launch
 import com.linxi.diary.ui.components.LxIcon as Icon
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.Text
+import com.linxi.diary.ui.components.LxText as Text
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Ok

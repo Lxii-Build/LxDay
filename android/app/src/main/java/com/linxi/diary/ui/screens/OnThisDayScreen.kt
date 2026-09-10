@@ -30,7 +30,7 @@ import com.linxi.diary.ui.components.LxClickableSurface
 import com.linxi.diary.ui.components.LxSurface
 import com.linxi.diary.ui.components.LxSurfaceTone
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Text
+import com.linxi.diary.ui.components.LxText as Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.util.Calendar
 

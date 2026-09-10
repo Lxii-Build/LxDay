@@ -20,7 +20,7 @@ import com.linxi.diary.ui.components.LxButtonVariant
 import com.linxi.diary.ui.components.LxSurface
 import com.linxi.diary.ui.components.LxSurfaceTone
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Text
+import com.linxi.diary.ui.components.LxText as Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 单页条数：滚到底自动加载下一页（此前写死 limit=100 且无分页）。 */

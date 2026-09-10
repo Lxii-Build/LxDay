@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -178,7 +179,11 @@ fun LoadingRow() {
 /** KernelSU 顶栏 actions 的返回/历史按钮辅助 */
 @Composable
 fun BackAction(onBack: () -> Unit) {
-    LxIconButton(onClick = onBack, contentDescription = "返回") {
+    LxIconButton(
+        onClick = onBack,
+        modifier = Modifier.size(MIN_TOUCH_DP.dp),
+        contentDescription = "返回",
+    ) {
         // 用 miuix 的 Icon 而非 material3 的：全 App 统一 miuix 组件（管理员要求）。
         LxIcon(
             // The extended Back glyph has a slightly asymmetric optical

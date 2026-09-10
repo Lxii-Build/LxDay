@@ -32,7 +32,7 @@ import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.util.Logs
 import com.linxi.diary.util.UserPrefs
 import top.yukonga.miuix.kmp.basic.Checkbox
-import top.yukonga.miuix.kmp.basic.Text
+import com.linxi.diary.ui.components.LxText as Text
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
