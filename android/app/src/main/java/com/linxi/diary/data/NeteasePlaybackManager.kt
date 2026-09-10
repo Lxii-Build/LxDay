@@ -14,8 +14,10 @@ import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.CommandButton
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.session.MediaSession
+import androidx.media3.session.SessionResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -132,7 +134,64 @@ object NeteasePlaybackManager {
         }
         // Use the platform media session so Android, not app-specific “island”
         // settings, owns playback controls and real-time media presentation.
-        mediaSession = MediaSession.Builder(appContext, player).build()
+        // The queue is resolved lazily (网易云 URLs expire), so ExoPlayer only
+        // has the current MediaItem and would otherwise advertise no next/prev
+        // commands to the lock screen, desktop and headset controllers.
+        // Advertise those standard commands and route them through the same
+        // async resolver used by the in-app controls.
+        val transportButtons = listOf(
+            CommandButton.Builder(CommandButton.ICON_PREVIOUS)
+                .setPlayerCommand(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                .setDisplayName("上一首")
+                .setSlots(CommandButton.SLOT_BACK)
+                .build(),
+            CommandButton.Builder(CommandButton.ICON_NEXT)
+                .setPlayerCommand(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                .setDisplayName("下一首")
+                .setSlots(CommandButton.SLOT_FORWARD)
+                .build(),
+        )
+        mediaSession = MediaSession.Builder(appContext, player)
+            .setCallback(object : MediaSession.Callback {
+                override fun onConnect(
+                    session: MediaSession,
+                    controller: MediaSession.ControllerInfo,
+                ): MediaSession.ConnectionResult {
+                    val base = super.onConnect(session, controller)
+                    val commands = base.availablePlayerCommands.buildUpon()
+                        .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                        .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                        .build()
+                    return MediaSession.ConnectionResult.accept(
+                        base.availableSessionCommands,
+                        commands,
+                    )
+                }
+
+                override fun onPlayerCommandRequest(
+                    session: MediaSession,
+                    controller: MediaSession.ControllerInfo,
+                    playerCommand: Int,
+                ): Int = when (playerCommand) {
+                    Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+                    Player.COMMAND_SEEK_TO_PREVIOUS_WINDOW,
+                    Player.COMMAND_SEEK_TO_PREVIOUS ->
+                        if (skipToPrevious()) SessionResult.RESULT_SUCCESS
+                        else SessionResult.RESULT_ERROR_NOT_SUPPORTED
+
+                    Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+                    Player.COMMAND_SEEK_TO_NEXT_WINDOW,
+                    Player.COMMAND_SEEK_TO_NEXT ->
+                        if (skipToNext()) SessionResult.RESULT_SUCCESS
+                        else SessionResult.RESULT_ERROR_NOT_SUPPORTED
+
+                    else -> super.onPlayerCommandRequest(session, controller, playerCommand)
+                }
+            })
+            // Some vendor desktop surfaces read media-button preferences rather
+            // than the compact NotificationCompat action list.
+            .setMediaButtonPreferences(transportButtons)
+            .build()
         MusicNotificationController.init(context, mediaSession)
         playbackScope.launch {
             state.collect { MusicNotificationController.refresh(it) }
@@ -162,6 +221,8 @@ object NeteasePlaybackManager {
         url: String,
         positionMs: Long = 0L,
         autoplay: Boolean = true,
+        queue: List<NeteaseTrack>? = null,
+        queueIndex: Int? = null,
     ) {
         ensureInitialized()
         // A direct play request (for example selecting a new search result or
@@ -172,12 +233,18 @@ object NeteasePlaybackManager {
         skipJob = null
         require(url.startsWith("https://", ignoreCase = true)) { "播放地址必须使用 HTTPS" }
         val current = state.value
-        val queue = if (current.queue.any { it.stableKey == track.stableKey }) {
+        val requestedQueue = queue
+            ?.distinctBy { it.stableKey }
+            ?.filter { it.id > 0L }
+            ?.takeIf { it.isNotEmpty() }
+        val effectiveQueue = requestedQueue ?: if (current.queue.any { it.stableKey == track.stableKey }) {
             current.queue
         } else {
             current.queue + track
         }
-        val queueIndex = queue.indexOfFirst { it.stableKey == track.stableKey }
+        val effectiveQueueIndex = queueIndex
+            ?.takeIf { it in effectiveQueue.indices && effectiveQueue[it].stableKey == track.stableKey }
+            ?: effectiveQueue.indexOfFirst { it.stableKey == track.stableKey }
         val changed = current.track?.stableKey != track.stableKey || currentUrl != url
         if (changed) {
             currentUrl = url
@@ -219,8 +286,8 @@ object NeteasePlaybackManager {
         }
         state.value = state.value.copy(
             track = track,
-            queue = queue,
-            queueIndex = queueIndex,
+            queue = effectiveQueue,
+            queueIndex = effectiveQueueIndex,
             durationMs = track.durationMs.coerceAtLeast(0L),
             playing = autoplay,
             loading = true,

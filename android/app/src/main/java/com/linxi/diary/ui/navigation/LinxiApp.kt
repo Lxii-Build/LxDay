@@ -82,7 +82,6 @@ import com.linxi.diary.ui.components.MusicPlayerOverlay
 import com.linxi.diary.ui.components.LxButtonVariant
 import com.linxi.diary.ui.components.LxIconButton
 import com.linxi.diary.ui.components.LxNoticeHost
-import com.linxi.diary.ui.theme.LocalLxSurfaceTokens
 import com.linxi.diary.ui.screens.UpdateDialog
 import com.linxi.diary.ui.screens.UpdateInfo
 import com.linxi.diary.util.Logs
@@ -100,9 +99,6 @@ import top.yukonga.miuix.kmp.icon.extended.Ok
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.blur.layerBackdrop
-import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
-import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 private data class TabItem(val label: String, val icon: ImageVector)
 
@@ -501,12 +497,6 @@ private fun MainTabs(
         mutableStateOf(UserPrefs.pairId > 0 && !UserPrefs.privacyConsented)
     }
     var reviewConsent by remember { mutableStateOf(false) }
-    val surfaceColor = LocalLxSurfaceTokens.current.canvas
-    val backdrop = rememberLayerBackdrop {
-        drawRect(surfaceColor)
-        drawContent()
-    }
-
     LaunchedEffect(pagerState.currentPage) {
         mainState.syncPage()
     }
@@ -593,7 +583,10 @@ private fun MainTabs(
                     ),
                 selectedIndex = { mainState.selectedPage },
                 onSelected = mainState::animateToPage,
-                backdrop = backdrop,
+                // Keep the bottom navigation on the verified opaque path.  A
+                // nullable backdrop makes it impossible for this call site to
+                // accidentally attach the RenderEffect sampling layer again.
+                backdrop = null,
                 tabsCount = tabs.size,
                 // Keep the liquid interaction/selection animation, but use an
                 // opaque surface until the RenderEffect path is validated on

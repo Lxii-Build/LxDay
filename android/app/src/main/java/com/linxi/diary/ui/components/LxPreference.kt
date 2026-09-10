@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -60,12 +61,12 @@ fun LxPreferenceRow(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 72.dp)
-            .padding(horizontal = 16.dp, vertical = 14.dp)
             // Keep the full padded row tappable. Putting clickable before
             // padding makes the visual inset outside the hit target on some
             // Compose versions, which is especially noticeable beside a
             // switch in a dense settings card.
-            .then(clickModifier),
+            .then(clickModifier)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (startAction != null) {
@@ -102,7 +103,17 @@ fun LxPreferenceRow(
         }
         if (endAction != null) {
             Spacer(Modifier.width(12.dp))
-            endAction()
+            // Vendor controls must have their own measured column.  Without a
+            // bounded slot, a long choice label or a Miuix Switch can measure
+            // against the same width as the summary and paint over it on some
+            // font-scale/layout paths.
+            Box(
+                modifier = Modifier
+                    .width(72.dp),
+                contentAlignment = Alignment.CenterEnd,
+            ) {
+                endAction()
+            }
         } else if (onClick != null) {
             Spacer(Modifier.width(10.dp))
             Icon(

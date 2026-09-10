@@ -178,7 +178,7 @@ fun FloatingBottomBar(
     modifier: Modifier = Modifier,
     selectedIndex: () -> Int,
     onSelected: (index: Int) -> Unit,
-    backdrop: Backdrop,
+    backdrop: Backdrop?,
     tabsCount: Int,
     isBlurEnabled: Boolean = true,
     content: @Composable RowScope.() -> Unit
@@ -190,7 +190,12 @@ fun FloatingBottomBar(
     val surfaceContainer = MiuixTheme.colorScheme.surfaceContainer
     val containerColor = if (isBlurEnabled) surfaceContainer.copy(0.4f) else surfaceContainer
 
-    val tabsBackdrop = rememberLayerBackdrop()
+    // Do not allocate or attach a RenderEffect backdrop when the stable opaque
+    // mode is selected.  On affected Android 15/16 GPU paths merely keeping a
+    // live backdrop around was enough to produce ghosted text/white rectangles
+    // in neighbouring composables.
+    val activeBackdrop = if (isBlurEnabled) backdrop else null
+    val tabsBackdrop = if (activeBackdrop != null) rememberLayerBackdrop() else null
     val density = LocalDensity.current
     val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
     val animationScope = rememberCoroutineScope()
@@ -290,7 +295,11 @@ fun FloatingBottomBar(
     val baseHighlight = rememberGravityRotatedHighlight(iosIndicatorSpecular, extraDegrees = -45f)
     val pillHighlight = rememberGravityRotatedHighlight(iosIndicatorSpecular, extraDegrees = 90f)
 
-    val combinedBackdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop)
+    val combinedBackdrop = if (activeBackdrop != null && tabsBackdrop != null) {
+        rememberCombinedBackdrop(activeBackdrop, tabsBackdrop)
+    } else {
+        null
+    }
 
     Box(
         modifier = modifier.width(IntrinsicSize.Min),
@@ -318,9 +327,9 @@ fun FloatingBottomBar(
                     onClick = {}
                 )
                 .then(
-                    if (isBlurEnabled) {
+                    if (activeBackdrop != null) {
                         Modifier.drawBackdrop(
-                            backdrop = backdrop,
+                            backdrop = activeBackdrop,
                             shape = { pillShape },
                             effects = {
                                 vibrancy()
@@ -353,7 +362,7 @@ fun FloatingBottomBar(
             }
         }
 
-        if (isBlurEnabled) {
+        if (activeBackdrop != null && tabsBackdrop != null) {
             CompositionLocalProvider(
                 LocalFloatingBottomBarTabScale provides {
                     lerp(1f, 1.2f, dampedDragAnimation.pressProgress)
@@ -367,7 +376,7 @@ fun FloatingBottomBar(
                         .layerBackdrop(tabsBackdrop)
                         .graphicsLayer { translationX = panelOffset }
                         .drawBackdrop(
-                            backdrop = backdrop,
+                            backdrop = activeBackdrop,
                             shape = { pillShape },
                             effects = {
                                 vibrancy()
@@ -390,7 +399,7 @@ fun FloatingBottomBar(
 
         if (tabWidthPx > 0f) {
             val tabWidthDp = with(density) { tabWidthPx.toDp() }
-            if (isBlurEnabled) {
+            if (activeBackdrop != null && combinedBackdrop != null) {
                 Box(
                     Modifier
                         .padding(horizontal = 4.dp)

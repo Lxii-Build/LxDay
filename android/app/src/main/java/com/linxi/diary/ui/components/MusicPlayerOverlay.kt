@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,6 +60,7 @@ import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
 import top.yukonga.miuix.kmp.icon.extended.ChevronForward
 import top.yukonga.miuix.kmp.icon.extended.Pause
 import top.yukonga.miuix.kmp.icon.extended.Play
+import top.yukonga.miuix.kmp.icon.extended.Playlist
 import top.yukonga.miuix.kmp.icon.extended.Recent
 import top.yukonga.miuix.kmp.icon.extended.Tune
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -90,7 +92,9 @@ fun MusicPlayerOverlay(
     Box(Modifier.fillMaxSize()) {
         AnimatedVisibility(
             visible = !expanded,
-            modifier = Modifier.align(Alignment.BottomEnd),
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.BottomCenter),
             enter = fadeIn(animationSpec = tween(220)),
             exit = fadeOut(animationSpec = tween(180)),
         ) {
@@ -98,7 +102,6 @@ fun MusicPlayerOverlay(
                 state = state,
                 onExpand = { expanded = true },
                 onToggle = ::toggle,
-                onOpenLyrics = { onOpenLyrics(track) },
             )
         }
 
@@ -147,99 +150,164 @@ private fun MiniPlaybackCard(
     state: NeteasePlaybackState,
     onExpand: () -> Unit,
     onToggle: () -> Unit,
-    onOpenLyrics: () -> Unit,
 ) {
     val track = state.track ?: return
     val tokens = LocalLxSurfaceTokens.current
-    Row(
+    val duration = state.durationMs.coerceAtLeast(0L)
+    val progress = if (duration > 0L) {
+        (state.positionMs.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    LxClickableSurface(
         modifier = Modifier
             .navigationBarsPadding()
-            // The 64dp tab bar ends 12dp above the navigation inset.  Keep the
-            // mini dock just above it, with a small gap, so it reads as part of
-            // the bottom chrome instead of a full-width card over the page.
-            .padding(end = 12.dp, bottom = 84.dp)
-            .width(224.dp)
-            .height(64.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            // The card spans the page above the bottom tab bar.  Its height is
+            // intentionally large enough for the cover, transport row and a
+            // real progress preview; this is not a floating playback capsule.
+            .padding(horizontal = 12.dp, bottom = 84.dp)
+            .fillMaxWidth()
+            .height(128.dp),
+        tone = LxSurfaceTone.Floating,
+        shape = RoundedCornerShape(20.dp),
+        onClick = onExpand,
+        contentDescription = "展开播放器：${track.title}",
     ) {
-        LxClickableSurface(
+        Column(
             modifier = Modifier
-                .weight(1f)
-                .height(64.dp),
-            tone = LxSurfaceTone.Floating,
-            // A half-pill on the left joined to the square action on the
-            // right keeps the control visually anchored to the tab bar.
-            shape = RoundedCornerShape(
-                topStart = 32.dp,
-                bottomStart = 32.dp,
-                topEnd = 0.dp,
-                bottomEnd = 0.dp,
-            ),
-            onClick = onExpand,
-            contentDescription = "展开播放器：${track.title}",
+                .fillMaxSize()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
         ) {
             Row(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(start = 8.dp, end = 10.dp),
+                    .fillMaxWidth()
+                    .weight(1f),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                LxClickableSurface(
-                    modifier = Modifier.size(46.dp),
-                    tone = LxSurfaceTone.Inset,
-                    shape = RoundedCornerShape(13.dp),
-                    onClick = onOpenLyrics,
-                    contentDescription = "打开歌词：${track.title}",
-                ) {
-                    NeteaseTrackCover(
-                        track,
-                        modifier = Modifier.fillMaxSize(),
-                        description = "音乐封面，点击打开歌词",
-                        shape = RoundedCornerShape(13.dp),
-                    )
-                }
+                // The cover belongs to the expandable body.  Only the play
+                // control below is a direct action; tapping the cover, title,
+                // transport glyphs or queue glyph opens the detailed player.
+                NeteaseTrackCover(
+                    track,
+                    modifier = Modifier.size(60.dp),
+                    description = "音乐封面，点击展开播放器",
+                    shape = RoundedCornerShape(14.dp),
+                )
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(start = 10.dp),
+                        .padding(start = 12.dp, end = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     Text(
                         track.title,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        fontSize = 15.sp,
+                        fontSize = 16.sp,
                     )
                     Text(
-                        track.artist,
+                        track.artist.ifBlank { "网易云音乐" },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         fontSize = 12.sp,
                         color = tokens.textSecondary,
                     )
                 }
+                Icon(
+                    MiuixIcons.ChevronBackward,
+                    contentDescription = "展开后切换上一首",
+                    tint = tokens.textSecondary,
+                    modifier = Modifier.size(28.dp),
+                )
+                LxIconButton(
+                    onClick = onToggle,
+                    variant = LxButtonVariant.Positive,
+                    shape = CircleShape,
+                    edgeRadius = 28.dp,
+                    modifier = Modifier.size(56.dp),
+                    contentDescription = if (state.playing) "暂停" else "播放",
+                ) {
+                    Icon(
+                        if (state.playing) MiuixIcons.Pause else MiuixIcons.Play,
+                        contentDescription = if (state.playing) "暂停" else "播放",
+                    )
+                }
+                Icon(
+                    MiuixIcons.ChevronForward,
+                    contentDescription = "展开后切换下一首",
+                    tint = tokens.textSecondary,
+                    modifier = Modifier.size(28.dp),
+                )
+                Icon(
+                    MiuixIcons.Playlist,
+                    contentDescription = "展开后查看播放队列",
+                    tint = tokens.textSecondary,
+                    modifier = Modifier
+                        .padding(start = 4.dp)
+                        .size(28.dp),
+                )
             }
-        }
-        LxIconButton(
-            onClick = onToggle,
-            variant = LxButtonVariant.Positive,
-            // No left radius: this is the square half of the dock, not a
-            // second floating pill separated from the track information.
-            shape = RoundedCornerShape(
-                topStart = 0.dp,
-                bottomStart = 0.dp,
-                topEnd = 18.dp,
-                bottomEnd = 18.dp,
-            ),
-            edgeRadius = 17.dp,
-            modifier = Modifier.size(64.dp),
-            contentDescription = if (state.playing) "暂停" else "播放",
-        ) {
-            Icon(
-                if (state.playing) MiuixIcons.Pause else MiuixIcons.Play,
-                contentDescription = if (state.playing) "暂停" else "播放",
+            MiniProgressLine(
+                progress = progress,
+                positionMs = state.positionMs,
+                durationMs = duration,
             )
         }
+    }
+}
+
+@Composable
+private fun MiniProgressLine(
+    progress: Float,
+    positionMs: Long,
+    durationMs: Long,
+) {
+    val tokens = LocalLxSurfaceTokens.current
+    val primary = MiuixTheme.colorScheme.primary
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            formatMusicPosition(positionMs),
+            fontSize = 11.sp,
+            color = tokens.textSecondary,
+        )
+        Canvas(
+            modifier = Modifier
+                .weight(1f)
+                .height(16.dp),
+        ) {
+            val centerY = size.height / 2f
+            val startX = 0f
+            val endX = size.width
+            val trackWidth = (endX - startX).coerceAtLeast(1f)
+            drawLine(
+                color = tokens.line,
+                start = Offset(startX, centerY),
+                end = Offset(endX, centerY),
+                strokeWidth = 4.dp.toPx(),
+                cap = StrokeCap.Round,
+            )
+            drawLine(
+                color = primary,
+                start = Offset(startX, centerY),
+                end = Offset(startX + trackWidth * progress.coerceIn(0f, 1f), centerY),
+                strokeWidth = 4.dp.toPx(),
+                cap = StrokeCap.Round,
+            )
+            drawCircle(
+                color = primary,
+                radius = 5.dp.toPx(),
+                center = Offset(startX + trackWidth * progress.coerceIn(0f, 1f), centerY),
+            )
+        }
+        Text(
+            if (durationMs > 0L) formatMusicPosition(durationMs) else "--:--",
+            fontSize = 11.sp,
+            color = tokens.textSecondary,
+        )
     }
 }
 

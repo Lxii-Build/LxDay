@@ -64,6 +64,9 @@ fun MusicHomeScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var info by remember { mutableStateOf<String?>(null) }
     var searchHistory by remember { mutableStateOf(UserPrefs.musicSearchHistoryEntries) }
+    // URL resolution is asynchronous.  A second tap must invalidate the first
+    // request before it can commit its track/queue to the shared player.
+    var playRequestGeneration by remember { mutableStateOf(0L) }
 
     val loginLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -116,17 +119,39 @@ fun MusicHomeScreen(
             error = "请先绑定网易云账号"
             return
         }
+        val generation = playRequestGeneration + 1L
+        playRequestGeneration = generation
         resolving = track.id
         error = null
         scope.launch {
-            runCatching {
-                val index = source.indexOfFirst { it.stableKey == track.stableKey }.coerceAtLeast(0)
-                NeteasePlaybackManager.setQueue(source.ifEmpty { listOf(track) }, index)
+            try {
+                val queue = source
+                    .distinctBy { it.stableKey }
+                    .let { songs -> if (songs.any { it.stableKey == track.stableKey }) songs else songs + track }
+                    .ifEmpty { listOf(track) }
+                val index = queue.indexOfFirst { it.stableKey == track.stableKey }
                 val url = NeteaseClient.resolvePlaybackUrl(track.id)
-                NeteasePlaybackManager.play(track, url)
-            }.onSuccess { info = "正在播放《${track.title}》" }
-                .onFailure { error = it.message ?: "无法解析这首网易云歌曲" }
-            resolving = null
+                // Do not publish a half-resolved queue.  The manager commits
+                // the queue and MediaItem together only after this request is
+                // still the latest one, so an older search result cannot jump
+                // back over the song the user just selected.
+                if (generation != playRequestGeneration) return@launch
+                NeteasePlaybackManager.play(
+                    track = track,
+                    url = url,
+                    queue = queue,
+                    queueIndex = index,
+                )
+                info = "正在播放《${track.title}》"
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                if (generation == playRequestGeneration) {
+                    error = failure.message ?: "无法解析这首网易云歌曲"
+                }
+            } finally {
+                if (generation == playRequestGeneration) resolving = null
+            }
         }
     }
 
