@@ -1,6 +1,7 @@
 # 林曦日记 · 一体化镜像（多阶段构建）
 # ① node 构建后台前端 dist  ② go 将 dist 拷进 server/webdist 后编译（内嵌）  ③ 精简运行时
 # 构建上下文为仓库根（compose: build.context=.），故路径以 admin/ server/ 开头。
+# 发布时镜像与 Android APK 固定使用同一个 main 提交；BUILD_COMMIT 同时写入二进制与 OCI 标签。
 
 # ---- 阶段①：构建后台前端（Vue 运营后台）dist ----
 FROM --platform=$BUILDPLATFORM node:22-alpine AS web
