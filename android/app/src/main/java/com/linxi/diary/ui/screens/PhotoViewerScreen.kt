@@ -44,7 +44,7 @@ import com.linxi.diary.ui.theme.BrandRed
 import com.linxi.diary.ui.theme.LocalLxSurfaceTokens
 import com.linxi.diary.ui.navigation.LocalPlaybackBottomPadding
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.Icon
+import com.linxi.diary.ui.components.LxIcon as Icon
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField

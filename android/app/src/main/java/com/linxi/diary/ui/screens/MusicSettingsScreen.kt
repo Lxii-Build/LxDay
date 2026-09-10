@@ -28,6 +28,7 @@ import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.ui.components.LxArrowPreference
 import com.linxi.diary.ui.components.LxChoicePreference
 import com.linxi.diary.ui.components.LxSwitchPreference
+import com.linxi.diary.ui.components.LxIcon
 import com.linxi.diary.util.UserPrefs
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.icon.MiuixIcons
@@ -226,7 +227,7 @@ fun MusicSettingsScreen(onBack: () -> Unit, onOpenMusic: () -> Unit) {
 
 @Composable
 private fun MusicSettingIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, description: String) {
-    top.yukonga.miuix.kmp.basic.Icon(
+    LxIcon(
         imageVector = icon,
         contentDescription = description,
         modifier = Modifier.padding(end = 6.dp),

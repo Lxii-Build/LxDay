@@ -1,12 +1,6 @@
 package com.linxi.diary.ui.components
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -26,20 +20,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
@@ -53,7 +45,7 @@ import com.linxi.diary.data.NeteaseRepeatMode
 import com.linxi.diary.data.NeteaseTrack
 import com.linxi.diary.ui.theme.LocalLxSurfaceTokens
 import com.linxi.diary.ui.components.LxClickableSurface
-import top.yukonga.miuix.kmp.basic.Icon
+import com.linxi.diary.ui.components.LxIcon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
@@ -66,248 +58,133 @@ import top.yukonga.miuix.kmp.icon.extended.Tune
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * A single playback surface shared by every main tab.
+ * A single compact playback dock shared by every main tab.
  *
  * The mini surface is deliberately a sibling of the pager rather than an item in
  * MusicHomeScreen.  That makes the playback contract global and prevents a page
- * switch from destroying the user's current controls.  The expanded surface uses
- * the same state and controls; it is not a second player.
+ * switch from destroying the user's current controls. The full player is a real
+ * navigation destination and is rendered by [MusicPlayerScreen] below.
  */
 @Composable
 fun MusicPlayerOverlay(
     state: NeteasePlaybackState,
+    onOpenPlayer: () -> Unit,
+) {
+    if (state.track == null) return
+    Box(Modifier.fillMaxSize()) {
+        MiniPlaybackCard(
+            state = state,
+            onOpen = onOpenPlayer,
+            onToggle = {
+                if (state.playing) NeteasePlaybackManager.pause() else NeteasePlaybackManager.resume()
+            },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
+    }
+}
+
+/**
+ * Full player destination. It owns the system back action while it is on the
+ * navigation stack, so returning from it goes to the page that opened it
+ * instead of falling through to MainTabs' "再按一次退出" handler.
+ */
+@Composable
+fun MusicPlayerScreen(
+    state: NeteasePlaybackState,
+    onBack: () -> Unit,
     onOpenLyrics: (NeteaseTrack) -> Unit,
     onOpenMusic: () -> Unit,
 ) {
-    val track = state.track ?: return
-    var expanded by remember { mutableStateOf(false) }
-    val tokens = LocalLxSurfaceTokens.current
+    val track = state.track
+    BackHandler { onBack() }
+    if (track == null) return
 
-    fun toggle() {
-        if (state.playing) NeteasePlaybackManager.pause() else NeteasePlaybackManager.resume()
-    }
-
-    BackHandler(enabled = expanded) { expanded = false }
-
-    Box(Modifier.fillMaxSize()) {
-        AnimatedVisibility(
-            visible = !expanded,
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.BottomCenter),
-            enter = fadeIn(animationSpec = tween(220)),
-            exit = fadeOut(animationSpec = tween(180)),
-        ) {
-            MiniPlaybackCard(
-                state = state,
-                onExpand = { expanded = true },
-                onToggle = ::toggle,
-            )
-        }
-
-        AnimatedVisibility(
-            visible = expanded,
-            modifier = Modifier.fillMaxSize(),
-            // 1.2 规范：完整播放器从底部上移 280ms，收起反向 220ms。
-            // 明确写出时长，避免使用 Compose 默认动画导致不同版本观感漂移。
-            enter = slideInVertically(
-                animationSpec = tween(durationMillis = 280),
-                initialOffsetY = { it },
-            ) + fadeIn(animationSpec = tween(220)),
-            exit = slideOutVertically(
-                animationSpec = tween(durationMillis = 220),
-                targetOffsetY = { it },
-            ) + fadeOut(animationSpec = tween(180)),
-        ) {
-            FullPlaybackSheet(
-                state = state,
-                resolving = state.resolving,
-                onCollapse = { expanded = false },
-                onOpenMusic = {
-                    // Navigation belongs to the shell, but the sheet owns its
-                    // visibility. Collapse first so the destination is not
-                    // covered by a second full-screen player surface.
-                    expanded = false
-                    onOpenMusic()
-                },
-                onOpenLyrics = {
-                    expanded = false
-                    onOpenLyrics(track)
-                },
-                onPrevious = { NeteasePlaybackManager.skipToPrevious() },
-                onNext = { NeteasePlaybackManager.skipToNext() },
-                onToggle = ::toggle,
-                onShuffle = { NeteasePlaybackManager.toggleShuffle() },
-                onRepeat = { NeteasePlaybackManager.cycleRepeatMode() },
-                canvas = tokens.canvas,
-            )
-        }
-    }
+    FullPlaybackSheet(
+        state = state,
+        resolving = state.resolving,
+        onBack = onBack,
+        onOpenMusic = onOpenMusic,
+        onOpenLyrics = { onOpenLyrics(track) },
+        onPrevious = { NeteasePlaybackManager.skipToPrevious() },
+        onNext = { NeteasePlaybackManager.skipToNext() },
+        onToggle = {
+            if (state.playing) NeteasePlaybackManager.pause() else NeteasePlaybackManager.resume()
+        },
+        onShuffle = { NeteasePlaybackManager.toggleShuffle() },
+        onRepeat = { NeteasePlaybackManager.cycleRepeatMode() },
+        canvas = LocalLxSurfaceTokens.current.canvas,
+    )
 }
 
 @Composable
 private fun MiniPlaybackCard(
     state: NeteasePlaybackState,
-    onExpand: () -> Unit,
+    onOpen: () -> Unit,
     onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val track = state.track ?: return
     val tokens = LocalLxSurfaceTokens.current
-    val duration = state.durationMs.coerceAtLeast(0L)
-    val progress = if (duration > 0L) {
-        (state.positionMs.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
-    } else {
-        0f
-    }
+    val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     LxClickableSurface(
-        modifier = Modifier
+        modifier = modifier
             .navigationBarsPadding()
-            // The card spans the page above the bottom tab bar.  Its height is
-            // intentionally large enough for the cover, transport row and a
-            // real progress preview; this is not a floating playback capsule.
-            .padding(start = 12.dp, end = 12.dp, bottom = 84.dp)
+            .widthIn(max = 312.dp)
             .fillMaxWidth()
-            .height(128.dp),
+            .padding(bottom = 84.dp)
+            .height(64.dp),
         tone = LxSurfaceTone.Floating,
-        shape = RoundedCornerShape(20.dp),
-        onClick = onExpand,
+        shape = RoundedCornerShape(32.dp),
+        onClick = onOpen,
         contentDescription = "展开播放器：${track.title}",
     ) {
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+                .padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
+            NeteaseTrackCover(
+                track,
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                verticalAlignment = Alignment.CenterVertically,
+                    .size(44.dp),
+                description = "音乐封面，点击打开播放器",
+                shape = RoundedCornerShape(12.dp),
+            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 10.dp, end = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(1.dp),
             ) {
-                // The cover belongs to the expandable body.  Only the play
-                // control below is a direct action; tapping the cover, title,
-                // transport glyphs or queue glyph opens the detailed player.
-                NeteaseTrackCover(
-                    track,
-                    modifier = Modifier.size(60.dp),
-                    description = "音乐封面，点击展开播放器",
-                    shape = RoundedCornerShape(14.dp),
+                Text(
+                    track.title,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    fontSize = 15.sp,
                 )
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(start = 12.dp, end = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    Text(
-                        track.title,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        fontSize = 16.sp,
-                    )
-                    Text(
-                        track.artist.ifBlank { "网易云音乐" },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        fontSize = 12.sp,
-                        color = tokens.textSecondary,
-                    )
-                }
-                Icon(
-                    MiuixIcons.ChevronBackward,
-                    contentDescription = "展开后切换上一首",
-                    tint = tokens.textSecondary,
-                    modifier = Modifier.size(28.dp),
-                )
-                LxIconButton(
-                    onClick = onToggle,
-                    variant = LxButtonVariant.Positive,
-                    shape = CircleShape,
-                    edgeRadius = 28.dp,
-                    modifier = Modifier.size(56.dp),
-                    contentDescription = if (state.playing) "暂停" else "播放",
-                ) {
-                    Icon(
-                        if (state.playing) MiuixIcons.Pause else MiuixIcons.Play,
-                        contentDescription = if (state.playing) "暂停" else "播放",
-                    )
-                }
-                Icon(
-                    MiuixIcons.ChevronForward,
-                    contentDescription = "展开后切换下一首",
-                    tint = tokens.textSecondary,
-                    modifier = Modifier.size(28.dp),
-                )
-                Icon(
-                    MiuixIcons.Playlist,
-                    contentDescription = "展开后查看播放队列",
-                    tint = tokens.textSecondary,
-                    modifier = Modifier
-                        .padding(start = 4.dp)
-                        .size(28.dp),
+                Text(
+                    track.artist.ifBlank { "网易云音乐" },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    fontSize = 12.sp,
+                    color = tokens.textSecondary,
                 )
             }
-            MiniProgressLine(
-                progress = progress,
-                positionMs = state.positionMs,
-                durationMs = duration,
-            )
+            LxIconButton(
+                onClick = onToggle,
+                variant = LxButtonVariant.Positive,
+                shape = RoundedCornerShape(24.dp),
+                edgeRadius = 24.dp,
+                modifier = Modifier.size(48.dp),
+                contentDescription = if (state.playing) "暂停" else "播放",
+            ) {
+                LxIcon(
+                    if (state.playing) MiuixIcons.Pause else MiuixIcons.Play,
+                    contentDescription = if (state.playing) "暂停" else "播放",
+                )
+            }
         }
-    }
-}
-
-@Composable
-private fun MiniProgressLine(
-    progress: Float,
-    positionMs: Long,
-    durationMs: Long,
-) {
-    val tokens = LocalLxSurfaceTokens.current
-    val primary = MiuixTheme.colorScheme.primary
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text(
-            formatMusicPosition(positionMs),
-            fontSize = 11.sp,
-            color = tokens.textSecondary,
-        )
-        Canvas(
-            modifier = Modifier
-                .weight(1f)
-                .height(16.dp),
-        ) {
-            val centerY = size.height / 2f
-            val startX = 0f
-            val endX = size.width
-            val trackWidth = (endX - startX).coerceAtLeast(1f)
-            drawLine(
-                color = tokens.line,
-                start = Offset(startX, centerY),
-                end = Offset(endX, centerY),
-                strokeWidth = 4.dp.toPx(),
-                cap = StrokeCap.Round,
-            )
-            drawLine(
-                color = primary,
-                start = Offset(startX, centerY),
-                end = Offset(startX + trackWidth * progress.coerceIn(0f, 1f), centerY),
-                strokeWidth = 4.dp.toPx(),
-                cap = StrokeCap.Round,
-            )
-            drawCircle(
-                color = primary,
-                radius = 5.dp.toPx(),
-                center = Offset(startX + trackWidth * progress.coerceIn(0f, 1f), centerY),
-            )
-        }
-        Text(
-            if (durationMs > 0L) formatMusicPosition(durationMs) else "--:--",
-            fontSize = 11.sp,
-            color = tokens.textSecondary,
-        )
     }
 }
 
@@ -315,7 +192,7 @@ private fun MiniProgressLine(
 private fun FullPlaybackSheet(
     state: NeteasePlaybackState,
     resolving: Boolean,
-    onCollapse: () -> Unit,
+    onBack: () -> Unit,
     onOpenMusic: () -> Unit,
     onOpenLyrics: () -> Unit,
     onPrevious: () -> Unit,
@@ -343,7 +220,7 @@ private fun FullPlaybackSheet(
             .padding(horizontal = 20.dp, vertical = 14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            BackAction(onCollapse)
+            BackAction(onBack)
             Spacer(Modifier.weight(1f))
             LxButton(
                 text = "音乐库",
@@ -359,7 +236,7 @@ private fun FullPlaybackSheet(
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val coverSize = minOf(
                 maxWidth,
-                if (maxHeight < 760.dp) 220.dp else 288.dp,
+                if (screenHeight < 760.dp) 220.dp else 288.dp,
             )
             LxSurface(
                 modifier = Modifier
@@ -559,7 +436,7 @@ private fun PlayerControlButton(
             variant = if (primary) LxButtonVariant.Positive else LxButtonVariant.Neutral,
             modifier = Modifier.size(if (primary) 64.dp else 48.dp),
             horizontalPadding = 0,
-            content = { Icon(icon, contentDescription = description) },
+            content = { LxIcon(icon, contentDescription = description) },
         )
         Text(label, fontSize = 11.sp, maxLines = 1, color = tokens.textSecondary)
     }

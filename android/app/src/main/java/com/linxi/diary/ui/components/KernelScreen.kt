@@ -180,7 +180,7 @@ fun LoadingRow() {
 fun BackAction(onBack: () -> Unit) {
     LxIconButton(onClick = onBack, contentDescription = "返回") {
         // 用 miuix 的 Icon 而非 material3 的：全 App 统一 miuix 组件（管理员要求）。
-        top.yukonga.miuix.kmp.basic.Icon(
+        LxIcon(
             // The extended Back glyph has a slightly asymmetric optical
             // center on some font-scale/render paths. A basic arrow rotated
             // 180 degrees keeps the header action geometrically straight.

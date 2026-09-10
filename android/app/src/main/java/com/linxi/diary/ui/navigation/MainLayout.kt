@@ -8,11 +8,11 @@ import androidx.compose.ui.unit.dp
 val LocalMainBottomPadding = staticCompositionLocalOf<Dp> { 0.dp }
 
 /**
- * The global player is a full-width 128dp music card above the main tab bar.
- * Reserve the card, its gap and the tab-bar breathing room so the last list
- * row or form control is never hidden behind the playback chrome.
+ * The global player dock is the same 64dp height as the main tab bar. It sits
+ * 8dp above that bar, with 12dp of bottom breathing room, so the last list row
+ * or form control is never hidden behind the playback chrome.
  */
-const val PLAYBACK_CHROME_RESERVED_DP = 160
+const val PLAYBACK_CHROME_RESERVED_DP = 84
 
 /**
  * Space reserved by the global mini player.  Secondary pages do not use the

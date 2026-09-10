@@ -24,7 +24,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import top.yukonga.miuix.kmp.basic.Icon
+import com.linxi.diary.ui.components.LxIcon as Icon
 import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
@@ -103,7 +103,9 @@ fun LxPreferenceRow(
                 // title row never shares vertical space with the summary, so
                 // long Chinese copy cannot paint underneath a switch/value.
                 Box(
-                    modifier = Modifier.width(72.dp),
+                    modifier = Modifier
+                        .width(72.dp)
+                        .heightIn(min = 48.dp),
                     contentAlignment = Alignment.CenterEnd,
                 ) {
                     endAction()

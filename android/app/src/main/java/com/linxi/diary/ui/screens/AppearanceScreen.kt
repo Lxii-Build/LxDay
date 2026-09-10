@@ -18,7 +18,7 @@ import com.linxi.diary.ui.theme.rememberThemeState
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.MindMap
-import top.yukonga.miuix.kmp.basic.Icon
+import com.linxi.diary.ui.components.LxIcon as Icon
 
 /**
  * 主题与界面二级页（精简）：仅保留主题模式（跟随系统 / 浅色 / 深色）。

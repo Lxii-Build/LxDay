@@ -79,8 +79,10 @@ import com.linxi.diary.ui.screens.RegisterScreen
 import com.linxi.diary.ui.screens.SettingsScreen
 import com.linxi.diary.ui.screens.TodoScreen
 import com.linxi.diary.ui.components.MusicPlayerOverlay
+import com.linxi.diary.ui.components.MusicPlayerScreen
 import com.linxi.diary.ui.components.LxButtonVariant
 import com.linxi.diary.ui.components.LxIconButton
+import com.linxi.diary.ui.components.LxIcon
 import com.linxi.diary.ui.components.LxNoticeHost
 import com.linxi.diary.ui.screens.UpdateDialog
 import com.linxi.diary.ui.screens.UpdateInfo
@@ -96,7 +98,6 @@ import top.yukonga.miuix.kmp.icon.extended.Community
 import top.yukonga.miuix.kmp.icon.extended.Contacts
 import top.yukonga.miuix.kmp.icon.extended.FavoritesFill
 import top.yukonga.miuix.kmp.icon.extended.Ok
-import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
 
@@ -172,6 +173,8 @@ fun LinxiApp() {
     var cropUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var croppedAvatar by remember { mutableStateOf<java.io.File?>(null) }
     var musicTrack by remember { mutableStateOf<NeteaseTrack?>(null) }
+    var playerReturnScreen by remember { mutableStateOf(Screen.Main) }
+    var lyricsReturnScreen by remember { mutableStateOf(Screen.Music) }
     var notice by remember { mutableStateOf<AppNoticeBus.Notice?>(null) }
     val playback by NeteasePlaybackManager.stateFlow.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) {
@@ -386,8 +389,23 @@ fun LinxiApp() {
                 }
                 Screen.Music -> MusicHomeScreen(
                     onBack = { mainInitialPage = 2; navigate(Screen.Main, NavigationDirection.Back) },
-                    onOpenLyrics = { track -> musicTrack = track; navigate(Screen.Lyrics) },
+                    onOpenLyrics = {
+                        track ->
+                        musicTrack = track
+                        lyricsReturnScreen = Screen.Music
+                        navigate(Screen.Lyrics)
+                    },
                     onOpenListenTogether = { navigate(Screen.DiscoverListen) },
+                )
+                Screen.Player -> MusicPlayerScreen(
+                    state = playback,
+                    onBack = { navigate(playerReturnScreen, NavigationDirection.Back) },
+                    onOpenLyrics = { track ->
+                        musicTrack = track
+                        lyricsReturnScreen = Screen.Player
+                        navigate(Screen.Lyrics)
+                    },
+                    onOpenMusic = { navigate(Screen.Music) },
                 )
                 Screen.Lyrics -> {
                     val track = musicTrack
@@ -396,7 +414,7 @@ fun LinxiApp() {
                     } else {
                         LyricsScreen(
                             track = track,
-                            onBack = { navigate(Screen.Music, NavigationDirection.Back) },
+                            onBack = { navigate(lyricsReturnScreen, NavigationDirection.Back) },
                         )
                     }
                 }
@@ -454,8 +472,10 @@ fun LinxiApp() {
                 if (playback.track != null && targetShowsPlaybackChrome(screen)) {
                     MusicPlayerOverlay(
                         state = playback,
-                        onOpenLyrics = { track -> musicTrack = track; navigate(Screen.Lyrics) },
-                        onOpenMusic = { navigate(Screen.Music) },
+                        onOpenPlayer = {
+                            playerReturnScreen = screen
+                            navigate(Screen.Player)
+                        },
                     )
                 }
                 LxNoticeHost(
@@ -599,7 +619,7 @@ private fun MainTabs(
                         onClick = { mainState.animateToPage(index) },
                         modifier = Modifier.defaultMinSize(minWidth = 76.dp)
                     ) {
-                        Icon(imageVector = item.icon, contentDescription = item.label)
+                        LxIcon(imageVector = item.icon, contentDescription = item.label)
                         Text(text = item.label, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 1)
                     }
                 }
@@ -628,7 +648,7 @@ private fun MainTabs(
                         contentDescription = "添加待办",
                         modifier = Modifier.offset { IntOffset(0, fabOffsetY.roundToPx()) },
                     ) {
-                        Icon(MiuixIcons.Add, contentDescription = "添加待办")
+                        LxIcon(MiuixIcons.Add, contentDescription = "添加待办")
                     }
                 }
             }
@@ -652,16 +672,17 @@ private enum class Screen {
     Login, Register, Bind, Main, History, Appearance, ProfileEdit, About,
     DiscoverAlbum, AlbumDetail, PhotoPicker, PhotoViewer, OnThisDay, RecycleBin,
     AvatarCrop, KeepAliveCheck,
-    DiscoverListen, DiscoverWatch, Music, Lyrics, MusicSettings, Live2D,
+    DiscoverListen, DiscoverWatch, Music, Player, Lyrics, MusicSettings, Live2D,
 }
 
 private fun targetShowsPlaybackChrome(screen: Screen): Boolean = when (screen) {
     // Keep the playback session global, but only expose its dock on pages that
     // have a stable bottom area to reserve for it. Photo actions, companion
     // rooms, pickers and text-entry flows keep their full bottom edge free.
+    Screen.Player -> false
+    Screen.Lyrics,
     Screen.Main,
     Screen.Music,
-    Screen.Lyrics,
     Screen.DiscoverAlbum,
     Screen.Appearance,
     Screen.History,

@@ -17,7 +17,7 @@ import coil3.request.ImageRequest
 import com.linxi.diary.data.AppImageLoader
 import com.linxi.diary.data.NeteaseTrack
 import com.linxi.diary.ui.theme.LocalLxSurfaceTokens
-import top.yukonga.miuix.kmp.basic.Icon
+import com.linxi.diary.ui.components.LxIcon as Icon
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Music
 import top.yukonga.miuix.kmp.theme.MiuixTheme
