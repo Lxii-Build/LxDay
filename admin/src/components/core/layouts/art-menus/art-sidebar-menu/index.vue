@@ -161,17 +161,19 @@
         />
       </button>
 
-      <button
-        type="button"
-        class="menu-model"
-        :aria-label="$t('common.close')"
-        @click="toggleMenuVisibility"
-        :style="{
-          opacity: !menuOpen ? 0 : 1,
-          transform: showMobileModal ? 'scale(1)' : 'scale(0)'
-        }"
-      />
     </div>
+
+    <!-- 移动端遮罩必须与抽屉同级：放在 menu-left 内会盖住菜单文字。 -->
+    <button
+      type="button"
+      class="menu-model"
+      :aria-label="$t('common.close')"
+      @click="toggleMenuVisibility"
+      :style="{
+        opacity: !menuOpen ? 0 : 1,
+        transform: showMobileModal ? 'scale(1)' : 'scale(0)'
+      }"
+    />
   </div>
 </template>
 
