@@ -8,6 +8,9 @@ class PlaybackChromePolicyTest {
     @Test
     fun `mini player is scoped to the home shell`() {
         assertTrue(targetShowsPlaybackChrome(Screen.Main))
+        assertFalse(targetShowsPlaybackChrome(Screen.Main, mainPage = 1))
+        assertFalse(targetShowsPlaybackChrome(Screen.Main, mainPage = 2))
+        assertFalse(targetShowsPlaybackChrome(Screen.Main, mainPage = 3))
     }
 
     @Test

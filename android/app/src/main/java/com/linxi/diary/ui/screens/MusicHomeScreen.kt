@@ -29,6 +29,7 @@ import com.linxi.diary.data.NeteaseAccountStore
 import com.linxi.diary.data.NeteaseClient
 import com.linxi.diary.data.NeteasePlaybackManager
 import com.linxi.diary.data.NeteaseTrack
+import com.linxi.diary.data.ListenSessionController
 import com.linxi.diary.ui.NeteaseQrLoginActivity
 import com.linxi.diary.ui.NeteaseWebLoginActivity
 import com.linxi.diary.ui.components.BackAction
@@ -130,6 +131,10 @@ fun MusicHomeScreen(
                     .let { songs -> if (songs.any { it.stableKey == track.stableKey }) songs else songs + track }
                     .ifEmpty { listOf(track) }
                 val index = queue.indexOfFirst { it.stableKey == track.stableKey }
+                if (ListenSessionController.controlTrack(track, queue, index, playing = true)) {
+                    info = "已将《${track.title}》同步到一起听"
+                    return@launch
+                }
                 val url = NeteaseClient.resolvePlaybackUrl(track.id)
                 // Do not publish a half-resolved queue.  The manager commits
                 // the queue and MediaItem together only after this request is

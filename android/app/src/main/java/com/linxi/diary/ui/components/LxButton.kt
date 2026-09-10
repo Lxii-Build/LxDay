@@ -3,8 +3,10 @@ package com.linxi.diary.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -141,7 +143,17 @@ fun LxButton(
         contentAlignment = Alignment.Center,
     ) {
         CompositionLocalProvider(LocalContentColor provides buttonContentColor(variant, enabled)) {
-            content()
+            // A content-style button used to expose a raw Box scope.  Multiple
+            // children (icon + spacer + label) were therefore painted at the
+            // same origin on the affected renderer.  Keep the public API
+            // flexible, but give its children a deterministic horizontal
+            // layout just like the text overload.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                content()
+            }
         }
     }
 }

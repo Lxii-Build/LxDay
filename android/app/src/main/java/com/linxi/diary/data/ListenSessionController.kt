@@ -8,9 +8,12 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -25,6 +28,7 @@ import org.json.JSONObject
 data class ListenRoomSettings(val allowMemberControl: Boolean)
 
 data class ListenState(
+    val revision: Long,
     val kind: String,
     val source: String,
     val songId: Long,
@@ -40,6 +44,8 @@ data class ListenState(
     val watchPositionMs: Long,
     val watchDurationMs: Long,
     val watchPlaying: Boolean,
+    val queue: List<NeteaseTrack> = emptyList(),
+    val queueIndex: Int = -1,
 ) {
     val isWatch: Boolean get() = kind == "watch"
     fun toTrack() = NeteaseTrack(songId, title, artist, album, coverUrl, durationMs)
@@ -55,11 +61,28 @@ data class ListenRoomSnapshot(
         fun fromJson(json: JSONObject): ListenRoomSnapshot {
             val state = json.optJSONObject("state") ?: JSONObject()
             val settings = json.optJSONObject("settings") ?: JSONObject()
+            val queue = mutableListOf<NeteaseTrack>()
+            state.optJSONArray("queue")?.let { tracks ->
+                for (index in 0 until tracks.length()) {
+                    val item = tracks.optJSONObject(index) ?: continue
+                    val songId = item.optLong("song_id", 0L).coerceAtLeast(0L)
+                    if (songId <= 0L || queue.any { it.id == songId }) continue
+                    queue += NeteaseTrack(
+                        id = songId,
+                        title = item.optString("title"),
+                        artist = item.optString("artist"),
+                        album = item.optString("album"),
+                        coverUrl = item.optString("cover_url"),
+                        durationMs = item.optLong("duration_ms").coerceAtLeast(0L),
+                    )
+                }
+            }
             return ListenRoomSnapshot(
                 roomId = json.optString("room_id"),
                 members = json.optInt("members", 0).coerceAtLeast(0),
                 settings = ListenRoomSettings(settings.optBoolean("allow_member_control", true)),
                 state = ListenState(
+                    revision = state.optLong("revision", 0L).coerceAtLeast(0L),
                     kind = state.optString("kind", "audio").ifBlank { "audio" },
                     source = state.optString("source"),
                     songId = state.optLong("song_id", 0L).coerceAtLeast(0L),
@@ -75,6 +98,8 @@ data class ListenRoomSnapshot(
                     watchPositionMs = state.optLong("watch_position_ms").coerceAtLeast(0L),
                     watchDurationMs = state.optLong("watch_duration_ms").coerceAtLeast(0L),
                     watchPlaying = state.optBoolean("watch_playing"),
+                    queue = queue,
+                    queueIndex = state.optInt("queue_index", -1),
                 ),
             )
         }
@@ -101,6 +126,9 @@ object ListenSessionController {
     private var startJob: Job? = null
     private var syncJob: Job? = null
     private var reconnectJob: Job? = null
+    private var remoteSyncJob: Job? = null
+    private val controlMutex = Mutex()
+    private var controlSequence = 0L
     private var generation = 0L
 
     val stateFlow: kotlinx.coroutines.flow.StateFlow<ListenSessionState> = state
@@ -146,21 +174,31 @@ object ListenSessionController {
         val roomId = state.value.roomId
         if (roomId.isBlank() || !canControl(state.value)) return
         val runGeneration = generation
+        val requestSequence = ++controlSequence
         scope.launch {
-            update { it.copy(loading = true, error = null, info = null) }
-            runCatching { ApiClient.controlListenRoom(roomId, action) }
-                .onSuccess { response ->
-                    applyResponse(response, runGeneration)
-                    successMessage?.let { message ->
-                        if (runGeneration == generation) update { it.copy(info = message) }
+            controlMutex.withLock {
+                if (runGeneration != generation) return@withLock
+                update { it.copy(loading = true, error = null, info = null) }
+                runCatching { ApiClient.controlListenRoom(roomId, action) }
+                    .onSuccess { response ->
+                        // A delayed response from an older click must not roll
+                        // the room back over the latest user intent.
+                        if (requestSequence == controlSequence) {
+                            applyResponse(response, runGeneration)
+                            successMessage?.let { message ->
+                                if (runGeneration == generation) update { it.copy(info = message) }
+                            }
+                        }
                     }
-                }
-                .onFailure { error ->
-                    if (runGeneration == generation) {
-                        update { it.copy(error = error.message ?: "播放操作失败，请稍后重试") }
+                    .onFailure { error ->
+                        if (runGeneration == generation && requestSequence == controlSequence) {
+                            update { it.copy(error = error.message ?: "播放操作失败，请稍后重试") }
+                        }
                     }
+                if (runGeneration == generation && requestSequence == controlSequence) {
+                    update { it.copy(loading = false) }
                 }
-            if (runGeneration == generation) update { it.copy(loading = false) }
+            }
         }
     }
 
@@ -181,6 +219,74 @@ object ListenSessionController {
 
     fun clearWatch() = control(JSONObject().put("action", "watch_clear"), "已清除一起看的内容")
 
+    /** Whether the shared room currently owns the audio transport. */
+    fun hasActiveAudioRoom(): Boolean {
+        val remote = state.value.room?.state ?: return false
+        return !remote.isWatch && remote.source == "netease" && remote.songId > 0L
+    }
+
+    /** Route local/system play-pause commands through the authoritative room. */
+    fun controlPlaybackToggle(playing: Boolean): Boolean {
+        if (!hasActiveAudioRoom()) return false
+        control(JSONObject().put("action", if (playing) "play" else "pause"))
+        return true
+    }
+
+    /** Select a track from any music-library surface while a room is active. */
+    fun controlTrack(
+        track: NeteaseTrack,
+        queue: List<NeteaseTrack> = listOf(track),
+        queueIndex: Int = 0,
+        playing: Boolean = true,
+    ): Boolean {
+        if (state.value.room == null) return false
+        if (!canControl(state.value)) return true
+        NeteasePlaybackManager.setQueue(queue, queueIndex)
+        control(
+            JSONObject().apply {
+                put("action", "set_track")
+                put("source", "netease")
+                put("song_id", track.id)
+                put("title", track.title)
+                put("artist", track.artist)
+                put("album", track.album)
+                put("cover_url", track.coverUrl)
+                put("duration_ms", track.durationMs.coerceAtLeast(0L))
+                put("playing", playing)
+                put("queue", queueToJson(queue))
+                put("queue_index", queueIndex)
+            },
+        )
+        return true
+    }
+
+    /** Route a next/previous command through the room instead of only changing
+     * the local ExoPlayer.  The target metadata is safe to share; its signed
+     * playback URL is resolved independently on each device after the server
+     * accepts the command. */
+    fun controlAdjacentTrack(next: Boolean): Boolean {
+        if (!hasActiveAudioRoom()) return false
+        if (!canControl(state.value)) return true
+        val target = NeteasePlaybackManager.peekAdjacentTrack(next) ?: return true
+        val roomState = state.value.room?.state ?: return true
+        control(
+            JSONObject().apply {
+                put("action", "set_track")
+                put("source", "netease")
+                put("song_id", target.id)
+                put("title", target.title)
+                put("artist", target.artist)
+                put("album", target.album)
+                put("cover_url", target.coverUrl)
+                put("duration_ms", target.durationMs.coerceAtLeast(0L))
+                put("playing", roomState.playing)
+                put("queue", queueToJson(NeteasePlaybackManager.stateFlow.value.queue))
+                put("queue_index", NeteasePlaybackManager.stateFlow.value.queueIndex)
+            },
+        )
+        return true
+    }
+
     /** Heartbeats are deliberately quiet: they must not replace the page with
      * a spinner every few seconds while a direct video is playing. */
     fun heartbeatWatch(positionMs: Long, playing: Boolean) {
@@ -190,19 +296,21 @@ object ListenSessionController {
         if (roomId.isBlank()) return
         val runGeneration = generation
         scope.launch {
-            runCatching {
-                ApiClient.controlListenRoom(
-                    roomId,
-                    JSONObject().apply {
-                        put("action", "watch_heartbeat")
-                        put("watch_position_ms", positionMs.coerceAtLeast(0L))
-                        put("watch_playing", playing)
-                    },
-                )
-            }.onSuccess { response -> applyResponse(response, runGeneration) }
-                .onFailure { error ->
-                    if (runGeneration == generation) update { it.copy(error = error.message ?: "一起看进度同步失败") }
-                }
+            controlMutex.withLock {
+                runCatching {
+                    ApiClient.controlListenRoom(
+                        roomId,
+                        JSONObject().apply {
+                            put("action", "watch_heartbeat")
+                            put("watch_position_ms", positionMs.coerceAtLeast(0L))
+                            put("watch_playing", playing)
+                        },
+                    )
+                }.onSuccess { response -> applyResponse(response, runGeneration) }
+                    .onFailure { error ->
+                        if (runGeneration == generation) update { it.copy(error = error.message ?: "一起看进度同步失败") }
+                    }
+            }
         }
     }
 
@@ -260,6 +368,10 @@ object ListenSessionController {
 
     private fun applyRoom(snapshot: ListenRoomSnapshot, runGeneration: Long) {
         if (runGeneration != generation) return
+        val current = state.value.room
+        if (current != null && !shouldApplyListenSnapshot(current.state.revision, snapshot.state.revision)) {
+            return
+        }
         update {
             it.copy(
                 room = snapshot,
@@ -360,17 +472,26 @@ object ListenSessionController {
                 val snapshot = state.value.room ?: continue
                 val local = NeteasePlaybackManager.refreshProgress()
                 if (state.value.role == "host" && !snapshot.state.isWatch && local.track?.id == snapshot.state.songId) {
-                    runCatching {
-                        ApiClient.controlListenRoom(
-                            snapshot.roomId,
-                            JSONObject().apply {
-                                put("action", "heartbeat")
-                                put("playing", local.playing)
-                                put("position_ms", local.positionMs)
-                            },
-                        )
-                    }.onSuccess { response -> applyResponse(response, runGeneration) }
-                        .onFailure { update { it.copy(connected = false) } }
+                    controlMutex.withLock {
+                        // A user command may have replaced the room while the
+                        // local progress was being sampled. Never publish an
+                        // old song's heartbeat after that revision change.
+                        val latest = state.value.room
+                        if (latest == null || latest.state.revision != snapshot.state.revision ||
+                            latest.state.songId != local.track?.id
+                        ) return@withLock
+                        runCatching {
+                            ApiClient.controlListenRoom(
+                                snapshot.roomId,
+                                JSONObject().apply {
+                                    put("action", "heartbeat")
+                                    put("playing", local.playing)
+                                    put("position_ms", local.positionMs)
+                                },
+                            )
+                        }.onSuccess { response -> applyResponse(response, runGeneration) }
+                            .onFailure { update { it.copy(connected = false) } }
+                    }
                 } else {
                     runCatching { ApiClient.listenRoomState(snapshot.roomId) }
                         .onSuccess { response -> applyRoom(ListenRoomSnapshot.fromJson(response), runGeneration) }
@@ -381,15 +502,38 @@ object ListenSessionController {
     }
 
     private fun syncRemoteToLocal(snapshot: ListenRoomSnapshot, runGeneration: Long) {
+        remoteSyncJob?.cancel()
+        remoteSyncJob = null
         val remoteState = snapshot.state
-        if (remoteState.source != "netease" || remoteState.songId <= 0L) return
+        if (remoteState.source != "netease" || remoteState.songId <= 0L) {
+            // The room has switched medium (or is empty). Do not leave a
+            // previous local player audible after the authoritative state has
+            // moved to Together Watching or been cleared.
+            NeteasePlaybackManager.stopAndClear()
+            WatchPlaybackManager.stopAndClear()
+            return
+        }
         val remote = remoteState.toTrack()
-        scope.launch {
+        remoteSyncJob = scope.launch {
             runCatching {
                 if (runGeneration != generation) return@runCatching
+                val localBeforeQueue = NeteasePlaybackManager.stateFlow.value
+                if (remoteState.queue.isNotEmpty() &&
+                    (localBeforeQueue.queue.map { it.stableKey } != remoteState.queue.map { it.stableKey } ||
+                        localBeforeQueue.queueIndex != remoteState.queueIndex)
+                ) {
+                    NeteasePlaybackManager.setQueue(remoteState.queue, remoteState.queueIndex)
+                }
                 val local = NeteasePlaybackManager.stateFlow.value
                 if (local.track?.id != remote.id || !NeteasePlaybackManager.hasSource(remote.id)) {
                     val url = NeteaseClient.resolvePlaybackUrl(remote.id)
+                    // Resolving a URL is asynchronous.  The room may have
+                    // advanced while it was in flight; never apply an old
+                    // result to a newer authoritative state.
+                    val latest = state.value.room?.state
+                    if (runGeneration != generation || latest == null ||
+                        latest.revision != remoteState.revision || latest.songId != remoteState.songId
+                    ) return@runCatching
                     NeteasePlaybackManager.play(
                         remote,
                         url,
@@ -400,8 +544,8 @@ object ListenSessionController {
                     if (kotlin.math.abs(local.positionMs - remoteState.positionMs) > 2_000L) {
                         NeteasePlaybackManager.seekTo(remoteState.positionMs)
                     }
-                    if (remoteState.playing && !local.playing) NeteasePlaybackManager.resume()
-                    if (!remoteState.playing && local.playing) NeteasePlaybackManager.pause()
+                    if (remoteState.playing && !local.playing) NeteasePlaybackManager.resumeLocal()
+                    if (!remoteState.playing && local.playing) NeteasePlaybackManager.pauseLocal()
                 }
             }.onFailure { error ->
                 if (runGeneration == generation) update { it.copy(error = error.message ?: "无法解析伴侣正在播放的歌曲") }
@@ -412,6 +556,19 @@ object ListenSessionController {
     private fun canControl(current: ListenSessionState): Boolean =
         current.role == "host" || current.room?.settings?.allowMemberControl == true
 
+    private fun queueToJson(queue: List<NeteaseTrack>): JSONArray = JSONArray().apply {
+        queue.distinctBy { it.stableKey }.take(100).forEach { track ->
+            put(JSONObject().apply {
+                put("song_id", track.id)
+                put("title", track.title)
+                put("artist", track.artist)
+                put("album", track.album)
+                put("cover_url", track.coverUrl)
+                put("duration_ms", track.durationMs.coerceAtLeast(0L))
+            })
+        }
+    }
+
     private fun update(transform: (ListenSessionState) -> ListenSessionState) {
         state.value = transform(state.value)
     }
@@ -421,6 +578,9 @@ object ListenSessionController {
         startJob?.cancel()
         syncJob?.cancel()
         reconnectJob?.cancel()
+        remoteSyncJob?.cancel()
+        remoteSyncJob = null
+        controlSequence++
         socket?.close(1000, "session cleared")
         socket = null
         sessionToken = null
@@ -428,6 +588,10 @@ object ListenSessionController {
         state.value = ListenSessionState(info = message)
     }
 }
+
+/** Monotonic room revisions make delayed WS/REST responses harmless. */
+internal fun shouldApplyListenSnapshot(currentRevision: Long, incomingRevision: Long): Boolean =
+    incomingRevision >= currentRevision && (incomingRevision > 0L || currentRevision == 0L)
 
 fun formatListenPosition(position: Long, duration: Long): String {
     fun format(value: Long): String {

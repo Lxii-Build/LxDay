@@ -187,9 +187,13 @@ fun Live2DManagerScreen(onBack: () -> Unit) {
                         enabled = !busy,
                         modifier = Modifier.fillMaxWidth(),
                         content = {
-                            Icon(MiuixIcons.Import, contentDescription = "导入 ZIP")
-                            Spacer(Modifier.size(8.dp))
-                            Text("选择 ZIP 导入")
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Icon(MiuixIcons.Import, contentDescription = "导入 ZIP")
+                                Text("选择 ZIP 导入")
+                            }
                         },
                     )
                     message?.let {

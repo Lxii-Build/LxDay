@@ -376,11 +376,13 @@ object NeteasePlaybackManager {
         return target
     }
 
+    /** Read the next/previous queue item without mutating local playback state. */
+    fun peekAdjacentTrack(next: Boolean): NeteaseTrack? = adjacentTrack(state.value, next)
+
     private fun adjacentTrack(current: NeteasePlaybackState, next: Boolean): NeteaseTrack? {
         if (current.queue.isEmpty() || current.queueIndex !in current.queue.indices) return null
         if (!next && current.queueIndex == 0) return null
         if (next && current.repeatMode == NeteaseRepeatMode.OFF && current.queueIndex == current.queue.lastIndex) return null
-        if (current.repeatMode == NeteaseRepeatMode.ONE && next) return current.track
         val index = if (next) {
             if (current.shuffle) {
                 current.queue.indices.filterNot { it == current.queueIndex }.randomOrNull()
@@ -400,9 +402,15 @@ object NeteasePlaybackManager {
      * 播放地址解析是网络操作，不能在 BroadcastReceiver 或点击回调里同步执行；
      * 这里把它放进播放器自己的监督作用域，并以 resolving 状态抑制重复点击。
      */
-    fun skipToNext(): Boolean = skipTo(next = true)
+    fun skipToNext(): Boolean {
+        if (ListenSessionController.controlAdjacentTrack(next = true)) return true
+        return skipTo(next = true)
+    }
 
-    fun skipToPrevious(): Boolean = skipTo(next = false)
+    fun skipToPrevious(): Boolean {
+        if (ListenSessionController.controlAdjacentTrack(next = false)) return true
+        return skipTo(next = false)
+    }
 
     private fun skipTo(next: Boolean): Boolean {
         ensureInitialized()
@@ -455,6 +463,12 @@ object NeteasePlaybackManager {
     }
 
     fun pause() {
+        if (ListenSessionController.controlPlaybackToggle(playing = false)) return
+        pauseLocal()
+    }
+
+    /** Apply a room-authoritative pause without sending a command back. */
+    internal fun pauseLocal() {
         ensureInitialized()
         player.pause()
         progressJob?.cancel()
@@ -462,6 +476,12 @@ object NeteasePlaybackManager {
     }
 
     fun resume() {
+        if (ListenSessionController.controlPlaybackToggle(playing = true)) return
+        resumeLocal()
+    }
+
+    /** Apply a room-authoritative play without sending a command back. */
+    internal fun resumeLocal() {
         ensureInitialized()
         if (state.value.track != null) {
             player.play()
@@ -492,6 +512,13 @@ object NeteasePlaybackManager {
     }
 
     fun seekTo(positionMs: Long) {
+        // Seeking is emitted repeatedly while the full-player scrubber is
+        // dragged.  Keep it local here; Together's heartbeat publishes the
+        // settled position without flooding the control endpoint.
+        seekToLocal(positionMs)
+    }
+
+    internal fun seekToLocal(positionMs: Long) {
         ensureInitialized()
         player.seekTo(positionMs.coerceAtLeast(0L))
         refreshProgress()

@@ -92,6 +92,43 @@ func TestListenNeteaseTrackPolicy(t *testing.T) {
 	}
 }
 
+func TestListenQueueIsBoundedAndKeepsTheSelectedTrack(t *testing.T) {
+	queue := normalizeListenQueue([]listenRoomTrack{
+		{SongID: 101, Title: "  第一首  ", Artist: "歌手", CoverURL: "http://insecure.example/cover.jpg"},
+		{SongID: 101, Title: "重复", Artist: "重复"},
+		{SongID: 0, Title: "无效"},
+		{SongID: 202, Title: "第二首", Artist: "歌手"},
+	})
+	if len(queue) != 2 || queue[0].SongID != 101 || queue[1].SongID != 202 {
+		t.Fatalf("queue was not normalized: %+v", queue)
+	}
+	if queue[0].Title != "第一首" || queue[0].CoverURL != "" {
+		t.Fatalf("queue metadata was not sanitized: %+v", queue[0])
+	}
+	if got := listenQueueIndex(queue, 202, 0); got != 1 {
+		t.Fatalf("selected queue index = %d, want 1", got)
+	}
+	state := normalizeListenState(listenRoomState{
+		Revision: 7,
+		Source:   "netease",
+		SongID:   202,
+		Queue:    queue,
+	})
+	if state.Revision != 7 || state.QueueIndex != 1 {
+		t.Fatalf("normalized room revision/queue index = %d/%d", state.Revision, state.QueueIndex)
+	}
+	missingSelected := normalizeListenState(listenRoomState{
+		Source:     "netease",
+		SongID:     303,
+		Title:      "当前歌曲",
+		Queue:      queue,
+		QueueIndex: 1,
+	})
+	if len(missingSelected.Queue) != 3 || missingSelected.Queue[missingSelected.QueueIndex].SongID != 303 {
+		t.Fatalf("selected track was not made authoritative in queue: %+v index=%d", missingSelected.Queue, missingSelected.QueueIndex)
+	}
+}
+
 func TestListenWatchURLPolicyAndState(t *testing.T) {
 	if got := safeListenWatchURL("http://example.com/video.mp4"); got != "" {
 		t.Fatalf("insecure watch URL accepted: %q", got)

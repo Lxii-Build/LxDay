@@ -115,6 +115,7 @@ fun LinxiApp() {
     val photoSocialEnabled = ClientRuntimeConfig.photoSocialEnabled
     val onThisDayEnabled = ClientRuntimeConfig.onThisDayEnabled
     var mainInitialPage by remember { mutableStateOf(0) }
+    var mainSelectedPage by remember { mutableStateOf(0) }
     var screen by remember {
         mutableStateOf(
             when {
@@ -133,6 +134,9 @@ fun LinxiApp() {
     }
     LaunchedEffect(screen) {
         Logs.i("Nav", "screen=$screen pairId=${UserPrefs.pairId} consented=${UserPrefs.privacyConsented}")
+    }
+    LaunchedEffect(screen, mainInitialPage) {
+        if (screen == Screen.Main) mainSelectedPage = mainInitialPage.coerceIn(0, tabs.lastIndex)
     }
 
     // 相册需要带参导航（相册 id/名称、大图列表与初始下标），而这套导航是手写的
@@ -211,9 +215,10 @@ fun LinxiApp() {
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { rootPadding ->
         Box(Modifier.fillMaxSize().padding(rootPadding)) {
+            val showsPlaybackChrome = targetShowsPlaybackChrome(screen, mainSelectedPage)
             CompositionLocalProvider(
                 LocalPlaybackBottomPadding provides if (
-                    playback.track != null && targetShowsPlaybackChrome(screen)
+                    playback.track != null && showsPlaybackChrome
                 ) PLAYBACK_CHROME_RESERVED_DP.dp else 0.dp,
             ) {
                 // A destination owns this slot exclusively. Keeping the
@@ -434,13 +439,14 @@ fun LinxiApp() {
                             onOpenAbout = { navigate(Screen.About) },
                             onOpenMusicSettings = { navigate(Screen.MusicSettings) },
                             onOpenKeepAliveCheck = { navigate(Screen.KeepAliveCheck) },
+                            onSelectedPage = { mainSelectedPage = it },
                         )
                     }
                 }
                 // Keep the mini player as one shell sibling of the single
                 // destination.  It is deliberately absent from every secondary
                 // screen, while playback state itself remains in the manager.
-                if (playback.track != null && targetShowsPlaybackChrome(screen)) {
+                if (playback.track != null && showsPlaybackChrome) {
                     MusicPlayerOverlay(
                         state = playback,
                         onOpenPlayer = {
@@ -452,7 +458,7 @@ fun LinxiApp() {
                 LxNoticeHost(
                     notice = notice,
                     onDismiss = { notice = null },
-                    bottomPadding = if (playback.track != null && targetShowsPlaybackChrome(screen)) {
+                    bottomPadding = if (playback.track != null && showsPlaybackChrome) {
                         (PLAYBACK_CHROME_RESERVED_DP + 16).dp
                     } else 12.dp,
                 )
@@ -479,6 +485,7 @@ private fun MainTabs(
     onOpenAbout: () -> Unit,
     onOpenMusicSettings: () -> Unit,
     onOpenKeepAliveCheck: () -> Unit,
+    onSelectedPage: (Int) -> Unit,
 ) {
     val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { tabs.size })
     val mainState = rememberMainPagerState(pagerState)
@@ -490,6 +497,9 @@ private fun MainTabs(
     var reviewConsent by remember { mutableStateOf(false) }
     LaunchedEffect(pagerState.currentPage) {
         mainState.syncPage()
+    }
+    LaunchedEffect(mainState.selectedPage) {
+        onSelectedPage(mainState.selectedPage)
     }
 
     // 主 tab 的返回键：非首页先回主页，首页需两秒内再按一次才退出。
@@ -653,7 +663,8 @@ internal enum class Screen {
  * back/navigation semantics.  Playback itself remains alive in the manager;
  * only this piece of chrome is scoped to [Screen.Main].
  */
-internal fun targetShowsPlaybackChrome(screen: Screen): Boolean = screen == Screen.Main
+internal fun targetShowsPlaybackChrome(screen: Screen, mainPage: Int = 0): Boolean =
+    screen == Screen.Main && mainPage == 0
 
 /** 选图器的用途。决定单选/多选、标题，以及选完该回哪个页面。 */
 private enum class PickerTarget { Album, Avatar }

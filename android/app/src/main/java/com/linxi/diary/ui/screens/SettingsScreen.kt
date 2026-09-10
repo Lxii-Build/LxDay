@@ -40,6 +40,7 @@ import com.linxi.diary.ui.components.LxSurface
 import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.ui.components.LxArrowPreference
 import com.linxi.diary.ui.components.LxSwitchPreference
+import com.linxi.diary.ui.components.LxPreferenceGroup
 import com.linxi.diary.util.DiagnosticExporter
 import com.linxi.diary.util.UserPrefs
 
@@ -115,7 +116,7 @@ fun SettingsScreen(
     KernelScreen(title = "我的") {
         // 顶部只保留两个最常用入口，避免“编辑资料”和“伴侣”被埋在长列表里。
         item {
-            LxSurface(Modifier.padding(top = 12.dp).fillMaxWidth(), tone = LxSurfaceTone.Raised) {
+            LxPreferenceGroup(Modifier.padding(top = 12.dp).fillMaxWidth()) {
                 LxArrowPreference(
                     title = "我的资料",
                     summary = "头像、名称、性别、简介与生日",
@@ -132,7 +133,7 @@ fun SettingsScreen(
         }
 
         item {
-            LxSurface(Modifier.padding(top = 12.dp).fillMaxWidth(), tone = LxSurfaceTone.Raised) {
+            LxPreferenceGroup(Modifier.padding(top = 12.dp).fillMaxWidth()) {
                 LxArrowPreference(
                     title = "音乐设置",
                     summary = "网易云账号、收藏、播放行为、歌词与播放胶囊",
@@ -144,7 +145,7 @@ fun SettingsScreen(
 
         // 隐私与共享：把原先分散在三张卡里的状态、常驻卡片和静默通知放到一个语义组。
         item {
-            LxSurface(Modifier.padding(top = 12.dp).fillMaxWidth(), tone = LxSurfaceTone.Raised) {
+            LxPreferenceGroup(Modifier.padding(top = 12.dp).fillMaxWidth()) {
                 LxSwitchPreference(
                     title = "状态共享",
                     summary = if (demo) "调试模式不采集、不上传真实状态" else "总开关：状态、常驻卡片和动态通知",
@@ -195,7 +196,7 @@ fun SettingsScreen(
 
         // 连接与保活：单独入口打开完整自检，避免六个跳转项占满“我的”页。
         item {
-            LxSurface(Modifier.padding(top = 12.dp).fillMaxWidth(), tone = LxSurfaceTone.Raised) {
+            LxPreferenceGroup(Modifier.padding(top = 12.dp).fillMaxWidth()) {
                 LxArrowPreference(
                     title = "连接与后台运行",
                     summary = if (keepAliveFailed > 0) "$keepAliveFailed 项权限待处理 · 点击查看详情" else "权限和后台保活均已就绪",
@@ -212,7 +213,7 @@ fun SettingsScreen(
         }
 
         item {
-            LxSurface(Modifier.padding(top = 12.dp, bottom = 8.dp).fillMaxWidth(), tone = LxSurfaceTone.Raised) {
+            LxPreferenceGroup(Modifier.padding(top = 12.dp, bottom = 8.dp).fillMaxWidth()) {
                 LxArrowPreference(
                     title = "诊断与关于",
                     summary = "发送日志、版本信息、检查更新和退出登录",

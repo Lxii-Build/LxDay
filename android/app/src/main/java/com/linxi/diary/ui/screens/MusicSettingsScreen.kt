@@ -28,6 +28,7 @@ import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.ui.components.LxArrowPreference
 import com.linxi.diary.ui.components.LxChoicePreference
 import com.linxi.diary.ui.components.LxSwitchPreference
+import com.linxi.diary.ui.components.LxPreferenceGroup
 import com.linxi.diary.ui.components.LxIcon
 import com.linxi.diary.util.UserPrefs
 import top.yukonga.miuix.kmp.basic.SmallTitle
@@ -70,7 +71,7 @@ fun MusicSettingsScreen(onBack: () -> Unit, onOpenMusic: () -> Unit) {
     KernelScreen(title = "音乐设置", navigationIcon = { BackAction(onBack) }) {
         item {
             SmallTitle("网易云账号")
-            LxSurface(Modifier.padding(top = 6.dp).fillMaxWidth(), tone = LxSurfaceTone.Raised) {
+            LxPreferenceGroup(Modifier.padding(top = 6.dp).fillMaxWidth()) {
                 LxArrowPreference(
                     title = if (loggedIn) "网易云账号已绑定" else "绑定网易云账号",
                     summary = if (loggedIn) "本机账号可用于搜索、收藏、歌词和播放" else "使用官方网页登录，Cookie 只保存在本机",
@@ -108,7 +109,7 @@ fun MusicSettingsScreen(onBack: () -> Unit, onOpenMusic: () -> Unit) {
 
         item {
             SmallTitle("播放行为")
-            LxSurface(Modifier.padding(top = 6.dp).fillMaxWidth(), tone = LxSurfaceTone.Raised) {
+            LxPreferenceGroup(Modifier.padding(top = 6.dp).fillMaxWidth()) {
                 val qualityItems = listOf("标准 128k", "高品质 192k", "极高 320k", "无损 FLAC")
                 val qualityValues = listOf("standard", "higher", "exhigh", "lossless")
                 val qualityIndex = qualityValues.indexOf(quality).coerceAtLeast(0)
@@ -165,7 +166,7 @@ fun MusicSettingsScreen(onBack: () -> Unit, onOpenMusic: () -> Unit) {
 
         item {
             SmallTitle("歌词")
-            LxSurface(Modifier.padding(top = 6.dp).fillMaxWidth(), tone = LxSurfaceTone.Raised) {
+            LxPreferenceGroup(Modifier.padding(top = 6.dp).fillMaxWidth()) {
                 LxSwitchPreference(
                     title = "显示同步歌词",
                     summary = "播放页按时间轴高亮歌词，点按歌词可跳转",
@@ -196,7 +197,7 @@ fun MusicSettingsScreen(onBack: () -> Unit, onOpenMusic: () -> Unit) {
 
         item {
             SmallTitle("播放胶囊与通知")
-            LxSurface(Modifier.padding(top = 6.dp).fillMaxWidth(), tone = LxSurfaceTone.Raised) {
+            LxPreferenceGroup(Modifier.padding(top = 6.dp).fillMaxWidth()) {
                 LxSwitchPreference(
                     title = "显示播放胶囊",
                     summary = "允许系统根据媒体通知显示播放胶囊、锁屏卡片或普通通知；不申请悬浮窗权限",

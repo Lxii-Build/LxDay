@@ -60,6 +60,7 @@ import com.linxi.diary.ui.components.LxIcon as Icon
 import com.linxi.diary.ui.components.LxText as Text
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import com.linxi.diary.ui.components.LxArrowPreference
+import com.linxi.diary.ui.components.LxPreferenceGroup
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -207,7 +208,7 @@ fun AboutScreen(onBack: () -> Unit, onLogout: () -> Unit, onUnbound: () -> Unit)
             }
         }
         item {
-            LxSurface(Modifier.padding(top = 8.dp).fillMaxWidth(), tone = LxSurfaceTone.Raised) {
+            LxPreferenceGroup(Modifier.padding(top = 8.dp).fillMaxWidth()) {
                 LxArrowPreference(
                     title = "检查更新",
                     summary = when {

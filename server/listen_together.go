@@ -26,6 +26,10 @@ import (
 // audio_url 是旧协议兼容字段，但服务端始终丢弃它，不能成为新的客户端上传凭据
 // 或媒体代理。
 type listenRoomState struct {
+	// Revision is the monotonic room-state version.  It is persisted inside the
+	// JSON blob so old databases can be upgraded without a table rewrite, and
+	// lets clients discard delayed WS/REST snapshots safely.
+	Revision        int64  `json:"revision"`
 	Kind            string `json:"kind,omitempty"` // audio/watch
 	Title           string `json:"title"`
 	Artist          string `json:"artist"`
@@ -44,6 +48,17 @@ type listenRoomState struct {
 	WatchDurationMs int64  `json:"watch_duration_ms,omitempty"`
 	WatchPositionMs int64  `json:"watch_position_ms,omitempty"`
 	WatchPlaying    bool   `json:"watch_playing,omitempty"`
+	Queue           []listenRoomTrack `json:"queue,omitempty"`
+	QueueIndex      int    `json:"queue_index"`
+}
+
+type listenRoomTrack struct {
+	SongID     int64  `json:"song_id"`
+	Title      string `json:"title"`
+	Artist     string `json:"artist"`
+	Album      string `json:"album,omitempty"`
+	CoverURL   string `json:"cover_url,omitempty"`
+	DurationMs int64  `json:"duration_ms"`
 }
 
 type listenRoomSettings struct {
@@ -86,6 +101,8 @@ type listenControlRequest struct {
 	WatchDurationMs int64  `json:"watch_duration_ms"`
 	WatchPositionMs int64  `json:"watch_position_ms"`
 	WatchPlaying    *bool  `json:"watch_playing"`
+	Queue           []listenRoomTrack `json:"queue"`
+	QueueIndex      int    `json:"queue_index"`
 }
 
 type listenWSClient struct {
@@ -110,6 +127,7 @@ func (c *listenWSClient) writeJSON(v interface{}) error {
 type ListenHub struct {
 	store    *Store
 	mu       sync.RWMutex
+	controlMu sync.Mutex
 	sessions map[string]listenSession
 	clients  map[string]map[*listenWSClient]struct{}
 }
@@ -294,21 +312,26 @@ func (h *ListenHub) revokeUserSessions(roomID string, uid int64) {
 }
 
 func (h *ListenHub) roomForUser(roomID string, uid int64) (*listenRoomView, error) {
-	room, _, err := h.loadRoom(roomID)
+	room, _, err := h.roomForUserWithState(roomID, uid)
+	return room, err
+}
+
+func (h *ListenHub) roomForUserWithState(roomID string, uid int64) (*listenRoomView, string, error) {
+	room, stateJSON, err := h.loadRoom(roomID)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	pair, err := h.store.GetPairByUserID(uid)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, sql.ErrNoRows
+			return nil, "", sql.ErrNoRows
 		}
-		return nil, err
+		return nil, "", err
 	}
 	if pair == nil || pair.ID != room.PairID {
-		return nil, sql.ErrNoRows
+		return nil, "", sql.ErrNoRows
 	}
-	return room, nil
+	return room, stateJSON, nil
 }
 
 func (h *ListenHub) activeRoomForPair(pairID int64) (*listenRoomView, error) {
@@ -585,7 +608,9 @@ func (h *ListenHub) control(c *gin.Context) {
 		return
 	}
 	if err := h.applyControl(listenSession{RoomID: roomID, UID: currentUID(c), Host: room.Host == currentUID(c)}, req); err != nil {
-		if strings.Contains(err.Error(), "不支持") {
+		if strings.Contains(err.Error(), "状态已更新") {
+			fail(c, http.StatusConflict, 1044, err.Error())
+		} else if strings.Contains(err.Error(), "不支持") {
 			fail(c, http.StatusBadRequest, 1042, err.Error())
 		} else if strings.Contains(err.Error(), "权限") || strings.Contains(err.Error(), "未允许") {
 			fail(c, http.StatusForbidden, 1041, err.Error())
@@ -620,6 +645,7 @@ func normalizeListenSource(raw string) string {
 }
 
 func normalizeListenState(state listenRoomState) listenRoomState {
+	state.Revision = maxListenInt64(state.Revision, 0)
 	if state.Kind != "watch" {
 		state.Kind = "audio"
 	}
@@ -633,6 +659,8 @@ func normalizeListenState(state listenRoomState) listenRoomState {
 		state.Album = ""
 		state.CoverURL = ""
 		state.AudioURL = ""
+		state.Queue = nil
+		state.QueueIndex = -1
 	}
 	state.CoverURL = safeListenCoverURL(state.CoverURL)
 	// Playback URLs are short-lived third-party credentials.  Keep the legacy
@@ -663,14 +691,87 @@ func normalizeListenState(state listenRoomState) listenRoomState {
 		state.Playing = state.WatchPlaying
 		state.PositionMs = state.WatchPositionMs
 		state.DurationMs = state.WatchDurationMs
+		state.Queue = nil
+		state.QueueIndex = -1
 	} else {
 		state.WatchURL = ""
 		state.WatchTitle = ""
 		state.WatchDurationMs = 0
 		state.WatchPositionMs = 0
 		state.WatchPlaying = false
+		state.Queue = normalizeListenQueue(state.Queue)
+		if state.Source == "netease" && state.SongID > 0 {
+			state.Queue = ensureListenQueueTrack(state.Queue, listenRoomTrack{
+				SongID: state.SongID, Title: state.Title, Artist: state.Artist,
+				Album: state.Album, CoverURL: state.CoverURL, DurationMs: state.DurationMs,
+			})
+			state.QueueIndex = listenQueueIndex(state.Queue, state.SongID, state.QueueIndex)
+		} else {
+			state.Queue = nil
+			state.QueueIndex = -1
+		}
 	}
 	return state
+}
+
+func normalizeListenQueue(queue []listenRoomTrack) []listenRoomTrack {
+	if len(queue) == 0 {
+		return nil
+	}
+	const maxQueue = 100
+	result := make([]listenRoomTrack, 0, minListenInt(len(queue), maxQueue))
+	seen := make(map[int64]struct{}, minListenInt(len(queue), maxQueue))
+	for _, track := range queue {
+		if len(result) >= maxQueue || validateListenTrack("netease", track.SongID) != nil {
+			continue
+		}
+		if _, exists := seen[track.SongID]; exists {
+			continue
+		}
+		seen[track.SongID] = struct{}{}
+		track.Title = trimListenText(track.Title, 160)
+		track.Artist = trimListenText(track.Artist, 160)
+		track.Album = trimListenText(track.Album, 160)
+		track.CoverURL = safeListenCoverURL(track.CoverURL)
+		track.DurationMs = maxListenInt64(track.DurationMs, 0)
+		result = append(result, track)
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func ensureListenQueueTrack(queue []listenRoomTrack, selected listenRoomTrack) []listenRoomTrack {
+	for _, track := range queue {
+		if track.SongID == selected.SongID {
+			return queue
+		}
+	}
+	const maxQueue = 100
+	if len(queue) >= maxQueue {
+		queue = append([]listenRoomTrack(nil), queue[:maxQueue-1]...)
+	}
+	return append(queue, selected)
+}
+
+func listenQueueIndex(queue []listenRoomTrack, songID int64, requested int) int {
+	for index, track := range queue {
+		if track.SongID == songID {
+			return index
+		}
+	}
+	if requested >= 0 && requested < len(queue) && queue[requested].SongID == songID {
+		return requested
+	}
+	return 0
+}
+
+func minListenInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func validateListenTrack(source string, songID int64) error {
@@ -820,7 +921,13 @@ func (h *ListenHub) serveWS(c *gin.Context) {
 }
 
 func (h *ListenHub) applyControl(session listenSession, req listenControlRequest) error {
-	room, err := h.roomForUser(session.RoomID, session.UID)
+	// REST heartbeats, WS commands, and the member-join auto-pause all update
+	// the same JSON document.  Serialize the read/modify/write transaction so
+	// a stale heartbeat can never overwrite a newer set_track command.
+	h.controlMu.Lock()
+	defer h.controlMu.Unlock()
+
+	room, stateJSON, err := h.roomForUserWithState(session.RoomID, session.UID)
 	if err != nil {
 		return errors.New("房间不存在或已关闭")
 	}
@@ -863,6 +970,14 @@ func (h *ListenHub) applyControl(session listenSession, req listenControlRequest
 		state.AudioURL = ""
 		state.DurationMs = maxListenInt64(req.DurationMs, 0)
 		state.PositionMs = 0
+		state.Queue = normalizeListenQueue(req.Queue)
+		if len(state.Queue) == 0 {
+			state.Queue = []listenRoomTrack{{
+				SongID: req.SongID, Title: state.Title, Artist: state.Artist,
+				Album: state.Album, CoverURL: state.CoverURL, DurationMs: state.DurationMs,
+			}}
+		}
+		state.QueueIndex = listenQueueIndex(state.Queue, req.SongID, req.QueueIndex)
 		state.Kind = "audio"
 		state.WatchURL = ""
 		state.WatchTitle = ""
@@ -886,6 +1001,8 @@ func (h *ListenHub) applyControl(session listenSession, req listenControlRequest
 		state.WatchDurationMs = maxListenInt64(req.WatchDurationMs, 0)
 		state.WatchPositionMs = 0
 		state.WatchPlaying = req.WatchPlaying != nil && *req.WatchPlaying
+		state.Queue = nil
+		state.QueueIndex = -1
 	case "watch_play":
 		if state.Kind != "watch" || state.WatchURL == "" {
 			return errors.New("请先设置观看链接")
@@ -926,6 +1043,8 @@ func (h *ListenHub) applyControl(session listenSession, req listenControlRequest
 		state.DurationMs = 0
 		state.PositionMs = 0
 		state.Playing = false
+		state.Queue = nil
+		state.QueueIndex = -1
 	case "playback_mode":
 		if req.Mode != "list" && req.Mode != "repeat" && req.Mode != "shuffle" {
 			return errors.New("不支持的播放模式")
@@ -947,17 +1066,18 @@ func (h *ListenHub) applyControl(session listenSession, req listenControlRequest
 		return errors.New("不支持的播放操作")
 	}
 	state.UpdatedAt = time.Now().UnixMilli()
+	state.Revision++
 	state = normalizeListenState(state)
 	encoded, err := json.Marshal(state)
 	if err != nil {
 		return errors.New("保存播放状态失败")
 	}
-	result, err := h.store.DB.Exec(`UPDATE listen_room SET state_json=?,updated_at=datetime('now') WHERE id=? AND status=1`, string(encoded), session.RoomID)
+	result, err := h.store.DB.Exec(`UPDATE listen_room SET state_json=?,updated_at=datetime('now') WHERE id=? AND status=1 AND state_json=?`, string(encoded), session.RoomID, stateJSON)
 	if err != nil {
 		return errors.New("保存播放状态失败")
 	}
 	if affected, err := result.RowsAffected(); err != nil || affected != 1 {
-		return errors.New("房间不存在或已关闭")
+		return errors.New("房间状态已更新，请重试")
 	}
 	room.State = state
 	room.UpdatedAt = time.Now()

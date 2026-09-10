@@ -127,20 +127,17 @@ fun ListenTogetherScreen(onBack: () -> Unit) {
         error = null
         // The server is authoritative. The controller resolves the local URL
         // only after this command succeeds, so a forbidden member never hears a
-        // song that the room rejected.
-        ListenSessionController.control(
-            action = JSONObject().apply {
-                put("action", "set_track")
-                put("source", "netease")
-                put("song_id", track.id)
-                put("title", track.title)
-                put("artist", track.artist)
-                put("album", track.album)
-                put("cover_url", track.coverUrl)
-                put("duration_ms", track.durationMs)
-                put("playing", true)
-            },
-            successMessage = "已开始与伴侣一起听",
+        // song that the room rejected. Keep the search result queue in the room
+        // so the other device can use next/previous too.
+        val queue = results
+            .distinctBy { it.stableKey }
+            .let { songs -> if (songs.any { it.stableKey == track.stableKey }) songs else songs + track }
+            .ifEmpty { listOf(track) }
+        ListenSessionController.controlTrack(
+            track = track,
+            queue = queue,
+            queueIndex = queue.indexOfFirst { it.stableKey == track.stableKey },
+            playing = true,
         )
     }
 
