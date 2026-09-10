@@ -26,7 +26,8 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * during page transitions, could be painted twice.  Keeping Miuix for the
  * theme and controls while drawing text directly through Compose's foundation
  * primitive removes that extra component layer and gives every screen the same
- * transparent text contract.
+ * transparent text contract.  Keeping this adapter in the Android source set
+ * also makes the cloud build exercise the exact renderer path shipped in the APK.
  */
 @Composable
 fun LxText(
