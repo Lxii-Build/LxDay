@@ -125,7 +125,6 @@ private fun MiniPlaybackCard(
 ) {
     val track = state.track ?: return
     val tokens = LocalLxSurfaceTokens.current
-    val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     LxClickableSurface(
         modifier = modifier
             .navigationBarsPadding()
@@ -204,6 +203,7 @@ private fun FullPlaybackSheet(
 ) {
     val track = state.track ?: return
     val tokens = LocalLxSurfaceTokens.current
+    val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     val duration = state.durationMs.coerceAtLeast(0L)
     val progress = if (duration > 0L) {
         (state.positionMs.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
