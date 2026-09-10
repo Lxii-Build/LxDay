@@ -165,7 +165,7 @@ private fun MiniPlaybackCard(
             // The card spans the page above the bottom tab bar.  Its height is
             // intentionally large enough for the cover, transport row and a
             // real progress preview; this is not a floating playback capsule.
-            .padding(horizontal = 12.dp, bottom = 84.dp)
+            .padding(start = 12.dp, end = 12.dp, bottom = 84.dp)
             .fillMaxWidth()
             .height(128.dp),
         tone = LxSurfaceTone.Floating,
