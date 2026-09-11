@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
@@ -437,31 +438,67 @@ fun FloatingBottomBar(
                 )
             }
         } else if (!opaqueMode) {
-            // Miuix 模式下的选中项高亮层。
+            // Miuix 模式下的「选中色内容」层。
             //
-            // Liquid 分支靠第二层 `.alpha(0f)` + `layerBackdrop` 把「选中色文字」
-            // 叠加在胶囊上。这条路径必然创建图层，所以这里改用**纯 alpha 叠色**：
-            // 同一个 content() 再画一遍，用 accentColor 着色并以 alpha 0→1
-            // 淡入到胶囊范围内，视觉等价、机制上零图层。
-            CompositionLocalProvider(
-                // 选中项文字缩放：这条动画同样不依赖 RenderEffect，此前一并被跳过。
-                LocalFloatingBottomBarTabScale provides {
-                    lerp(1f, 1.2f, dampedDragAnimation.pressProgress)
-                },
-                LocalContentColor provides accentColor,
-            ) {
-                Row(
-                    Modifier
-                        .clearAndSetSemantics {}
-                        .fillMaxHeight()
-                        // 用 graphicsLayer 的 alpha 做淡入，而不是 Modifier.alpha()：
-                        // 两者都不创建离屏层，但 graphicsLayer 能保证与下方胶囊
-                        // 的位移共用同一个变换坐标系。
-                        .graphicsLayer { alpha = dampedDragAnimation.pressProgress }
-                        .padding(horizontal = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    content = content
-                )
+            // Liquid 分支靠 `.alpha(0f)` + layerBackdrop 让指示器玻璃「透过」
+            // 采样到品牌色内容：采样天然只落在胶囊范围内，且**常驻显示**。
+            // 上一版移植成「整层 alpha 叠加 + 绑 pressProgress 淡入」，同时
+            // 丢掉了这两个约束，实测（管理员截图）翻车：
+            //   · 不裁剪 → 按压任意一个 tab 时**所有** tab 的文字图标一起变蓝；
+            //   · 两层 Row 的垂直结构不一致（fillMaxHeight+水平 padding vs
+            //     64dp+四周 padding）→ 品牌色文字与黑字错位几像素，淡入时
+            //     看起来像「文字重影 / 蓝色下划线」；
+            //   · 绑 pressProgress → 静止时选中项反而没有品牌色反馈。
+            // 这里改用「滑动窗口 + 反向偏移」等效 backdrop 采样：窗口与指示器
+            // 同位同尺寸并随之滑动，窗口内的品牌色 content 反向平移，使恰好
+            // 只有选中槽位的内容出现在胶囊里 —— 常显、逐像素对齐、零图层。
+            if (tabWidthPx > 0f) {
+                val tabWidthDp = with(density) { tabWidthPx.toDp() }
+                // 第一层 Row 的内容区宽度：Row 总宽减去四周 4dp padding。
+                val contentWidthDp = with(density) { (totalWidthPx - 8.dp.toPx()).toDp() }
+                CompositionLocalProvider(
+                    // 选中项内容缩放：与 Liquid 路径同款动画，不依赖 RenderEffect。
+                    LocalFloatingBottomBarTabScale provides {
+                        lerp(1f, 1.2f, dampedDragAnimation.pressProgress)
+                    },
+                    LocalContentColor provides accentColor,
+                ) {
+                    Box(
+                        Modifier
+                            .padding(horizontal = 4.dp)
+                            // 动画值在 draw lambda 内读取：value 变化只触发重绘，
+                            // 不经重组，与 Liquid/Opaque 分支同一套性能模型。
+                            .graphicsLayer {
+                                val offset = dampedDragAnimation.value * tabWidthPx
+                                translationX = if (isLtr) {
+                                    offset + panelOffset
+                                } else {
+                                    -offset + panelOffset
+                                }
+                            }
+                            .clip(pillShape)
+                            .height(56.dp)
+                            .width(tabWidthDp)
+                    ) {
+                        Row(
+                            Modifier
+                                .clearAndSetSemantics {}
+                                // 反向平移：窗口已随指示器移动 value*tabWidth，
+                                // 内容再回移同样的量，槽位与第一层的屏幕坐标
+                                // 逐像素重合（panelOffset 两边相消）。
+                                // requiredWidth 让 Row 突破窗口宽度约束，按
+                                // 第一层内容区的总宽布局，weight 分槽才一致。
+                                .graphicsLayer {
+                                    val back = dampedDragAnimation.value * tabWidthPx
+                                    translationX = if (isLtr) -back else back
+                                }
+                                .requiredWidth(contentWidthDp)
+                                .fillMaxHeight(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            content = content
+                        )
+                    }
+                }
             }
         }
 
@@ -535,25 +572,28 @@ fun FloatingBottomBar(
                 //
                 // 关键点是这套动画**根本不依赖 RenderEffect**：
                 //   · 位移 —— `dampedDragAnimation.value` 是纯 Animatable + 弹簧；
-                //   · 缩放 —— `dampedDragAnimation.scaleX/scaleY` 同样是 Animatable；
                 //   · 高光 —— 用 drawBehind 的品牌色微光 + 白色渐变表达，
                 //     不走 InteractiveHighlight（理由见下方 modifier 链上的注释）。
                 // 此前它们被跳过，唯一原因就是旧代码把整个 else 分支写成了静态 background。
                 // 现在改为在真实节点上用 graphicsLayer / drawBehind 表达，
                 // 不创建任何离屏层，因此不会引发 ghosting。
+                //
+                // ★ 按压缩放刻意移除 ★
+                //
+                // 上一版照搬了 Liquid 分支的缩放公式：按压放大 78/56 ≈ 1.39 倍
+                // （DampedDragAnimation.pressedScale）× 速度拉伸最大再乘 1.25 倍。
+                // Liquid 里这是「果冻玻璃」的观感；但纯色胶囊没有折射窗口，
+                // 拖拽时胶囊膨胀到约 2 个槽位宽、78dp 高直接撑出 64dp 的栏体
+                // —— 就是管理员截图里那个「巨大椭圆」。
+                // Miuix 路径的按压反馈改由：背景加深（0.15→0.26 alpha）、
+                // 品牌色微光（pressProgress 驱动）、选中内容 1.2 倍缩放承担，
+                // 胶囊自身尺寸恒定，拖拽/按压都不会再溢出。
                 Box(
                     Modifier
                         .padding(horizontal = 4.dp)
                         .graphicsLayer {
                             val progressOffset = dampedDragAnimation.value * tabWidthPx
                             translationX = if (isLtr) progressOffset + panelOffset else -progressOffset + panelOffset
-                            // 缩放回弹：`DampedDragAnimation` 的 scaleX/scaleY，
-                            // 视觉流速减法与 Liquid 分支保持同一套公式。
-                            scaleX = dampedDragAnimation.scaleX
-                            scaleY = dampedDragAnimation.scaleY
-                            val velocity = dampedDragAnimation.velocity / 10f
-                            scaleX /= 1f - (velocity * 0.75f).fastCoerceIn(-0.2f, 0.2f)
-                            scaleY *= 1f - (velocity * 0.25f).fastCoerceIn(-0.2f, 0.2f)
                         }
                         // 拖拽手势：`dampedDragAnimation.modifier` 里就带着 press()/release()，
                         // 所以「按住 → 胶囊放大、松开 → 弹回」在无 RenderEffect 时依然成立。
