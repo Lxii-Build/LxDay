@@ -170,23 +170,23 @@ object NeteasePlaybackManager {
         // 同一条链路；onPlayerCommandRequest 因此只负责放行（声明支持），
         // 不再自己执行——否则 ForwardingPlayer 会再执行一次造成双跳。
         val sessionPlayer = object : ForwardingPlayer(player) {
+            // 注：WINDOW 版命令常量（COMMAND_SEEK_TO_PREVIOUS_WINDOW 等）在
+            // media3 1.10 已从 Player.Commands 的合法集合移除（lint WrongConstant
+            // 直接报错），Player 接口上对应方法也没了。MediaButton/流体云的
+            // 上一首/下一首语义走 MEDIA_ITEM 命令，下面的集合已完整覆盖。
             override fun getAvailableCommands(): Player.Commands =
                 super.getAvailableCommands().buildUpon()
                     .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
-                    .add(Player.COMMAND_SEEK_TO_PREVIOUS_WINDOW)
                     .add(Player.COMMAND_SEEK_TO_PREVIOUS)
                     .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
-                    .add(Player.COMMAND_SEEK_TO_NEXT_WINDOW)
                     .add(Player.COMMAND_SEEK_TO_NEXT)
                     .build()
 
             override fun isCommandAvailable(command: Int): Boolean =
                 super.isCommandAvailable(command) || when (command) {
                     Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
-                    Player.COMMAND_SEEK_TO_PREVIOUS_WINDOW,
                     Player.COMMAND_SEEK_TO_PREVIOUS,
                     Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
-                    Player.COMMAND_SEEK_TO_NEXT_WINDOW,
                     Player.COMMAND_SEEK_TO_NEXT -> true
 
                     else -> false
@@ -240,10 +240,8 @@ object NeteasePlaybackManager {
                     playerCommand: Int,
                 ): Int = when (playerCommand) {
                     Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
-                    Player.COMMAND_SEEK_TO_PREVIOUS_WINDOW,
                     Player.COMMAND_SEEK_TO_PREVIOUS,
                     Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
-                    Player.COMMAND_SEEK_TO_NEXT_WINDOW,
                     Player.COMMAND_SEEK_TO_NEXT -> SessionResult.RESULT_SUCCESS
 
                     else -> super.onPlayerCommandRequest(session, controller, playerCommand)
