@@ -125,7 +125,6 @@ fun LxSurface(
      * （圆形按钮上的「白色泛黄小点」就是这样来的）。现在描边直接取自
      * `shape.createOutline()`，圆角天然跟随 [shape]，无需再手工传半径。
      */
-    @Deprecated("高光已改为跟随 shape 的真实轮廓，此参数不再生效")
     edgeRadius: Dp = 15.dp,
     content: @Composable () -> Unit,
 ) {

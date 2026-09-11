@@ -57,8 +57,8 @@ import kotlinx.coroutines.isActive
 import com.linxi.diary.ui.components.LxText as Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.ArrowDown
-import top.yukonga.miuix.kmp.icon.extended.ArrowUp
+import top.yukonga.miuix.kmp.icon.extended.ExpandMore
+import top.yukonga.miuix.kmp.icon.extended.Pause
 import top.yukonga.miuix.kmp.icon.extended.Play
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -486,7 +486,7 @@ private fun SyncSection(
                     contentDescription = if (expanded) "收起同步表单" else "展开同步表单",
                 ) {
                     LxIcon(
-                        imageVector = MiuixIcons.ArrowDown,
+                        imageVector = MiuixIcons.ExpandMore,
                         contentDescription = null,
                         tint = MiuixTheme.colorScheme.onBackground,
                         modifier = Modifier

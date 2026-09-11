@@ -133,7 +133,7 @@ fun LxButton(
             // 4) 按压态内描边：`border` 只是又一次 `drawBehind`，不创建图形层。
             .then(
                 if (pressed && enabled) {
-                    Modifier.border(pressedEdge, shape, width = 2.dp)
+                    Modifier.border(2.dp, pressedEdge, shape)
                 } else {
                     Modifier
                 }

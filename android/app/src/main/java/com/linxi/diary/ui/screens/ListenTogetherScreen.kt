@@ -6,9 +6,9 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateColorAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
@@ -76,9 +76,9 @@ import org.json.JSONObject
 import com.linxi.diary.ui.components.LxText as Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.ExpandLess
+import top.yukonga.miuix.kmp.icon.extended.ExpandMore
 import top.yukonga.miuix.kmp.icon.extended.Music
-import top.yukonga.miuix.kmp.icon.extended.ArrowDown
-import top.yukonga.miuix.kmp.icon.extended.ArrowUp
 import top.yukonga.miuix.kmp.icon.extended.Ok
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -526,7 +526,7 @@ private fun SearchSection(
                     contentDescription = if (expanded) "收起搜索" else "展开搜索",
                 ) {
                     LxIcon(
-                        imageVector = if (expanded) MiuixIcons.ArrowUp else MiuixIcons.ArrowDown,
+                        imageVector = if (expanded) MiuixIcons.ExpandLess else MiuixIcons.ExpandMore,
                         contentDescription = null,
                         tint = MiuixTheme.colorScheme.onBackground,
                         modifier = Modifier

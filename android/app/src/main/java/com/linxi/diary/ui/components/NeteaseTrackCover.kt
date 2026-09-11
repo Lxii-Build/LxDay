@@ -27,7 +27,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 fun NeteaseTrackCover(
     track: NeteaseTrack,
     modifier: Modifier = Modifier,
-    description: String = "歌曲封面",
+    description: String? = "歌曲封面",
     shape: Shape = RoundedCornerShape(12.dp),
 ) {
     val context = LocalContext.current
