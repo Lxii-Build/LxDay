@@ -1,8 +1,11 @@
 package com.linxi.diary.data
 
+import android.content.ContentResolver
 import android.content.Context
+import android.database.Cursor
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.provider.MediaStore
 import com.linxi.diary.util.Logs
 import kotlinx.coroutines.Dispatchers
@@ -117,8 +120,21 @@ object MediaStoreImages {
     /** 单页条数。分页是为了避免一次把几万条元数据读进内存。 */
     const val PAGE_SIZE = 200
 
+    /**
+     * 选择器网格的加载页大小（0829 由「全库快照」改为「真分页」后启用）。
+     *
+     * 比 [PAGE_SIZE] 小是有意的：管理员 2 万+ 张的库上，选择器此前一进页就
+     * 把全库元数据扫完，直接「读取相册失败」。真分页后首屏只取这一页，
+     * 滚动接近底部再追加下一页；页越小首屏越快、单次查询越不容易被
+     * MediaProvider 拖死。
+     */
+    const val GRID_PAGE_SIZE = 120
+
     /** 「全部」桶的标识（非真实 bucket 名）。 */
     const val BUCKET_ALL = "__all__"
+
+    /** 无 bucket 名（NULL/空串）的图在分桶里统一归入这个桶。 */
+    private const val UNLABELED_BUCKET = "其他"
 
     private val PROJECTION = arrayOf(
         MediaStore.Images.Media._ID,
@@ -126,6 +142,17 @@ object MediaStoreImages {
         MediaStore.Images.Media.DATE_ADDED,
         MediaStore.Images.Media.SIZE,
         MediaStore.Images.Media.MIME_TYPE,
+        MediaStore.Images.Media.BUCKET_DISPLAY_NAME,
+    )
+
+    /**
+     * 分桶普查用的窄投影：只取「排序 + 计数 + 封面」所需的列。
+     * 大库普查全程只扫这 4 列、不逐行构建 [LocalImage]，开销远小于全投影。
+     */
+    private val PROJECTION_CENSUS = arrayOf(
+        MediaStore.Images.Media._ID,
+        MediaStore.Images.Media.DATE_TAKEN,
+        MediaStore.Images.Media.DATE_ADDED,
         MediaStore.Images.Media.BUCKET_DISPLAY_NAME,
     )
 
@@ -210,7 +237,121 @@ object MediaStoreImages {
     /** 从稳定快照里取一个相册桶；选择器切桶时不再访问 MediaProvider。 */
     fun imagesInBucket(all: List<LocalImage>, bucket: String): List<LocalImage> =
         if (bucket == BUCKET_ALL) all
-        else all.filter { it.bucketName.ifBlank { "其他" } == bucket }
+        else all.filter { it.bucketName.ifBlank { UNLABELED_BUCKET } == bucket }
+
+    /**
+     * ★ 直接对 MediaStore 分页查一页（0829 大库修复的核心入口）★
+     *
+     * 为什么不再走 [queryLibrary] 全库快照 + 内存切片：管理员 2 万+ 张的库上，
+     * 「一次 query 全库再逐行构建 LocalImage」会拖到超时/整卷查询失败，
+     * 表现就是选择器一进页就报「读取相册失败」。真分页后：
+     *
+     *   · 单卷设备（绝大多数，含管理员的一加 15）：用 Bundle 的
+     *     `QUERY_ARG_OFFSET` / `QUERY_ARG_LIMIT` 让 MediaProvider 在服务端
+     *     就截断结果，每页只取 [pageSize] 条（排序仍是 [ORDER_BY]，时间倒序）；
+     *   · 多卷设备（主存储 + SD 卡）：跨卷做不了全局 OFFSET，退化为每卷取
+     *     前 `offset + pageSize` 条再按 [MediaSortPolicy.compare] 合并切片
+     *     —— 每次仍是**有界查询**，翻得越深单页开销越大但绝不会一次性
+     *     扫全库构建对象。
+     *
+     * @param bucket [BUCKET_ALL] 或某个真实 bucket 名（含 [UNLABELED_BUCKET]）
+     * @param offset 本页起点（= 已加载条数；调用方用 `nextOffset` 推进而非
+     *   「列表长度」，媒体库在滚动期间增删时由调用方去重兜底）
+     * @throws Exception 所有卷都查询失败时抛出，让 UI 走「失败 + 重试本页」，
+     *   不能伪装成空相册
+     */
+    suspend fun queryPageFromStore(
+        context: Context,
+        bucket: String = BUCKET_ALL,
+        offset: Int = 0,
+        pageSize: Int = GRID_PAGE_SIZE,
+    ): List<LocalImage> = withContext(Dispatchers.IO) {
+        require(offset >= 0) { "offset must be >= 0" }
+        require(pageSize > 0) { "pageSize must be > 0" }
+        val uris = contentUris(context)
+        if (uris.isEmpty()) return@withContext emptyList()
+
+        if (uris.size == 1) {
+            val result = queryVolumePage(context, uris[0], bucket, offset, pageSize)
+            // 唯一的卷都失败：没有可用数据，必须让上层看到失败而不是空页。
+            if (!result.succeeded) error("无法读取系统相册")
+            return@withContext result.images
+        }
+
+        // 多卷：每卷取前 offset+pageSize 条，合并出全局有序的前缀再切片。
+        var succeededVolumes = 0
+        val merged = mutableListOf<LocalImage>()
+        val windowEnd = offset + pageSize
+        for (uri in uris) {
+            val result = queryVolumePage(context, uri, bucket, 0, windowEnd)
+            if (result.succeeded) {
+                succeededVolumes++
+                merged += result.images
+            }
+        }
+        if (succeededVolumes == 0) error("无法读取系统相册")
+        merged.sortWith { a, b -> MediaSortPolicy.compare(a.takenAtMs, a.id, b.takenAtMs, b.id) }
+        val range = MediaSortPolicy.pageRange(merged.size, offset, pageSize)
+        if (range == null) emptyList() else merged.slice(range)
+    }
+
+    /**
+     * 全库分桶普查：每个桶的条数 + 最新一张的封面。
+     *
+     * 只扫 [PROJECTION_CENSUS] 四个窄列，逐行只做计数与「记住首个（即最新）
+     * 桶成员」，**不**构建整库 [LocalImage] —— 这是大库上分桶条仍能正常
+     * 显示的前提。普查失败（返回 null）时调用方应直接隐藏分桶条降级，
+     * 网格分页本身不依赖它。
+     *
+     * @return 分桶列表（首项固定是「全部」），按条数降序；全部卷失败返回 null
+     */
+    suspend fun queryBucketCensus(context: Context): List<ImageBucket>? = withContext(Dispatchers.IO) {
+        /** 桶累积器：条数 + 首个成员（按 [ORDER_BY] 遍历，首个即最新）的封面 uri。 */
+        class BucketAcc(var count: Int = 0, var coverUri: Uri? = null)
+
+        val accs = LinkedHashMap<String, BucketAcc>()
+        var totalCount = 0
+        var allCoverUri: Uri? = null
+        var succeededVolumes = 0
+
+        for (uri in contentUris(context)) {
+            val succeeded = runCatching {
+                val bundle = Bundle().apply {
+                    // 普查同样按全局排序遍历，「桶内首个成员 = 最新一张」才成立。
+                    putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, ORDER_BY)
+                }
+                context.contentResolver.query(uri, PROJECTION_CENSUS, bundle, null)
+                    ?.use { cursor ->
+                        val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                        val takenCol = cursor.getColumnIndex(MediaStore.Images.Media.DATE_TAKEN)
+                        val addedCol = cursor.getColumnIndex(MediaStore.Images.Media.DATE_ADDED)
+                        val bucketCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.BUCKET_DISPLAY_NAME)
+                        while (cursor.moveToNext()) {
+                            val name = (cursor.getString(bucketCol) ?: "").ifBlank { UNLABELED_BUCKET }
+                            val acc = accs.getOrPut(name) { BucketAcc() }
+                            acc.count++
+                            if (acc.coverUri == null) {
+                                acc.coverUri = rowUri(uri, cursor.getLong(idCol))
+                            }
+                            totalCount++
+                            if (allCoverUri == null) {
+                                allCoverUri = rowUri(uri, cursor.getLong(idCol))
+                            }
+                        }
+                        true
+                    } ?: false
+            }.onFailure {
+                Logs.w("MediaStore", "bucket census failed for $uri", it)
+            }.getOrDefault(false)
+            if (succeeded) succeededVolumes++
+        }
+
+        if (succeededVolumes == 0) return@withContext null
+        val buckets = accs.map { (name, acc) ->
+            ImageBucket(name = name, count = acc.count, coverUri = acc.coverUri)
+        }.sortedByDescending { it.count }
+        listOf(ImageBucket(BUCKET_ALL, totalCount, allCoverUri)) + buckets
+    }
 
     /** 从已按时间排序的快照构建分桶（含固定在最前面的“全部”）。 */
     fun bucketsFrom(all: List<LocalImage>): List<ImageBucket> {
@@ -247,6 +388,93 @@ object MediaStoreImages {
         val succeeded: Boolean,
     )
 
+    private data class PageQueryResult(
+        val images: List<LocalImage>,
+        val succeeded: Boolean,
+    )
+
+    /**
+     * 指定桶的 WHERE 条件。
+     * [UNLABELED_BUCKET] 对应 bucket 名为空（NULL 或 ''）的图 —— 与
+     * [imagesInBucket] 的内存过滤规则保持同一份语义（`ifBlank` 归桶）。
+     */
+    private fun bucketSelection(bucket: String): Pair<String?, Array<String>?> = when {
+        bucket == BUCKET_ALL -> null to null
+        bucket == UNLABELED_BUCKET -> (
+            "(${MediaStore.Images.Media.BUCKET_DISPLAY_NAME} IS NULL OR " +
+                "${MediaStore.Images.Media.BUCKET_DISPLAY_NAME}='')"
+            ) to null
+        else -> "${MediaStore.Images.Media.BUCKET_DISPLAY_NAME} = ?" to arrayOf(bucket)
+    }
+
+    /**
+     * 读取「有效时间戳」：DATE_TAKEN（毫秒，截图/微信图常缺）缺失时回退
+     * DATE_ADDED（秒→毫秒）。规则本体在 [MediaSortPolicy.effectiveTimestamp]，
+     * 全部查询路径都经由这里取值 —— 测的规则与跑的规则必须是同一份。
+     */
+    private fun cursorTimestampMs(cursor: Cursor, takenCol: Int, addedCol: Int): Long {
+        val taken = takenCol.takeIf { it >= 0 && !cursor.isNull(it) }?.let { cursor.getLong(it) } ?: 0L
+        val added = addedCol.takeIf { it >= 0 && !cursor.isNull(it) }?.let { cursor.getLong(it) } ?: 0L
+        return MediaSortPolicy.effectiveTimestamp(taken, added)
+    }
+
+    /**
+     * 单卷分页查询：服务端 OFFSET/LIMIT 截断，返回该窗口内的行。
+     *
+     * Bundle 键（`QUERY_ARG_OFFSET` / `QUERY_ARG_LIMIT`，API 26+，本项目
+     * minSdk 33）是 ContentResolver 文档化的分页方式；排序走
+     * `QUERY_ARG_SQL_SORT_ORDER` 传 [ORDER_BY] 原文 —— 排序含 COALESCE
+     * 表达式，列名式参数（`QUERY_ARG_SORT_COLUMNS`）表达不了它。
+     *
+     * 单卷失败不抛出（返回 succeeded=false）：与 [queryVolume] 一样，
+     * 「部分卷失败保留其它卷结果」是 [queryPageFromStore] 的职责。
+     */
+    private fun queryVolumePage(
+        context: Context,
+        contentUri: Uri,
+        bucket: String,
+        offset: Int,
+        limit: Int,
+    ): PageQueryResult {
+        val out = mutableListOf<LocalImage>()
+        var succeeded = false
+        runCatching {
+            val bundle = Bundle().apply {
+                putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, ORDER_BY)
+                putInt(ContentResolver.QUERY_ARG_OFFSET, offset)
+                putInt(ContentResolver.QUERY_ARG_LIMIT, limit)
+            }
+            val (selection, selectionArgs) = bucketSelection(bucket)
+            context.contentResolver.query(contentUri, PROJECTION, bundle, null)
+                ?.use { cursor ->
+                    val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                    val takenCol = cursor.getColumnIndex(MediaStore.Images.Media.DATE_TAKEN)
+                    val addedCol = cursor.getColumnIndex(MediaStore.Images.Media.DATE_ADDED)
+                    val sizeCol = cursor.getColumnIndex(MediaStore.Images.Media.SIZE)
+                    val mimeCol = cursor.getColumnIndex(MediaStore.Images.Media.MIME_TYPE)
+                    val bucketCol = cursor.getColumnIndex(MediaStore.Images.Media.BUCKET_DISPLAY_NAME)
+                    while (cursor.moveToNext()) {
+                        val id = cursor.getLong(idCol)
+                        val ts = cursorTimestampMs(cursor, takenCol, addedCol)
+                        out += LocalImage(
+                            id = id,
+                            uri = rowUri(contentUri, id),
+                            takenAtMs = ts,
+                            sizeBytes = sizeCol.takeIf { it >= 0 }?.let { cursor.getLong(it) } ?: 0L,
+                            mime = mimeCol.takeIf { it >= 0 }?.let { cursor.getString(it) }
+                                ?: "image/jpeg",
+                            monthLabel = monthLabelOf(ts),
+                            bucketName = bucketCol.takeIf { it >= 0 }
+                                ?.let { cursor.getString(it) } ?: "",
+                        )
+                    }
+                    // 完整走完 cursor 才算成功；0 行是合法的空窗口。
+                    succeeded = true
+                }
+        }.onFailure { Logs.w("MediaStore", "query page failed for $contentUri", it) }
+        return PageQueryResult(out, succeeded)
+    }
+
     private fun queryVolume(context: Context, contentUri: Uri, limit: Int? = null): VolumeQueryResult {
         val out = mutableListOf<LocalImage>()
         var succeeded = false
@@ -264,11 +492,8 @@ object MediaStoreImages {
                     while (cursor.moveToNext()) {
                         val id = cursor.getLong(idCol)
                         // DATE_TAKEN 是毫秒且可能为 0/NULL（截图、下载、微信图常缺）；DATE_ADDED 是秒。
-                        val taken = takenCol.takeIf { it >= 0 && !cursor.isNull(it) }
-                            ?.let { cursor.getLong(it) } ?: 0L
-                        val added = addedCol.takeIf { it >= 0 && !cursor.isNull(it) }
-                            ?.let { cursor.getLong(it) * 1000 } ?: 0L
-                        val ts = MediaSortPolicy.effectiveTimestamp(taken, added / 1000)
+                        // 取值规则收口在 cursorTimestampMs，与分页查询共用同一份实现。
+                        val ts = cursorTimestampMs(cursor, takenCol, addedCol)
                         out += LocalImage(
                             id = id,
                             uri = rowUri(contentUri, id),

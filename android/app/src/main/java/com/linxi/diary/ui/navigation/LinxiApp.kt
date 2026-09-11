@@ -670,6 +670,7 @@ private fun MainTabs(
                 tabs.forEachIndexed { index, item ->
                     FloatingBottomBarItem(
                         onClick = { mainState.animateToPage(index) },
+                        index = index,
                         modifier = Modifier.defaultMinSize(minWidth = 76.dp)
                     ) {
                         LxIcon(imageVector = item.icon, contentDescription = item.label)

@@ -13,6 +13,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,6 +45,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -52,7 +54,6 @@ import com.linxi.diary.data.NeteaseLyricLine
 import com.linxi.diary.data.NeteaseLyrics
 import com.linxi.diary.data.NeteaseLyricSearchResult
 import com.linxi.diary.data.NeteasePlaybackManager
-import com.linxi.diary.data.NeteaseRepeatMode
 import com.linxi.diary.data.NeteaseTrack
 import com.linxi.diary.ui.components.BackAction
 import com.linxi.diary.ui.components.KernelScreen
@@ -71,11 +72,10 @@ import kotlinx.coroutines.launch
 import com.linxi.diary.ui.components.LxText as Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.basic.Search
 import top.yukonga.miuix.kmp.icon.extended.Pause
 import top.yukonga.miuix.kmp.icon.extended.Play
-import top.yukonga.miuix.kmp.icon.extended.Recent
 import top.yukonga.miuix.kmp.icon.extended.Translate
-import top.yukonga.miuix.kmp.icon.extended.Tune
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -95,16 +95,25 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *      不给每一行都套卡片，否则整页会变成「卡片糊墙」，层级反而消失。
  *   3. **过渡**：所有行的字号/透明度/缩放都走 `animateFloatAsState`，
  *      切行时是「平滑长大/缩小」而不是硬切，播放到副歌时观感尤其明显。
- *   4. **自动跟随**：当前行自动滚动居中；用户一旦手动滚动就暂停跟随，
+ *   4. **自动跟随**：当前行自动滚动到上三分线附近；用户一旦手动滚动就暂停跟随，
  *      停手 3 秒后恢复 —— 这是歌词页最关键的体验细节，否则用户没法往回看。
- *   5. **顶部区收窄**：封面 56dp + 单行标题，只作为「这是哪首歌」的锚点，
- *      把纵向空间让给歌词主体（此前 64dp 封面 + 两行标题 + 4 个按钮
- *      占掉了近半屏）。
+ *      ★ 居中靠滚动位置（贴顶后 animateScrollBy 下压 1/3 视口，两段弹簧动画）
+ *      而不是在列表头部塞半屏 spacer：此前 180dp 的前置空白把首屏歌词压到
+ *      约 45% 屏高以下，打开页面先看一大片空白（管理员截图反馈）。现在顶部
+ *      只留 16dp 呼吸位，打开即可见歌词；只有列表尾部的行需要一段尾随空白
+ *      来满足「滚上去居中」。（不能用 animateScrollToItem 的负 scrollOffset
+ *      一步到位 —— foundation 1.7+ 对该参数强制非负，负值抛异常。）
+ *   5. **顶部控制条单行化**：封面 + 标题/歌手（`weight(1f)` 弹性空间）+ 右侧
+ *      按钮组（翻译开关 / 搜索 / 播放暂停）。随机与循环按钮从本页移除 ——
+ *      它们在全局播放器悬浮层（MusicPlayerOverlay）里本来就有入口，
+ *      播放模式逻辑保留在 NeteasePlaybackManager，本页不再重复露出。
+ *      翻译开关直接用按钮选中态表达，不再弹出「已开启翻译歌词」之类的
+ *      提示条（此前它会压在封面上，与歌名重叠）。
  *
  * ## 功能完整性
  *
- * 同步高亮、点击跳转、翻译歌词、歌词候选搜索、错误重试、播放/暂停/随机/循环
- * 全部保留，一个都没减。
+ * 同步高亮、点击跳转、翻译歌词、歌词候选搜索、错误重试、播放/暂停全部保留；
+ * 随机/循环的切换能力保留在播放管理器与全局播放器悬浮层，一个都没删。
  */
 @Composable
 fun LyricsScreen(track: NeteaseTrack, onBack: () -> Unit) {
@@ -119,6 +128,14 @@ fun LyricsScreen(track: NeteaseTrack, onBack: () -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     var showingSearch by remember { mutableStateOf(false) }
     var retrySearch by remember { mutableStateOf(false) }
+    // 翻译开关：UserPrefs 是 SharedPreferences 而非 Compose State，直接读它
+    // 不会驱动重组。这里以本地状态为准（控制条按钮选中态也吃这个值），
+    // 切换时同步写回偏好，退出页面后设置页与下次进入仍能读到。
+    var translationOn by remember { mutableStateOf(UserPrefs.musicTranslation) }
+    fun toggleTranslation() {
+        translationOn = !translationOn
+        UserPrefs.musicTranslation = translationOn
+    }
     // 点击某行后的短暂「按压反馈」：记录刚被跳转到的行下标，用于闪一下 Inset。
     var flashIndex by remember { mutableStateOf(-1) }
     val currentTrack = playback.track?.takeIf { it.id == track.id } ?: track
@@ -169,8 +186,10 @@ fun LyricsScreen(track: NeteaseTrack, onBack: () -> Unit) {
         }
     }
 
-    val lines = remember(lyrics, UserPrefs.musicTranslation) {
-        lyrics?.let { visibleLines(it, UserPrefs.musicTranslation) }.orEmpty()
+    // 重组键用本地 translationOn（而非裸读 UserPrefs）：切换翻译开关时
+    // 歌词行必须立刻重算，否则按钮亮了、歌词没变。
+    val lines = remember(lyrics, translationOn) {
+        lyrics?.let { visibleLines(it, translationOn) }.orEmpty()
     }
     val listState = rememberLazyListState()
 
@@ -226,7 +245,21 @@ fun LyricsScreen(track: NeteaseTrack, onBack: () -> Unit) {
             // 从而永远无法恢复自动跟随。
             autoScrolling = true
             try {
-                listState.animateScrollToItem(lyricItemOffset + target)
+                // ★ 居中靠滚动位置，不靠半屏前置 spacer ★
+                //
+                // 目标是「当前行停在上三分线附近」。两段弹簧动画实现：
+                //   1) animateScrollToItem(index, 0) —— 行顶滚到视口顶；
+                //   2) animateScrollBy(-viewport/3) —— 内容整体下压 1/3 视口，
+                //      行就停在上三分线上。负方向滚动在列表顶部被自然夹住，
+                //      所以开头几行贴顶显示，不会把 Header 也滚出去。
+                //
+                // 为什么不直接用 animateScrollToItem 的负 scrollOffset 一步到位：
+                // 那个参数带 @IntRange(from = 0) 注解，新版 Compose（foundation
+                // 1.7+，本项目 BOM 2026.06.01 远在其上）传负值会直接抛
+                // IllegalArgumentException —— 切一次歌词闪退一次。
+                listState.animateScrollToItem(lyricItemOffset + target, 0)
+                val leadPx = listState.layoutInfo.viewportSize.height / 3f
+                if (leadPx > 0f) listState.animateScrollBy(-leadPx)
             } finally {
                 autoScrolling = false
             }
@@ -250,14 +283,12 @@ fun LyricsScreen(track: NeteaseTrack, onBack: () -> Unit) {
             LyricsHeader(
                 track = currentTrack,
                 playing = playback.playing,
-                shuffle = playback.shuffle,
-                repeatMode = playback.repeatMode,
+                translationOn = translationOn,
+                onToggleTranslation = { toggleTranslation() },
                 onTogglePlay = {
                     if (playback.playing) NeteasePlaybackManager.pause()
                     else NeteasePlaybackManager.resume()
                 },
-                onToggleShuffle = { NeteasePlaybackManager.toggleShuffle() },
-                onCycleRepeat = { NeteasePlaybackManager.cycleRepeatMode() },
                 onToggleSearch = { showingSearch = !showingSearch },
                 showingSearch = showingSearch,
             )
@@ -311,8 +342,11 @@ fun LyricsScreen(track: NeteaseTrack, onBack: () -> Unit) {
         } else if (lines.isEmpty()) {
             item { LyricsEmptyState() }
         } else {
-            // 顶部留白：让第一行也能滚到屏幕中央。
-            item(key = "__lyric_top_spacer__") { LyricEdgeSpacer() }
+            // 顶部只留一线呼吸位：打开页面即可见歌词内容。
+            // （此前这里是一条 180dp 的前置空白，把首屏歌词压到约半屏之下 ——
+            //   「当前行居中」现在由「贴顶 + animateScrollBy 下压」的两段滚动
+            //   实现，前置大 spacer 已无必要，见上面的自动滚动注释。）
+            item(key = "__lyric_top_spacer__") { LyricEdgeSpacer(LyricTopSpacerHeight) }
             itemsIndexed(
                 items = lines,
                 key = { index, line -> "lyric_${index}_${line.timeMs}" },
@@ -331,14 +365,14 @@ fun LyricsScreen(track: NeteaseTrack, onBack: () -> Unit) {
                     },
                 )
             }
-            // 底部留白：让最后一行也能滚到屏幕中央。
-            item(key = "__lyric_bottom_spacer__") { LyricEdgeSpacer() }
+            // 尾部留白：让最后一行也能被自动跟随拉到上三分线附近。
+            item(key = "__lyric_bottom_spacer__") { LyricEdgeSpacer(LyricBottomSpacerHeight) }
         }
     }
 }
 
 /**
- * 歌词主体。
+ * 歌词主体前后的边缘空白。
  *
  * ★ 这里**不**嵌 `LazyColumn` ★
  *
@@ -350,17 +384,22 @@ fun LyricsScreen(track: NeteaseTrack, onBack: () -> Unit) {
  *   它原本就是把每一行直接 item {} 到外层列表里的。）
  *
  * 所以保持原结构：歌词行全部作为**外层列表的 item** 铺开，
- * 滚动与自动跟随直接作用在外层 `LazyListState` 上 ——
- * 这样「自动居中」和「手动接管」都天然成立，且没有嵌套滚动问题。
- * 首尾行要能滚到屏幕中央，靠调用方插入的 `LyricEdgeSpacer` 撑开即可。
+ * 滚动与自动跟随直接作用在外层 `LazyListState` 上。
+ * 首尾空白只承担两个克制职责：
+ *   · 顶部 16dp：与控制条之间的一点呼吸位，打开页面即可见歌词；
+ *   · 尾部 240dp：让最后几行也能被自动跟随滚到上三分线附近
+ *     （放尾部不影响首屏；常见机型 1/3 视口 ≈ 240dp 上下）。
  */
 @Composable
-private fun LyricEdgeSpacer() {
-    // 高度约等于半屏：让第一行/最后一行也能停在视觉中央。
-    Spacer(Modifier.height(LyricEdgeSpacerHeight))
+private fun LyricEdgeSpacer(height: Dp) {
+    Spacer(Modifier.height(height))
 }
 
-private val LyricEdgeSpacerHeight = 180.dp
+/** 顶部呼吸位。此前是 180dp，会把首屏歌词压到半屏之下，现已收敛。 */
+private val LyricTopSpacerHeight = 16.dp
+
+/** 尾部留白，用于最后几行的「滚上去居中」，不影响首屏观感。 */
+private val LyricBottomSpacerHeight = 240.dp
 
 /**
  * 单行歌词。
@@ -424,21 +463,26 @@ private fun LyricLineRow(
 }
 
 /**
- * 顶部信息区：**收窄版**。
+ * 顶部控制条：**单行版**。
  *
- * 相比之前 64dp 封面 + 两行标题 + 两排共 4 个道具按钮，这里压到
- * 56dp 封面 + 单行标题 + 一行三个圆形控件，纵向占用减少约一半，
- * 把空间还给歌词主体。
+ * 管理员截图反馈的问题在这里集中修复：
+ *   · 此前控制条下还有一行「翻译图标 +『已开启翻译歌词』提示文字 + 搜索按钮」，
+ *     提示条会压在封面/歌名上、搜索按钮会叠到播放键 —— 现在整行删除：
+ *     翻译状态由按钮**选中态**表达（点亮 = 开启），不再弹任何提示；
+ *   · 右侧按钮组用 `Arrangement.spacedBy` 固定间距，标题占 `weight(1f)`
+ *     的弹性空间并被单行省略 —— 按钮组无论歌名多长都不会被挤出屏幕边缘；
+ *   · 随机/循环按钮移除（全局播放器悬浮层里已有同能力入口，
+ *     NeteasePlaybackManager 的播放模式逻辑原样保留）。
+ *
+ * 只保留五个元素：封面、歌名/歌手、翻译开关、搜索开关、播放/暂停主按钮。
  */
 @Composable
 private fun LyricsHeader(
     track: NeteaseTrack,
     playing: Boolean,
-    shuffle: Boolean,
-    repeatMode: NeteaseRepeatMode,
+    translationOn: Boolean,
+    onToggleTranslation: () -> Unit,
     onTogglePlay: () -> Unit,
-    onToggleShuffle: () -> Unit,
-    onCycleRepeat: () -> Unit,
     onToggleSearch: () -> Unit,
     showingSearch: Boolean,
 ) {
@@ -463,9 +507,13 @@ private fun LyricsHeader(
                 shape = RoundedCornerShape(14.dp),
             )
             Column(
+                // ★ weight(1f) 是布局不溢出的关键 ★
+                // 标题吃掉所有剩余空间，右侧按钮组只占固定宽度；
+                // 歌名过长时单行省略，而不是把按钮顶出屏幕（管理员截图里
+                // 蓝色播放键被裁掉一半的诱因之一就是中间没有弹性空间）。
                 Modifier
                     .weight(1f)
-                    .padding(start = 12.dp),
+                    .padding(start = 12.dp, end = 4.dp),
             ) {
                 Text(
                     track.title,
@@ -482,88 +530,59 @@ private fun LyricsHeader(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Spacer(Modifier.size(6.dp))
-            // 三个控件用圆形 LxIconButton，语义靠图标 + contentDescription 承载，
-            // 比原来两排整宽文字按钮紧凑得多，也不会和歌词区抢注意力。
+            // 按钮组：固定间距排布。图标语义 + contentDescription 承载状态，
+            // 选中态 = 品牌蓝，一目了然。
             //
             // ★ 尺寸走 buttonSize 而不是 Modifier.size ★
-            // LxIconButton 内部用 `sizeIn` 固定正方形，且其 max 是会与传入约束
-            // 求交集的，所以 `Modifier.size(40.dp)` 会被悄悄钳回 48dp —— 表面上
-            // 「设了 40dp」，真机上却和 44dp 的播放键一样大，紧凑布局的意图落空。
-            // 改用 buttonSize 后：随机/循环请求 40dp，但组件的无障碍下限
-            // （MIN_TOUCH_DP = 48dp）会把它兜到 48dp —— 这是**预期行为**，
-            // 因为这个头部的三个按钮彼此间隔 6dp，48dp 的触达区不会互相重叠，
-            // 也不会把顶部信息区撑高。
-            LxIconButton(
-                onClick = onToggleShuffle,
-                variant = if (shuffle) LxButtonVariant.Positive else LxButtonVariant.Neutral,
-                shape = CircleShape,
-                buttonSize = 40.dp,
-                contentDescription = if (shuffle) "已开启随机播放，点击关闭" else "开启随机播放",
+            // LxIconButton 内部用 `sizeIn` 固定正方形，其 max 会与传入约束求交集，
+            // `Modifier.size(40.dp)` 会被悄悄钳回 48dp；buttonSize 请求 40/44dp
+            // 同样会被组件的无障碍下限（MIN_TOUCH_DP = 48dp）兜到 48dp ——
+            // 这是**预期行为**：三个按钮间隔 6dp，48dp 触达区互不重叠。
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                LxIcon(
-                    MiuixIcons.Tune,
-                    contentDescription = null,
-                    tint = if (shuffle) MiuixTheme.colorScheme.onPrimary
-                    else MiuixTheme.colorScheme.onBackground,
-                )
+                LxIconButton(
+                    onClick = onToggleTranslation,
+                    variant = if (translationOn) LxButtonVariant.Positive else LxButtonVariant.Neutral,
+                    shape = CircleShape,
+                    buttonSize = 40.dp,
+                    contentDescription = if (translationOn) "已开启翻译歌词，点击关闭" else "已关闭翻译歌词，点击开启",
+                ) {
+                    LxIcon(
+                        MiuixIcons.Translate,
+                        contentDescription = null,
+                        tint = if (translationOn) MiuixTheme.colorScheme.onPrimary
+                        else MiuixTheme.colorScheme.onBackground,
+                    )
+                }
+                LxIconButton(
+                    onClick = onToggleSearch,
+                    variant = if (showingSearch) LxButtonVariant.Positive else LxButtonVariant.Neutral,
+                    shape = CircleShape,
+                    buttonSize = 40.dp,
+                    contentDescription = if (showingSearch) "收起歌词搜索" else "搜索歌词",
+                ) {
+                    LxIcon(
+                        MiuixIcons.Basic.Search,
+                        contentDescription = null,
+                        tint = if (showingSearch) MiuixTheme.colorScheme.onPrimary
+                        else MiuixTheme.colorScheme.onBackground,
+                    )
+                }
+                LxIconButton(
+                    onClick = onTogglePlay,
+                    variant = LxButtonVariant.Positive,
+                    shape = CircleShape,
+                    buttonSize = 44.dp,
+                    contentDescription = if (playing) "暂停" else "播放",
+                ) {
+                    LxIcon(
+                        if (playing) MiuixIcons.Pause else MiuixIcons.Play,
+                        contentDescription = null,
+                    )
+                }
             }
-            Spacer(Modifier.size(6.dp))
-            LxIconButton(
-                onClick = onCycleRepeat,
-                variant = if (repeatMode == NeteaseRepeatMode.OFF) LxButtonVariant.Neutral
-                else LxButtonVariant.Positive,
-                shape = CircleShape,
-                buttonSize = 40.dp,
-                contentDescription = repeatDescription(repeatMode) + "，点击切换",
-            ) {
-                LxIcon(
-                    MiuixIcons.Recent,
-                    contentDescription = null,
-                    tint = if (repeatMode == NeteaseRepeatMode.OFF) MiuixTheme.colorScheme.onBackground
-                    else MiuixTheme.colorScheme.onPrimary,
-                )
-            }
-            Spacer(Modifier.size(6.dp))
-            LxIconButton(
-                onClick = onTogglePlay,
-                variant = LxButtonVariant.Positive,
-                shape = CircleShape,
-                buttonSize = 44.dp,
-                contentDescription = if (playing) "暂停" else "播放",
-            ) {
-                LxIcon(
-                    if (playing) MiuixIcons.Pause else MiuixIcons.Play,
-                    contentDescription = null,
-                )
-            }
-        }
-        // 搜索入口单独一行、贴底、低对比：它是次要操作，不该占据主行。
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(start = 14.dp, end = 8.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            LxIcon(
-                imageVector = MiuixIcons.Translate,
-                contentDescription = null,
-                tint = if (showingSearch) MiuixTheme.colorScheme.primary else tokens.textSecondary,
-                modifier = Modifier.size(16.dp),
-            )
-            Spacer(Modifier.size(6.dp))
-            Text(
-                if (UserPrefs.musicTranslation) "已开启翻译歌词" else "歌词搜索与翻译",
-                fontSize = 12.sp,
-                color = if (showingSearch) MiuixTheme.colorScheme.primary else tokens.textSecondary,
-                modifier = Modifier.weight(1f),
-            )
-            LxButton(
-                text = if (showingSearch) "收起搜索" else "搜索歌词",
-                onClick = onToggleSearch,
-                variant = LxButtonVariant.Neutral,
-                horizontalPadding = 12,
-            )
         }
     }
 }
@@ -781,19 +800,13 @@ private fun LyricsEmptyState() {
             Text("这首歌暂时没有歌词", fontSize = 15.sp, fontWeight = FontWeight.Medium)
             Spacer(Modifier.height(4.dp))
             Text(
-                "可以点上方「搜索歌词」手动匹配一份",
+                "可点右上角的搜索按钮手动匹配一份",
                 fontSize = 12.sp,
                 color = tokens.textSecondary,
                 textAlign = TextAlign.Center,
             )
         }
     }
-}
-
-private fun repeatDescription(mode: NeteaseRepeatMode): String = when (mode) {
-    NeteaseRepeatMode.OFF -> "循环关闭"
-    NeteaseRepeatMode.ALL -> "列表循环"
-    NeteaseRepeatMode.ONE -> "单曲循环"
 }
 
 /** 手动滚动后，静置多久恢复自动跟随。3 秒是「看完这一句就回来」的常用阈值。 */

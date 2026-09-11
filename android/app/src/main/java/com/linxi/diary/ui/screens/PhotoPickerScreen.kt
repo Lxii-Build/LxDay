@@ -57,6 +57,7 @@ import com.linxi.diary.ui.components.LxIconButton
 import com.linxi.diary.ui.components.LxSurface
 import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.ui.theme.BrandBlue
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.linxi.diary.ui.components.LxIcon as Icon
 import top.yukonga.miuix.kmp.basic.Scaffold
@@ -75,6 +76,9 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
  */
 private const val MAX_SELECT = 100
 
+/** 首页查询超过这个时长还没回来，就给出「正在分批加载」提示，而不是让用户干等到失败。 */
+private const val SLOW_HINT_DELAY_MS = 1_500L
+
 /**
  * 自研 miuix 风格图片选择器。
  *
@@ -83,10 +87,22 @@ private const val MAX_SELECT = 100
  *
  * ## 0821 改动
  * - **按相册分桶**（学 QQ）：顶部可横滑切「全部 / 相机 / 截屏 / 微信 / 下载」
- * - **分页加载**：每页 200 条，滚到底续拉。此前一次性读 2000 条元数据，进页面先卡 2~3 秒
- * - **修「图片消失」**：排序改 COALESCE 回退 DATE_ADDED，截图/微信图不再沉底被截断
  * - **角标预览**（Q14=B）：格子右下角放大角标，点它看大图确认是不是那张
  * - 单选模式供头像使用（Q13=C），选完交给调用方去裁剪
+ *
+ * ## 0829 改动（2 万+ 大库修复）
+ *
+ * 管理员 2 万多张图，此前进页就把**全库元数据一次性扫完**（queryLibrary 全量
+ * + 内存分桶切片），大库直接拖到 MediaProvider 超时，整页「读取相册失败」。
+ * 现在改为**真分页**：
+ *   - 首屏只向 MediaStore 取一页（[MediaStoreImages.GRID_PAGE_SIZE] 条，
+ *     Bundle OFFSET/LIMIT 服务端截断），滚动接近底部再拉下一页；
+ *   - 缩略图继续由 Coil 按 content-uri 惰性加载（AsyncImage 只在格子可见时
+ *     才解码，从不预载全库）；
+ *   - 分桶条改为后台「窄列普查」（只扫 4 列计数），普查失败就隐藏分桶条
+ *     降级，网格不受影响；
+ *   - 首页慢（> [SLOW_HINT_DELAY_MS]）时提示「图片较多，正在分批加载」；
+ *     翻页失败只标记当前页重试，不推翻已加载内容、也不重扫全库。
  *
  * 兜底：Android 14+ 用户可能只授权「部分照片」，此时 MediaStore 只返回被选中的几张，
  * 用户会以为相册空了。所以顶栏常驻「系统相册」入口，走系统 Photo Picker
@@ -103,12 +119,23 @@ fun PhotoPickerScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
+    // ---- 分页状态 ----
+    // images 是「当前桶已加载的页」的累积；nextOffset 记录下一页从 MediaStore
+    // 的哪个位置开始取（按原始页大小推进，而非列表长度 —— 库在滚动期间增删时
+    // 二者会分叉，见 loadMore 里的去重）。
+    var images by remember { mutableStateOf<List<LocalImage>>(emptyList()) }
+    var nextOffset by remember { mutableIntStateOf(0) }
+    var hasMore by remember { mutableStateOf(false) }
+    // 加载代际：切桶/重试会让旧查询的返回变成「过期数据」。查询是并发飞出去的，
+    // 不做代际校验的话，慢的旧桶结果会覆盖新桶列表（currentBucket=B、内容却是 A）。
+    var loadGeneration by remember { mutableIntStateOf(0) }
     var buckets by remember { mutableStateOf<List<ImageBucket>>(emptyList()) }
     var currentBucket by remember { mutableStateOf(MediaStoreImages.BUCKET_ALL) }
-    var library by remember { mutableStateOf<List<LocalImage>>(emptyList()) }
-    var visibleCount by remember { mutableIntStateOf(MediaStoreImages.PAGE_SIZE) }
-    var loading by remember { mutableStateOf(true) }
-    var indexing by remember { mutableStateOf(false) }
+    var initialLoading by remember { mutableStateOf(true) }
+    var slowLoading by remember { mutableStateOf(false) }
+    var moreLoading by remember { mutableStateOf(false) }
+    var pageError by remember { mutableStateOf(false) }
+    // 首页失败（整页错误卡）。翻页失败走 pageError，不落到这里。
     var loadError by remember { mutableStateOf<String?>(null) }
     var selectionNotice by remember { mutableStateOf<String?>(null) }
     var granted by remember { mutableStateOf(hasImagePermission(context)) }
@@ -141,37 +168,72 @@ fun PhotoPickerScreen(
         if (multiple) multiPicker.launch(request) else singlePicker.launch(request)
     }
 
-    suspend fun loadAll() {
-        loading = true
-        indexing = false
+    /** 首页：只取第一页，绝不触发全库扫描。 */
+    suspend fun loadFirstPage(bucket: String) {
+        // 领取代际号：期间若发生切桶/重试（代际前进），本协程的结果全部丢弃。
+        val generation = ++loadGeneration
+        initialLoading = true
+        slowLoading = false
         loadError = null
-        val preview = runCatching {
-            MediaStoreImages.queryLibrary(context, limitPerVolume = MediaStoreImages.PAGE_SIZE)
+        pageError = false
+        // 大库首查可能仍要等一两秒：超过阈值给出「正在分批加载」提示，
+        // 明确的进度提示比干等更不容易被理解成「卡死/失败」。
+        val slowHint = scope.launch {
+            delay(SLOW_HINT_DELAY_MS)
+            if (initialLoading) slowLoading = true
         }
-        preview
-            .onSuccess { snapshot ->
-                library = snapshot
-                buckets = MediaStoreImages.bucketsFrom(snapshot)
-                currentBucket = MediaStoreImages.BUCKET_ALL
-                visibleCount = MediaStoreImages.PAGE_SIZE
-            }
-            .onFailure {
-                library = emptyList()
-                buckets = emptyList()
-                loadError = mediaPickerFriendlyError(it)
-            }
-        loading = false
-        if (loadError == null) {
-            // 先展示每个存储卷的最新一页，完整索引在后台补齐，避免进入选择器先卡住数秒。
-            indexing = true
-            runCatching { MediaStoreImages.queryLibrary(context) }
-                .onSuccess { snapshot ->
-                    library = snapshot
-                    buckets = MediaStoreImages.bucketsFrom(snapshot)
-                    visibleCount = visibleCount.coerceAtMost(snapshot.size).coerceAtLeast(MediaStoreImages.PAGE_SIZE)
-                }
-            indexing = false
+        runCatching {
+            MediaStoreImages.queryPageFromStore(context, bucket, 0, MediaStoreImages.GRID_PAGE_SIZE)
+        }.onSuccess { page ->
+            if (generation != loadGeneration) return@onSuccess
+            images = page
+            nextOffset = page.size
+            hasMore = page.size >= MediaStoreImages.GRID_PAGE_SIZE
+        }.onFailure {
+            if (generation != loadGeneration) return@onFailure
+            images = emptyList()
+            nextOffset = 0
+            hasMore = false
+            loadError = mediaPickerFriendlyError(it)
         }
+        if (generation != loadGeneration) return
+        slowHint.cancel()
+        initialLoading = false
+    }
+
+    /** 翻页：只取下一页并追加；失败只标记当前页待重试。 */
+    suspend fun loadMore() {
+        if (moreLoading || pageError || !hasMore) return
+        val generation = loadGeneration
+        moreLoading = true
+        pageError = false
+        runCatching {
+            MediaStoreImages.queryPageFromStore(context, currentBucket, nextOffset, MediaStoreImages.GRID_PAGE_SIZE)
+        }.onSuccess { page ->
+            if (generation != loadGeneration) return@onSuccess
+            // AGENTS 2.13：OFFSET 分页拼列表必须去重 —— 媒体库在滚动期间
+            // 增删会让窗口错位，重复 uri 会让 LazyColumn 撞 key 直接崩溃。
+            // offset（nextOffset）按原始页大小推进，即使整页全是重复项
+            // 也不会把同一页无限重拉。
+            val seen = images.mapTo(HashSet()) { it.uri }
+            images = images + page.filter { it.uri !in seen }
+            nextOffset += page.size
+            hasMore = page.size >= MediaStoreImages.GRID_PAGE_SIZE
+        }.onFailure {
+            // 单页失败：只标记本页重试。已加载的页原样保留，不重扫全库。
+            if (generation != loadGeneration) return@onFailure
+            pageError = true
+        }
+        // moreLoading 必须无条件复位：翻页中被切桶取代时，若不复位，
+        // 新桶的下一页会被重入保护永久挡住。
+        moreLoading = false
+    }
+
+    /** 切桶：重置分页游标，重新取该桶的第一页。 */
+    fun selectBucket(bucket: String) {
+        if (bucket == currentBucket) return
+        currentBucket = bucket
+        scope.launch { loadFirstPage(bucket) }
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -179,21 +241,24 @@ fun PhotoPickerScreen(
     ) { result ->
         granted = result.values.any { it }
         if (granted) {
-            scope.launch { loadAll() }
+            scope.launch { loadFirstPage(currentBucket) }
         } else {
-            loading = false
+            initialLoading = false
         }
     }
 
     LaunchedEffect(Unit) {
-        if (granted) loadAll() else permissionLauncher.launch(imagePermissions())
+        if (granted) loadFirstPage(currentBucket) else permissionLauncher.launch(imagePermissions())
     }
 
-    val bucketImages = remember(library, currentBucket) {
-        MediaStoreImages.imagesInBucket(library, currentBucket)
+    // 分桶普查：只扫窄列计数，失败就隐藏分桶条（降级），网格分页不依赖它。
+    LaunchedEffect(granted) {
+        if (granted) {
+            buckets = MediaStoreImages.queryBucketCensus(context) ?: emptyList()
+        } else {
+            buckets = emptyList()
+        }
     }
-    val images = remember(bucketImages, visibleCount) { bucketImages.take(visibleCount) }
-    val reachedEnd = images.size >= bucketImages.size
 
     fun toggleSelection(uri: Uri) {
         selectionNotice = when (
@@ -247,10 +312,8 @@ fun PhotoPickerScreen(
                             else MiuixTheme.colorScheme.onBackground.copy(alpha = 0.06f),
                             shape = RoundedCornerShape(14.dp),
                             onClick = {
-                                    if (!isCurrent) {
-                                        currentBucket = b.name
-                                        visibleCount = MediaStoreImages.PAGE_SIZE
-                                    }
+                                    // 切桶：重置分页游标并只取该桶第一页（不扫全库）。
+                                    selectBucket(b.name)
                                 },
                             contentDescription = "切换到${MediaStoreImages.bucketLabel(b.name)}相册",
                         ) {
@@ -266,8 +329,18 @@ fun PhotoPickerScreen(
                 }
             }
 
-            if (loading) {
-                LoadingRow()
+            if (initialLoading) {
+                Column(Modifier.fillMaxWidth()) {
+                    LoadingRow()
+                    // 大库首查偏慢时给出可读的进度提示，而不是让用户对着转圈猜。
+                    if (slowLoading) {
+                        Text(
+                            "图片较多，正在分批加载…",
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                        )
+                    }
+                }
             } else if (!granted) {
                 LxSurface(Modifier.fillMaxWidth().padding(12.dp), tone = LxSurfaceTone.Raised) {
                     Column(Modifier.padding(16.dp)) {
@@ -297,7 +370,8 @@ fun PhotoPickerScreen(
                         Spacer(Modifier.height(12.dp))
                         LxButton(
                             text = "重试",
-                            onClick = { scope.launch { loadAll() } },
+                            // 只重取第一页：大库上「全库重扫」正是此前失败的原因。
+                            onClick = { scope.launch { loadFirstPage(currentBucket) } },
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
@@ -314,13 +388,6 @@ fun PhotoPickerScreen(
                     }
                 }
             } else {
-                if (indexing) {
-                    Text(
-                        "正在整理全部照片…",
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                    )
-                }
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(3),
                     modifier = Modifier.weight(1f).overScrollVertical(),
@@ -337,13 +404,27 @@ fun PhotoPickerScreen(
                             onPreview = { previewImage = img },
                         )
                     }
-                    if (!reachedEnd) {
-                        item {
-                            LaunchedEffect(images.size, currentBucket) {
-                                visibleCount += MediaStoreImages.PAGE_SIZE
+                    if (hasMore) {
+                        item(key = "__picker_load_more__") {
+                            // 这个格子滚进视口 = 接近底部 → 拉下一页。
+                            // keyed on 已加载数 / 游标 / 失败标记：追加一页后
+                            // 格子仍在视口里就继续拉，翻页失败后点「重试本页」
+                            // （pageError 翻回 false）也会重新触发。
+                            LaunchedEffect(images.size, nextOffset, pageError) {
+                                if (!pageError) loadMore()
                             }
                             Box(Modifier.aspectRatio(1f), contentAlignment = Alignment.Center) {
-                                LoadingRow()
+                                if (pageError) {
+                                    // 单页失败只重试当前页：不清空已加载内容，不重扫全库。
+                                    LxButton(
+                                        text = "重试本页",
+                                        onClick = { pageError = false },
+                                        variant = LxButtonVariant.Neutral,
+                                        horizontalPadding = 12,
+                                    )
+                                } else {
+                                    LoadingRow()
+                                }
                             }
                         }
                     }

@@ -176,7 +176,7 @@ fun NowScreen(
                     ) {
                         ActionCard(
                             "求陪伴", MiuixIcons.FavoritesFill, Modifier.weight(1f),
-                            active = comfortActive, activeTitle = "已发送…（点击撤回）",
+                            active = comfortActive, activeTitle = "已发送", activeHint = "点按撤销",
                             allowClickWhenActive = true,
                         ) {
                             InteractionEvents.clearRejection()
@@ -199,7 +199,7 @@ fun NowScreen(
                         }
                         ActionCard(
                             "求冷静", MiuixIcons.Ok, Modifier.weight(1f),
-                            active = calmActive, activeTitle = "已发送…（点击撤回）",
+                            active = calmActive, activeTitle = "已发送", activeHint = "点按撤销",
                             allowClickWhenActive = true,
                         ) {
                             InteractionEvents.clearRejection()
@@ -226,7 +226,9 @@ fun NowScreen(
                     ActionCard(
                         "响铃提醒（紧急找人）", MiuixIcons.Messages, Modifier.fillMaxWidth(),
                         active = ringActive,
-                        activeTitle = if (ringAcked) "对方已知悉" else "响铃中…（点击撤回）",
+                        // 标题精简成单行，撤销提示放 10sp 副行（见 ActionCard 注释）。
+                        activeTitle = if (ringAcked) "对方已知悉" else "响铃中",
+                        activeHint = "点按撤销",
                         allowClickWhenActive = true, // 否则撤回点不到
                     ) {
                         if (ringActive) {
@@ -574,7 +576,21 @@ private fun SectionTitle(text: String, subtitle: String) {
     }
 }
 
-/** 互动卡片按钮（KernelSU Card 风格，无涟漪）。active=进行中：变蓝 + 进行文本。 */
+/**
+ * 互动卡片按钮（KernelSU Card 风格，无涟漪）。active=进行中：变蓝 + 进行文本。
+ *
+ * ★ 两态尺寸恒定 ★（0829 修复管理员截图反馈）
+ *
+ * 此前「已发送…（点击撤回）」这类长文案没有行数限制，在半宽卡片里会换行
+ * 成三行，把按钮撑得比旁边的高出一大截。现在：
+ *   · 文案统一精简（如「已发送」），标题强制单行省略（maxLines = 1）；
+ *   · 撤销能力不改（allowClickWhenActive），但提示挪进按钮内部标题下方的
+ *     10sp 小字副行，正常态不渲染 —— 内容总高始终被 64dp 兜住，
+ *     无论哪个态按钮高度都和正常态完全一致，布局不跳动。
+ *
+ * @param activeHint 进行中态在标题下方展示的小号提示（如「点按撤销」），
+ *   不参与按钮尺寸；正常态不显示。
+ */
 @Composable
 private fun ActionCard(
     title: String,
@@ -582,6 +598,7 @@ private fun ActionCard(
     modifier: Modifier = Modifier,
     active: Boolean = false,
     activeTitle: String = "进行中…",
+    activeHint: String? = null,
     /**
      * 进行中态是否仍可点击。
      * 互动请求与响铃都允许在进行中点击，以便及时撤回；只有确实不支持撤回的动作才保持 false。
@@ -592,12 +609,17 @@ private fun ActionCard(
     val fg = if (active) Color.White else colorScheme.onSurface
     val enabled = !active || allowClickWhenActive
     val visibleTitle = if (active) activeTitle else title
+    val visibleHint = if (active) activeHint else null
     val cardModifier = modifier
         .defaultMinSize(minHeight = 64.dp)
         .semantics {
             role = Role.Button
             contentDescription = visibleTitle
-            stateDescription = if (active) "进行中" else "可用"
+            stateDescription = when {
+                !active -> "可用"
+                visibleHint != null -> "进行中，$visibleHint"
+                else -> "进行中"
+            }
             if (!enabled) disabled()
         }
 
@@ -607,12 +629,12 @@ private fun ActionCard(
             color = if (active) BrandBlue else null,
             onClick = onClick,
             contentDescription = visibleTitle,
-        ) { ActionCardContent(icon, visibleTitle, fg) }
+        ) { ActionCardContent(icon, visibleTitle, visibleHint, fg) }
     } else {
         LxSurface(
             modifier = cardModifier,
             color = if (active) BrandBlue else null,
-        ) { ActionCardContent(icon, visibleTitle, fg) }
+        ) { ActionCardContent(icon, visibleTitle, visibleHint, fg) }
     }
 }
 
@@ -620,21 +642,49 @@ private fun ActionCard(
 private fun ActionCardContent(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
+    hint: String?,
     color: Color,
 ) {
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center,
+    Column(
+        // 高度兜底与外层 cardModifier 的 minHeight 一致（64dp），内容垂直居中：
+        // 进行中态多出的提示行只是在这 64dp 里重新分配空间，不改变卡片高度。
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 64.dp)
+            .padding(horizontal = 20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = color,
-            modifier = Modifier.size(22.dp),
-        )
-        Spacer(Modifier.width(10.dp))
-        Text(title, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = color)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = color,
+                modifier = Modifier.size(22.dp),
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                title,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium,
+                color = color,
+                // 单行 + 省略：无论文案多长都不会换行把按钮撑高。
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (hint != null) {
+            Text(
+                hint,
+                fontSize = 10.sp,
+                color = color.copy(alpha = 0.8f),
+                maxLines = 1,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
     }
 }
 

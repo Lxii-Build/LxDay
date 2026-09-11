@@ -3,6 +3,7 @@ package com.linxi.diary.data
 import android.content.Context
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -17,7 +18,6 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.CommandButton
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.session.MediaSession
-import androidx.media3.session.SessionResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -151,7 +151,71 @@ object NeteasePlaybackManager {
                 .setSlots(CommandButton.SLOT_FORWARD)
                 .build(),
         )
-        mediaSession = MediaSession.Builder(appContext, player)
+        // ★ 媒体按钮的真正执行入口是 Player，而不是 Session callback ★
+        //
+        // 厂商流体云/锁屏/耳机上的「上一首/下一首」按下后，MediaButton 的
+        // KeyEvent 会被 media3 默认解析成 `player.seekToPreviousMediaItem()`
+        // **直接打在 Player 上**，`onPlayerCommandRequest` 只拦得住 controller
+        // 显式发起的命令，拦不住这条默认路径。而本项目播放队列是懒解析的
+        // （网易云 URL 会过期，Player 里始终只有当前一首），ExoPlayer 收到
+        // seekToNext/Previous 时既没有下一项也没有上一项 → 静默 no-op，
+        // 这正是管理员「按钮看得见、点了没反应」的根因。
+        //
+        // 官方推荐做法：用 ForwardingPlayer 包住真 player 交给 Session，
+        // 把这几个 seek 命令统一重定向到异步解析器（skipToNext/Previous）。
+        // 无论命令来自 MediaButton、controller 还是应用内控件，都收敛到
+        // 同一条链路；onPlayerCommandRequest 因此只负责放行（声明支持），
+        // 不再自己执行——否则 ForwardingPlayer 会再执行一次造成双跳。
+        val sessionPlayer = object : ForwardingPlayer(player) {
+            override fun getAvailableCommands(): Player.Commands =
+                super.getAvailableCommands().buildUpon()
+                    .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                    .add(Player.COMMAND_SEEK_TO_PREVIOUS_WINDOW)
+                    .add(Player.COMMAND_SEEK_TO_PREVIOUS)
+                    .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                    .add(Player.COMMAND_SEEK_TO_NEXT_WINDOW)
+                    .add(Player.COMMAND_SEEK_TO_NEXT)
+                    .build()
+
+            override fun isCommandAvailable(command: Int): Boolean =
+                super.isCommandAvailable(command) || when (command) {
+                    Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+                    Player.COMMAND_SEEK_TO_PREVIOUS_WINDOW,
+                    Player.COMMAND_SEEK_TO_PREVIOUS,
+                    Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+                    Player.COMMAND_SEEK_TO_NEXT_WINDOW,
+                    Player.COMMAND_SEEK_TO_NEXT -> true
+
+                    else -> false
+                }
+
+            // 队列懒解析：只有当前 MediaItem，原生 seek 到前后曲目必然 no-op。
+            // 全部改走异步 URL 解析（skipToNext/Previous 内部自行取歌单）。
+            override fun seekToPreviousMediaItem() {
+                skipToPrevious()
+            }
+
+            override fun seekToNextMediaItem() {
+                skipToNext()
+            }
+
+            override fun seekToPrevious() {
+                skipToPrevious()
+            }
+
+            override fun seekToNext() {
+                skipToNext()
+            }
+
+            override fun seekToPreviousWindow() {
+                skipToPrevious()
+            }
+
+            override fun seekToNextWindow() {
+                skipToNext()
+            }
+        }
+        mediaSession = MediaSession.Builder(appContext, sessionPlayer)
             .setCallback(object : MediaSession.Callback {
                 override fun onConnect(
                     session: MediaSession,
@@ -168,6 +232,10 @@ object NeteasePlaybackManager {
                     )
                 }
 
+                // 只放行、不执行：真正执行发生在 ForwardingPlayer 的重定向里
+                // （见上）。此前在这里直接 skipToPrevious 并返回 SUCCESS，
+                // media3 收到 SUCCESS 后还会继续对 player 执行一次同名命令，
+                // 接入 ForwardingPlayer 后会变成「跳两首」。
                 override fun onPlayerCommandRequest(
                     session: MediaSession,
                     controller: MediaSession.ControllerInfo,
@@ -175,15 +243,10 @@ object NeteasePlaybackManager {
                 ): Int = when (playerCommand) {
                     Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
                     Player.COMMAND_SEEK_TO_PREVIOUS_WINDOW,
-                    Player.COMMAND_SEEK_TO_PREVIOUS ->
-                        if (skipToPrevious()) SessionResult.RESULT_SUCCESS
-                        else SessionResult.RESULT_ERROR_NOT_SUPPORTED
-
+                    Player.COMMAND_SEEK_TO_PREVIOUS,
                     Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
                     Player.COMMAND_SEEK_TO_NEXT_WINDOW,
-                    Player.COMMAND_SEEK_TO_NEXT ->
-                        if (skipToNext()) SessionResult.RESULT_SUCCESS
-                        else SessionResult.RESULT_ERROR_NOT_SUPPORTED
+                    Player.COMMAND_SEEK_TO_NEXT -> Player.RESULT_SUCCESS
 
                     else -> super.onPlayerCommandRequest(session, controller, playerCommand)
                 }

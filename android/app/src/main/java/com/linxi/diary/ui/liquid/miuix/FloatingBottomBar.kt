@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
@@ -43,6 +42,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp as lerpColor
 import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
@@ -85,6 +85,15 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 val LocalFloatingBottomBarTabScale = staticCompositionLocalOf { { 1f } }
+
+/**
+ * 指示器的连续位置（浮点槽位索引，如 0.5 = 在第 0/1 个 Tab 之间）。
+ *
+ * 各 Tab 用它推导自己的「选中进度」来染色/缩放（见 [FloatingBottomBarItem]），
+ * 取代此前会错位的第二着色层。动画值在组合中读取，切换期间按帧重组 ——
+ * Tab 内容极小，开销可忽略。
+ */
+val LocalFloatingBottomBarDragValue = staticCompositionLocalOf<() -> Float> { { 0f } }
 
 private val iosIndicatorSpecular: Highlight = Highlight(
     width = 1.dp,
@@ -151,29 +160,52 @@ private fun rememberGravityRotatedHighlight(
 @Composable
 fun RowScope.FloatingBottomBarItem(
     onClick: () -> Unit,
+    index: Int,
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val scale = LocalFloatingBottomBarTabScale.current
-    Column(
-        modifier
-            .clickable(
-                interactionSource = null,
-                indication = null,
-                role = Role.Tab,
-                onClick = onClick
-            )
-            .fillMaxHeight()
-            .weight(1f)
-            .graphicsLayer {
-                val scale = scale()
-                scaleX = scale
-                scaleY = scale
-            },
-        verticalArrangement = Arrangement.spacedBy(1.dp, Alignment.CenterVertically),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        content = content
-    )
+    // ★ 选中色与缩放都在 item 自己身上表达 ★
+    //
+    // 上一版用「第二个着色 content 层」叠出品牌色，两种实现（整层 alpha、
+    // 滑动窗口裁剪）都在实机上翻过车：整层淡入时所有 Tab 一起变蓝；窗口
+    // 方案里第二层 Row 与第一层的槽位布局难以逐像素对齐，实机截图出现
+    // 「胶囊里显示的是隔壁 Tab 的内容」的错位。
+    //
+    // 现在改为每个 Tab 直接观察指示器的连续位置（dragValue 是 Animatable
+    // 状态，组合中读取会驱动重组）：离指示器越近越蓝、越靠近 1.2x 缩放，
+    // 切换时新旧两项颜色交叉渐变 —— 不存在第二层，对齐问题无从发生。
+    val dragValue = LocalFloatingBottomBarDragValue.current
+    val rawPosition = dragValue()
+    val selectedProgress = (1f - abs(index - rawPosition)).coerceIn(0f, 1f)
+    val accent = MiuixTheme.colorScheme.primary
+    val baseContent = MiuixTheme.colorScheme.onSurface
+    CompositionLocalProvider(
+        LocalContentColor provides lerpColor(baseContent, accent, selectedProgress),
+        LocalFloatingBottomBarTabScale provides {
+            lerp(1f, 1.2f, selectedProgress)
+        },
+    ) {
+        Column(
+            modifier
+                .clickable(
+                    interactionSource = null,
+                    indication = null,
+                    role = Role.Tab,
+                    onClick = onClick
+                )
+                .fillMaxHeight()
+                .weight(1f)
+                .graphicsLayer {
+                    val scale = scale()
+                    scaleX = scale
+                    scaleY = scale
+                },
+            verticalArrangement = Arrangement.spacedBy(1.dp, Alignment.CenterVertically),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            content = content
+        )
+    }
 }
 
 /**
@@ -399,13 +431,19 @@ fun FloatingBottomBar(
                 .padding(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            CompositionLocalProvider(LocalContentColor provides tabContentColor) {
+            CompositionLocalProvider(
+                // 把指示器的连续位置下发给每个 Tab（item 内据此自染色/自缩放，
+                // 取代此前会错位的第二着色层，见 FloatingBottomBarItem 注释）。
+                LocalFloatingBottomBarDragValue provides { dampedDragAnimation.value },
+                LocalContentColor provides tabContentColor,
+            ) {
                 content()
             }
         }
 
         if (activeBackdrop != null && tabsBackdrop != null) {
             CompositionLocalProvider(
+                LocalFloatingBottomBarDragValue provides { dampedDragAnimation.value },
                 LocalFloatingBottomBarTabScale provides {
                     lerp(1f, 1.2f, dampedDragAnimation.pressProgress)
                 },
@@ -437,70 +475,11 @@ fun FloatingBottomBar(
                     content = content
                 )
             }
-        } else if (!opaqueMode) {
-            // Miuix 模式下的「选中色内容」层。
-            //
-            // Liquid 分支靠 `.alpha(0f)` + layerBackdrop 让指示器玻璃「透过」
-            // 采样到品牌色内容：采样天然只落在胶囊范围内，且**常驻显示**。
-            // 上一版移植成「整层 alpha 叠加 + 绑 pressProgress 淡入」，同时
-            // 丢掉了这两个约束，实测（管理员截图）翻车：
-            //   · 不裁剪 → 按压任意一个 tab 时**所有** tab 的文字图标一起变蓝；
-            //   · 两层 Row 的垂直结构不一致（fillMaxHeight+水平 padding vs
-            //     64dp+四周 padding）→ 品牌色文字与黑字错位几像素，淡入时
-            //     看起来像「文字重影 / 蓝色下划线」；
-            //   · 绑 pressProgress → 静止时选中项反而没有品牌色反馈。
-            // 这里改用「滑动窗口 + 反向偏移」等效 backdrop 采样：窗口与指示器
-            // 同位同尺寸并随之滑动，窗口内的品牌色 content 反向平移，使恰好
-            // 只有选中槽位的内容出现在胶囊里 —— 常显、逐像素对齐、零图层。
-            if (tabWidthPx > 0f) {
-                val tabWidthDp = with(density) { tabWidthPx.toDp() }
-                // 第一层 Row 的内容区宽度：Row 总宽减去四周 4dp padding。
-                val contentWidthDp = with(density) { (totalWidthPx - 8.dp.toPx()).toDp() }
-                CompositionLocalProvider(
-                    // 选中项内容缩放：与 Liquid 路径同款动画，不依赖 RenderEffect。
-                    LocalFloatingBottomBarTabScale provides {
-                        lerp(1f, 1.2f, dampedDragAnimation.pressProgress)
-                    },
-                    LocalContentColor provides accentColor,
-                ) {
-                    Box(
-                        Modifier
-                            .padding(horizontal = 4.dp)
-                            // 动画值在 draw lambda 内读取：value 变化只触发重绘，
-                            // 不经重组，与 Liquid/Opaque 分支同一套性能模型。
-                            .graphicsLayer {
-                                val offset = dampedDragAnimation.value * tabWidthPx
-                                translationX = if (isLtr) {
-                                    offset + panelOffset
-                                } else {
-                                    -offset + panelOffset
-                                }
-                            }
-                            .clip(pillShape)
-                            .height(56.dp)
-                            .width(tabWidthDp)
-                    ) {
-                        Row(
-                            Modifier
-                                .clearAndSetSemantics {}
-                                // 反向平移：窗口已随指示器移动 value*tabWidth，
-                                // 内容再回移同样的量，槽位与第一层的屏幕坐标
-                                // 逐像素重合（panelOffset 两边相消）。
-                                // requiredWidth 让 Row 突破窗口宽度约束，按
-                                // 第一层内容区的总宽布局，weight 分槽才一致。
-                                .graphicsLayer {
-                                    val back = dampedDragAnimation.value * tabWidthPx
-                                    translationX = if (isLtr) -back else back
-                                }
-                                .requiredWidth(contentWidthDp)
-                                .fillMaxHeight(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            content = content
-                        )
-                    }
-                }
-            }
         }
+        // Miuix / Opaque 模式不再有第二层内容：选中色与缩放已下沉到
+        // [FloatingBottomBarItem] 内部按指示器位置自行表达（见该函数注释），
+        // 第二层（整层 alpha / 滑动窗口两种尝试）在实机上分别产生了
+        // 「全栏变蓝」「胶囊与内容错位一槽」两种 bug，此处只保留指示器。
 
         if (tabWidthPx > 0f) {
             val tabWidthDp = with(density) { tabWidthPx.toDp() }

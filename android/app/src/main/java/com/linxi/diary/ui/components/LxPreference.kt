@@ -31,7 +31,6 @@ import top.yukonga.miuix.kmp.basic.Switch
 import com.linxi.diary.ui.components.LxText as Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.ChevronForward
-import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -250,39 +249,23 @@ fun LxChoicePreference(
         onClick = { showChoices = true },
     )
 
-    if (showChoices) {
-        OverlayDialog(
-            show = true,
-            title = title,
-            onDismissRequest = { showChoices = false },
-            renderInRootScaffold = true,
-        ) {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items.forEachIndexed { index, item ->
-                    LxButton(
-                        text = item,
-                        onClick = {
-                            onSelectedIndexChange(index)
-                            showChoices = false
-                        },
-                        enabled = enabled,
-                        variant = if (index == safeIndex) LxButtonVariant.Positive else LxButtonVariant.Neutral,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                Spacer(Modifier.height(2.dp))
-                LxButton(
-                    text = "取消",
-                    onClick = { showChoices = false },
-                    variant = LxButtonVariant.Neutral,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
-    }
+    // ★ 拟态化（0829）：不再把一列 LxButton 直接塞进 miuix 弹窗骨架 ★
+    // 管理员反馈那样的弹窗「一瞬间就没有拟态的感觉了」。改用项目统一的
+    // LxChoiceDialog：LxSurface 拟态卡片 + 选项行 + 选中行品牌蓝勾选态，
+    // 点击即选中并关闭。对外 API（title/summary/items/selectedIndex/
+    // onSelectedIndexChange）保持不变，AppearanceScreen 等调用点无感。
+    LxChoiceDialog(
+        show = showChoices,
+        title = title,
+        items = items,
+        selectedIndex = safeIndex,
+        enabled = enabled,
+        onSelect = { index ->
+            onSelectedIndexChange(index)
+            showChoices = false
+        },
+        onDismiss = { showChoices = false },
+    )
 }
 
 @Composable
