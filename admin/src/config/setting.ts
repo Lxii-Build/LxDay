@@ -30,7 +30,10 @@ export const SETTING_DEFAULT_CONFIG = {
   /** 菜单类型 */
   menuType: MenuTypeEnum.LEFT,
   /** 菜单展开宽度 */
-  menuOpenWidth: 230,
+  // 190（原 230）：230px 展开时侧边栏明显比页面内按钮宽出一截，视觉失衡。
+  // 190 仍能完整容纳最长菜单名（如「系统设置」「审核日志」）与两级缩进，
+  // 但整体重量与内容区控件更接近。可在「设置 → 基础设置 → 菜单宽度」继续调整（180–320）。
+  menuOpenWidth: 190,
   /** 菜单是否展开 */
   menuOpen: true,
   /** 双菜单是否显示文本 */

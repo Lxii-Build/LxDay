@@ -1,8 +1,15 @@
 package com.linxi.diary.ui.navigation
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -21,7 +28,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -43,6 +49,7 @@ import com.linxi.diary.data.ListenSessionController
 import com.linxi.diary.service.StatusForegroundService
 import com.linxi.diary.sync.StatusSyncManager
 import com.linxi.diary.ui.liquid.miuix.FloatingBottomBar
+import com.linxi.diary.ui.liquid.miuix.FloatingBarSurfaceMode
 import com.linxi.diary.ui.liquid.miuix.FloatingBottomBarItem
 import com.linxi.diary.ui.screens.AlbumDetailScreen
 import com.linxi.diary.ui.screens.AvatarCropScreen
@@ -107,6 +114,20 @@ private enum class NavigationDirection {
     Forward,
     Back,
 }
+
+/**
+ * 页面转场时长。240ms 与 miuix 自身的控件动效节奏接近：
+ * 短到不会挡住操作，长到能看清方向。
+ */
+private const val ScreenTransitionMillis = 240
+
+/**
+ * 前后屏各自平移的幅度 = 屏宽的 1/N。
+ *
+ * 用 N>1 而不是整屏位移，是为了让「滑入的新屏」和「滑出的旧屏」在视觉上
+ * 有重叠的层次感；同时因为配合了 fade，重叠区不会出现两块不透明内容硬碰。
+ */
+private const val SCREEN_SLIDE_FRACTION = 4
 
 @Composable
 fun LinxiApp() {
@@ -221,14 +242,55 @@ fun LinxiApp() {
                     playback.track != null && showsPlaybackChrome
                 ) PLAYBACK_CHROME_RESERVED_DP.dp else 0.dp,
             ) {
-                // A destination owns this slot exclusively. Keeping the
-                // outgoing and incoming full-screen Scaffolds alive during a
-                // transition exposed both text layers as ghosted/white
-                // text-sized rectangles on the affected OnePlus renderer and
-                // made settings cards appear to overlap. Navigation state
-                // still changes normally, but only one screen is composed.
-                key(screen) {
-                    when (screen) {
+                // ★ 恢复页面切换动画（管理员反馈「动画也被阉割了」）★
+                //
+                // 历史问题：此前用默认的 AnimatedContent 做转场，**旧屏和新屏
+                // 会同时存在于 composition 里**。在受影响的一加/OPPO GPU 上，
+                // 两层全屏 Scaffold 的文本各自被记录成带离屏图层的节点，
+                // 叠加后表现为「重影文字 / 白色文字大小的矩形」，设置卡片看起来
+                // 互相重叠。于是当时直接把动画整个删掉，只剩 key(screen) 硬切。
+                //
+                // 现在的做法在「有动画」和「不重影」之间取平衡：
+                //
+                //   1. 用 AnimatedContent，但 transitionSpec **只做 alpha + translationX**，
+                //      绝不使用 SizeTransform / clip / scale 这类需要测量两层并
+                //      重建图层的规格 —— ghosting 的物理成因就是两层同时可见，
+                //      而纯位移+淡出是「旧屏滑走并淡到 0」后才被移除。
+                //   2. 给两层都显式设置 `contentKey`，保证同一 Screen 的重组不会
+                //      被当成新内容重新播一次动画。
+                //   3. 转场结束后旧屏才离开 composition，因此任何时刻上层最多
+                //      只有一层是「不透明」的。
+                //   4. **不给任何一层加 RenderEffect / layerBackdrop**，
+                //      避免二次触发那条已知有问题的绘制路径。
+                //
+                // 状态隔离：`key(screen)` 的语义被保留 —— AnimatedContent 的
+                // `contentKey` 就是 screen，每个目标内容仍拥有独立的 slot 空间与
+                // 独立 remember 作用域，不会出现两个屏幕的 state 互相污染。
+                AnimatedContent(
+                    targetState = screen,
+                    contentKey = { it },
+                    modifier = Modifier.fillMaxSize(),
+                    transitionSpec = {
+                        // 方向语义来自既有的 NavigationDirection：
+                        // 前进：新屏从右滑入；返回：新屏从左滑入。
+                        val forward = navigationDirection == NavigationDirection.Forward
+                        val enterFrom = if (forward) 1 else -1
+                        val exitTo = if (forward) -1 else 1
+                        (
+                            slideInHorizontally(
+                                animationSpec = tween(ScreenTransitionMillis, easing = FastOutSlowInEasing),
+                            ) { width -> enterFrom * width / SCREEN_SLIDE_FRACTION }
+                                + fadeIn(animationSpec = tween(ScreenTransitionMillis))
+                            ) togetherWith (
+                            slideOutHorizontally(
+                                animationSpec = tween(ScreenTransitionMillis, easing = FastOutSlowInEasing),
+                            ) { width -> exitTo * width / SCREEN_SLIDE_FRACTION }
+                                + fadeOut(animationSpec = tween(ScreenTransitionMillis))
+                            )
+                    },
+                    label = "screenTransition",
+                ) { animatedScreen ->
+                    when (animatedScreen) {
                         Screen.Login -> LoginScreen(
                             onLoggedIn = {
                                 // 已绑定则直接进主页（退出登录不解绑），未绑定才进绑定页。
@@ -589,11 +651,21 @@ private fun MainTabs(
                 // accidentally attach the RenderEffect sampling layer again.
                 backdrop = null,
                 tabsCount = tabs.size,
-                // Keep the liquid interaction/selection animation, but use an
-                // opaque surface until the RenderEffect path is validated on
-                // the target device.  This prevents the light-theme ghost text
-                // visible in settings and the mini-player screenshots.
-                isBlurEnabled = false
+                // ★ 恢复底栏动画（管理员反馈「动画被阉割」）★
+                //
+                // 此前这里是 `isBlurEnabled = false`，它一次性关掉了 4 条动画链：
+                // 玻璃模糊、lens 折射、按压高光、以及依赖 layerBlock 的缩放回弹。
+                //
+                // 现在改用 FloatingBarSurfaceMode.Miuix：
+                //   · 保留全部**不依赖 RenderEffect** 的动画（选中胶囊弹簧位移、
+                //     拖拽缩放开合、按压光斑、选中项文字缩放）；
+                //   · 玻璃观感用 graphicsLayer 的 alpha/scale + 静态渐变模拟；
+                //   · 依旧不创建任何离屏采样层 —— backdrop 传 null，
+                //     所以历史上那个「浅色矩形/ghosting」的根因没有被重新引入。
+                //
+                // 若某台设备验证过 Liquid 路径没问题，把它改成 Liquid 并传入
+                // rememberLayerBackdrop() 生成的 backdrop 即可全量开启玻璃。
+                surfaceMode = FloatingBarSurfaceMode.Miuix
             ) {
                 tabs.forEachIndexed { index, item ->
                     FloatingBottomBarItem(
@@ -625,7 +697,6 @@ private fun MainTabs(
                         onClick = { fabAction.invoke() },
                         variant = LxButtonVariant.Positive,
                         shape = CircleShape,
-                        edgeRadius = 24.dp,
                         contentDescription = "添加待办",
                         modifier = Modifier.offset { IntOffset(0, fabOffsetY.roundToPx()) },
                     ) {

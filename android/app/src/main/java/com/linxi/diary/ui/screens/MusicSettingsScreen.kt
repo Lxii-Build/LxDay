@@ -29,9 +29,9 @@ import com.linxi.diary.ui.components.LxArrowPreference
 import com.linxi.diary.ui.components.LxChoicePreference
 import com.linxi.diary.ui.components.LxSwitchPreference
 import com.linxi.diary.ui.components.LxPreferenceGroup
+import com.linxi.diary.ui.components.LxSectionTitle
 import com.linxi.diary.ui.components.LxIcon
 import com.linxi.diary.util.UserPrefs
-import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Lock
 import top.yukonga.miuix.kmp.icon.extended.Messages
@@ -70,7 +70,7 @@ fun MusicSettingsScreen(onBack: () -> Unit, onOpenMusic: () -> Unit) {
 
     KernelScreen(title = "音乐设置", navigationIcon = { BackAction(onBack) }) {
         item {
-            SmallTitle("网易云账号")
+            LxSectionTitle("网易云账号")
             LxPreferenceGroup(Modifier.padding(top = 6.dp).fillMaxWidth()) {
                 LxArrowPreference(
                     title = if (loggedIn) "网易云账号已绑定" else "绑定网易云账号",
@@ -108,7 +108,7 @@ fun MusicSettingsScreen(onBack: () -> Unit, onOpenMusic: () -> Unit) {
         }
 
         item {
-            SmallTitle("播放行为")
+            LxSectionTitle("播放行为")
             LxPreferenceGroup(Modifier.padding(top = 6.dp).fillMaxWidth()) {
                 val qualityItems = listOf("标准 128k", "高品质 192k", "极高 320k", "无损 FLAC")
                 val qualityValues = listOf("standard", "higher", "exhigh", "lossless")
@@ -165,7 +165,7 @@ fun MusicSettingsScreen(onBack: () -> Unit, onOpenMusic: () -> Unit) {
         }
 
         item {
-            SmallTitle("歌词")
+            LxSectionTitle("歌词")
             LxPreferenceGroup(Modifier.padding(top = 6.dp).fillMaxWidth()) {
                 LxSwitchPreference(
                     title = "显示同步歌词",
@@ -196,7 +196,7 @@ fun MusicSettingsScreen(onBack: () -> Unit, onOpenMusic: () -> Unit) {
         }
 
         item {
-            SmallTitle("播放胶囊与通知")
+            LxSectionTitle("播放胶囊与通知")
             LxPreferenceGroup(Modifier.padding(top = 6.dp).fillMaxWidth()) {
                 LxSwitchPreference(
                     title = "显示播放胶囊",

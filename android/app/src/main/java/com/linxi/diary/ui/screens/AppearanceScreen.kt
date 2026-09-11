@@ -13,9 +13,9 @@ import com.linxi.diary.ui.components.LxSurface
 import com.linxi.diary.ui.components.LxSurfaceTone
 import com.linxi.diary.ui.components.LxArrowPreference
 import com.linxi.diary.ui.components.LxChoicePreference
+import com.linxi.diary.ui.components.LxSectionTitle
 import com.linxi.diary.ui.theme.ColorMode
 import com.linxi.diary.ui.theme.rememberThemeState
-import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.MindMap
 import com.linxi.diary.ui.components.LxIcon as Icon
@@ -34,7 +34,7 @@ fun AppearanceScreen(onBack: () -> Unit, onOpenLive2D: () -> Unit = {}) {
 
     KernelScreen(title = "主题与界面", navigationIcon = { BackAction(onBack) }) {
         item {
-            SmallTitle("主题模式")
+            LxSectionTitle("主题模式")
             LxSurface(Modifier.padding(top = 6.dp).fillMaxWidth(), tone = LxSurfaceTone.Raised) {
                 LxChoicePreference(
                     title = "主题模式",
@@ -48,7 +48,7 @@ fun AppearanceScreen(onBack: () -> Unit, onOpenLive2D: () -> Unit = {}) {
             }
         }
         item {
-            SmallTitle("陪伴组件")
+            LxSectionTitle("陪伴组件")
             LxSurface(Modifier.padding(top = 6.dp).fillMaxWidth(), tone = LxSurfaceTone.Raised) {
                 LxArrowPreference(
                     title = "Live2D 伴侣模型",

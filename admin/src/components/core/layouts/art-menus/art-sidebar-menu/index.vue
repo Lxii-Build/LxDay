@@ -243,15 +243,25 @@
       return allMenus
     }
 
-    // 处理一级菜单
+    // 混合 / 双列布局依赖「一级目录 + 二级子菜单」两层菜单数据：
+    //   - 当前落点是「一级页」（route.meta.isFirstLevel）时，左侧没有可展开的子菜单；
+    //   - 当前顶级路径在菜单里找不到对应目录、或该目录下没有 children 时，同样取不到子菜单。
+    // 本项目是**扁平路由**（无目录层级），上述两种情形都会命中，若直接返回空数组，
+    // 侧边栏就会渲染成一个菜单项都没有的空壳 —— 用户看到的正是「后台界面/侧边栏消失」。
+    // 因此这里统一兜底：只要按层级取不到子菜单，就回退为完整菜单列表，
+    // 保证任何 menuType 下侧边栏都不会为空。
+    // （正常入口已由 config/menuLayoutList 与 setting.ts 的 migrateMenuType 杜绝这两种布局，
+    //   这里是最后一道防线，防止坏值从「配置导入」等其它途径写回。）
+    const fallbackToAllMenus = () => (allMenus.length > 0 ? allMenus : [])
+
     if (route.meta.isFirstLevel) {
-      return []
+      return fallbackToAllMenus()
     }
 
-    // 返回当前顶级路径对应的子菜单
     const currentTopPath = `/${route.path.split('/')[1]}`
     const currentMenu = allMenus.find((menu) => menu.path === currentTopPath)
-    return currentMenu?.children ?? []
+    const children = currentMenu?.children ?? []
+    return children.length > 0 ? children : fallbackToAllMenus()
   })
 
   // 双列菜单收起时的滚动条样式

@@ -1,6 +1,7 @@
 package com.linxi.diary.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
@@ -17,10 +18,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.linxi.diary.ui.theme.BrandBlue
 import com.linxi.diary.ui.theme.BrandRed
@@ -104,34 +109,37 @@ fun LxButton(
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val bg = if (enabled) container else container.copy(alpha = 0.45f)
-    val surfaceModifier = if (pressed && enabled) {
-        Modifier
-            .drawWithContent {
-                drawContent()
-                // Keep the semantic blue/red fill while making the pressed state
-                // visibly sink into the same neutral material.
-                drawRoundRect(
-                    color = tokens.insetShadow,
-                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()),
-                    topLeft = androidx.compose.ui.geometry.Offset(1.dp.toPx(), 1.dp.toPx()),
-                    size = size.copy(
-                        width = (size.width - 2.dp.toPx()).coerceAtLeast(0f),
-                        height = (size.height - 2.dp.toPx()).coerceAtLeast(0f),
-                    ),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius((cornerRadius - 1).coerceAtLeast(1).dp.toPx()),
-                )
-            }
-    } else {
-        Modifier.shadow(5.dp, RoundedCornerShape(cornerRadius.dp), clip = false)
-    }
+    val shape = RoundedCornerShape(cornerRadius.dp)
+    val shadowColor = tokens.raisedShadow
+    val pressedEdge = tokens.insetShadow
+
     Box(
+        // ★ 顺序就是一切：图形层尺寸问题见文件末尾的说明 ★
+        //
+        // 阴影必须在最外层：`drawBehind` 比 `clip` 更早落在链上，因此它绘制时
+        // 拿到的 `size` 是**按钮外框尺寸**；阴影以该尺寸为中心向外放大绘制一圈，
+        // 随后 `background(bg)` 把与按钮重叠的部分盖住，只在四周露出一道柔和暗边
+        // —— 这就是拟态的浮起感。若把它放到 `clip` 之后，一旦调用方再追加 padding，
+        // 绘制尺寸就会缩到内容大小，暗边跑进按钮内部、甚至整块矩形被合成出来。
         modifier = modifier
-            // 下限在前、clip 在后：这样圆角与背景覆盖的是撑开后的尺寸。
-            // 单字按钮（如「删」）也不会缩成一个小方块。
+            // 1) 阴影先按外框撑开，保证绘制尺寸 = 按钮外框。
+            .drawBehind { drawSoftShadow(shape, shadowColor, pressed && enabled) }
+            // 2) 下限在前、clip 在后：圆角与背景覆盖的是撑开后的尺寸。
+            //    单字按钮（如「删」）也不会缩成一个小方块。
             .defaultMinSize(minWidth = MIN_TOUCH_DP.dp, minHeight = MIN_TOUCH_DP.dp)
-            .clip(RoundedCornerShape(cornerRadius.dp))
+            .clip(shape)
+            // 3) 填充是 `background`，不内缩 —— 不透明度变化不会让尺寸跟着变。
             .background(bg)
-            .then(surfaceModifier)
+            // 4) 按压态内描边：`border` 只是又一次 `drawBehind`，不创建图形层。
+            .then(
+                if (pressed && enabled) {
+                    Modifier.border(pressedEdge, shape, width = 2.dp)
+                } else {
+                    Modifier
+                }
+            )
+            // 5) 命中区覆盖「含内边距的整个按钮」：padding 在 clickable 之后，
+            //    内边距自然落在可点范围内（此前 padding 在全链最内层，行为一致）。
             .clickable(
                 enabled = enabled,
                 role = Role.Button,
@@ -139,6 +147,7 @@ fun LxButton(
                 indication = null,
                 onClick = onClick,
             )
+            // 6) 内边距放在图形层之外，只推挤内容，不参与背景/阴影的绘制尺寸。
             .padding(vertical = 13.dp, horizontal = horizontalPadding.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -155,6 +164,90 @@ fun LxButton(
                 content()
             }
         }
+    }
+}
+
+/**
+ * 在按钮外框四周画一圈柔和的外阴影。
+ *
+ * 为什么不再用 `Modifier.shadow(..., clip = false)` ★ 本次修复的核心 ★
+ *
+ * `Modifier.shadow` 会为该节点分配一个专用的 `RenderNode` 图形层；`clip = false` 时
+ * 层的内容区是**该节点自身的内容测量尺寸**。把这个 modifier 挂在 `padding` 的
+ * **外侧**还没事，一旦像旧代码那样挂在 `padding` 的**内侧**（旧链：
+ * `...clip().background().shadow().clickable().padding()`），图形层就只剩
+ * 「按钮外框减去内边距」那块，于是合成出来的是一个**比按钮小一圈、居中、
+ * 颜色等于底色提亮版**的矩形 —— 正是管理员截图里「取消」按钮中那条
+ * `(237,240,245)` 浅灰条、「添加」按钮中那块 `(158,195,250)` 浅蓝块。
+ * 现象是静态可见的，不需要按压。
+ *
+ * 现在改成纯 `drawBehind` 绘制：
+ * - `drawBehind` 不创建离屏图层，只是往当前 canvas 上多画一笔；
+ * - 绘制尺寸就是节点尺寸（本链上 `drawBehind` 位于 `clip` 之前，即按钮外框）；
+ * - 用 `scale` 把轮廓放大到按钮外框之外，由外向内叠若干层逐渐加深的填充，
+ *   模拟真实阴影的衰减；后续 `background(bg)` 会把与按钮重叠的部分盖住，
+ *   只露出四周外扩的一圈。
+ *
+ * `toArgb()` 是必须的：在 `drawBehind` 的 `DrawScope` 里要求 `Color` 已经绑定到
+ * 具体色彩空间，直接使用 `Color.copy(alpha=)` 在某些 Compose 版本上会走
+ * `Color.Unspecified` 分支而静默丢弃。
+ */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSoftShadow(
+    shape: androidx.compose.ui.graphics.Shape,
+    shadowColor: Color,
+    pressed: Boolean,
+) {
+    // 阴影色本身是半透明的（如 0x5C93A1B5），这里只用它的 RGB 与 alpha 强度，
+    // 避免在 drawBehind 里出现 Unspecified 色彩空间。
+    val base = Color(shadowColor.toArgb())
+    if (base.alpha <= 0f) return
+
+    // 按压时按钮「陷下去」：外扩幅度与强度一起收小。
+    val layers = if (pressed) 2 else 3
+    val maxSpread = if (pressed) 3f else 6f
+
+    for (i in layers downTo 1) {
+        val spread = maxSpread * i / layers
+        val alpha = base.alpha * 0.34f * (1f - (i - 1f) / layers)
+        if (alpha <= 0f) continue
+        val scaleX = (size.width + spread * 2f) / size.width
+        val scaleY = (size.height + spread * 2f) / size.height
+        scale(scaleX, scaleY, pivot = center) {
+            drawSolidOutline(shape = shape, color = base.copy(alpha = alpha))
+        }
+    }
+}
+
+/**
+ * 用 [shape] 的真实轮廓填充一块颜色。
+ *
+ * 走 `createOutline` 而非手写 `drawRoundRect(cornerRadius=...)`：圆角矩形 / 圆形 /
+ * 胶囊形都能严格跟随形状，调用方不必把半径再传一遍。
+ */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSolidOutline(
+    shape: androidx.compose.ui.graphics.Shape,
+    color: Color,
+) {
+    if (color.alpha <= 0f) return
+    when (val outline = shape.createOutline(size, LayoutDirection.Ltr, this)) {
+        is androidx.compose.ui.graphics.Outline.Rectangle -> drawRect(
+            color = color,
+            topLeft = Offset.Zero,
+            size = size,
+        )
+
+        is androidx.compose.ui.graphics.Outline.Rounded -> {
+            val r = outline.roundRect
+            drawRoundRect(
+                color = color,
+                topLeft = Offset.Zero,
+                size = size,
+                cornerRadius = CornerRadius(r.topLeftCornerRadius.x, r.topLeftCornerRadius.y),
+            )
+        }
+
+        // 任意 Path 无法可靠地按外框缩放，宁可不画也不画歪（与 strokeOutline 同一取舍）。
+        is androidx.compose.ui.graphics.Outline.Generic -> return
     }
 }
 

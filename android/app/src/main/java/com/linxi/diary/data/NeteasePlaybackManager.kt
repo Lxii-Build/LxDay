@@ -191,6 +191,41 @@ object NeteasePlaybackManager {
             // Some vendor desktop surfaces read media-button preferences rather
             // than the compact NotificationCompat action list.
             .setMediaButtonPreferences(transportButtons)
+            // ★ OPPO / 一加「流体云」(灵动岛) 补上「下一首」按钮 ★
+            //
+            // 部分厂商的流体云/媒体卡片读取的不是 MediaButtonPreferences，
+            // 而是 MediaSession 的 **custom layout**（media3 1.2+ 新增的自定义
+            // 布局槽位）。此前只配了 preferences + 通知紧凑视图，
+            // 于是流体云上只出现「上一首/播放」，独独缺「下一首」——
+            // 这正是管理员反馈的现象。
+            //
+            // 这里显式声明 3 个槽位：上一首 / 播放暂停 / 下一首。
+            // 播放暂停用 `COMMAND_PLAY_PAUSE`（会随 ExoPlayer 状态自动在
+            // 播放/暂停图标间切换），前后用既有的异步解析命令，
+            // 与 onPlayerCommandRequest 的分发保持一致。
+            .setCustomLayout(
+                listOf(
+                    CommandButton.Builder(CommandButton.ICON_PREVIOUS)
+                        .setPlayerCommand(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                        .setDisplayName("上一首")
+                        .setSlots(CommandButton.SLOT_BACK)
+                        .build(),
+                    // 注意：media3 没有 ICON_PLAY_PAUSE 这个字形，中间槽位用
+                    // ICON_PLAY + COMMAND_PLAY_PAUSE —— 厂商渲染时会依播放状态
+                    // 自动切换成播放/暂停，这也正是官方示例的写法。
+                    // 槽位常量是 SLOT_CENTRAL（不是 SLOT_CENTER）。
+                    CommandButton.Builder(CommandButton.ICON_PLAY)
+                        .setPlayerCommand(Player.COMMAND_PLAY_PAUSE)
+                        .setDisplayName("播放/暂停")
+                        .setSlots(CommandButton.SLOT_CENTRAL)
+                        .build(),
+                    CommandButton.Builder(CommandButton.ICON_NEXT)
+                        .setPlayerCommand(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                        .setDisplayName("下一首")
+                        .setSlots(CommandButton.SLOT_FORWARD)
+                        .build(),
+                ),
+            )
             .build()
         MusicNotificationController.init(context, mediaSession)
         playbackScope.launch {

@@ -40,6 +40,57 @@ import { StorageConfig } from '@/utils'
 import { SETTING_DEFAULT_CONFIG } from '@/config/setting'
 
 /**
+ * 侧边栏宽度的历史默认值。
+ *
+ * 默认宽度从 230 收窄到 190 后，**已访问过后台的浏览器**会从 localStorage 里
+ * 读回旧值 230，导致新默认值对老用户完全不生效（刷新、重启都不行）。
+ *
+ * 这里做一次「仅当用户从未自定义过」才生效的迁移：
+ * 存量值为旧默认 230 视为没动过 → 升级到新默认 190；
+ * 任何其他值都视为用户主动调整过 → 原样保留，绝不覆盖用户意图。
+ *
+ * 迁移只跑一次（用 MIGRATION_FLAG_KEY 标记），因此用户此后把宽度改回 230
+ * 不会被二次改写。
+ */
+const LEGACY_MENU_OPEN_WIDTH = 230
+const MENU_WIDTH_MIGRATION_FLAG_KEY = 'sys-menu-width-migrated-to-190'
+
+function migrateMenuOpenWidth(stored: unknown): unknown {
+  try {
+    if (localStorage.getItem(MENU_WIDTH_MIGRATION_FLAG_KEY)) return stored
+    localStorage.setItem(MENU_WIDTH_MIGRATION_FLAG_KEY, '1')
+  } catch {
+    // 隐私模式等场景下 localStorage 不可写：不做迁移，保持原值即可。
+    return stored
+  }
+  return stored === LEGACY_MENU_OPEN_WIDTH ? SETTING_DEFAULT_CONFIG.menuOpenWidth : stored
+}
+
+/**
+ * 归一化菜单布局类型（修复「后台界面消失」）。
+ *
+ * 本项目采用的是**扁平路由**：每个页面都是独立的一级路由（如 /dashboard、/users），
+ * 路由之间没有父子层级。而混合菜单（top-left）与双列菜单（dual-menu）这两种布局
+ * 在结构上都依赖「一级目录 + 二级子菜单」的层级数据：
+ *   - 混合菜单：左侧只渲染当前一级目录下的子菜单，一级目录本身渲染在顶栏；
+ *   - 双列菜单：左列渲染一级目录，右侧列渲染对应子菜单。
+ * 扁平路由既没有目录也没有子菜单，于是这两种布局的菜单列表恒为空 ——
+ * 左侧栏虽然渲染出来却**一个菜单项都没有**，用户看到的就是「侧边栏/导航消失」，
+ * 进而以为整个后台坏了。
+ *
+ * 因此把这两个布局视为对本项目无效的存量值：读到时一律回退到左侧菜单（left）。
+ * 这是对所有老用户都生效的兜底修复——即便某台浏览器里已经存了坏值，刷新后也能恢复。
+ * 顶栏菜单（top）与左侧菜单（left）不依赖层级，保留不动。
+ */
+const INCOMPATIBLE_MENU_TYPES = ['top-left', 'dual-menu']
+
+function migrateMenuType(stored: unknown): unknown {
+  return typeof stored === 'string' && INCOMPATIBLE_MENU_TYPES.includes(stored)
+    ? SETTING_DEFAULT_CONFIG.menuType
+    : stored
+}
+
+/**
  * 系统设置状态管理
  * 管理应用的菜单、主题、界面显示等各项设置
  */
@@ -400,7 +451,28 @@ export const useSettingStore = defineStore(
   {
     persist: {
       key: 'setting',
-      storage: localStorage
+      storage: localStorage,
+      /**
+       * 反序列化钩子：
+       *  - menuOpenWidth：「侧边栏默认宽度 230 → 190」，见文件顶部 migrateMenuOpenWidth；
+       *  - menuType：把对本项目扁平路由无效的混合/双列布局回退到左侧菜单，
+       *    见文件顶部 migrateMenuType —— 这是「后台界面（侧边栏菜单）消失」的兜底修复。
+       */
+      serializer: {
+        serialize: JSON.stringify,
+        deserialize: (raw: string) => {
+          const parsed = JSON.parse(raw)
+          if (parsed && typeof parsed === 'object') {
+            if ('menuOpenWidth' in parsed) {
+              parsed.menuOpenWidth = migrateMenuOpenWidth(parsed.menuOpenWidth)
+            }
+            if ('menuType' in parsed) {
+              parsed.menuType = migrateMenuType(parsed.menuType)
+            }
+          }
+          return parsed
+        }
+      }
     }
   }
 )

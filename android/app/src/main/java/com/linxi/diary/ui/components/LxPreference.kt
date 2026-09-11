@@ -22,6 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -32,6 +33,30 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.ChevronForward
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+
+/**
+ * 分区小标题（替代 miuix 原生 `SmallTitle`）。
+ *
+ * 为什么不用 `SmallTitle` ★ 与 LxText 同源的 GPU 兼容问题 ★
+ *
+ * `SmallTitle` 走 miuix 的组件层，在受影响渲染路径上会把该层合成为一块
+ * **不透明文字尺寸矩形**（文字在页面切换时还可能被画两次，即「文字叠印」）。
+ * 它与 [com.linxi.diary.ui.components.LxText] 的注释描述的是同一族问题。
+ * 分区标题只是纯排版，直接落到底层文本原语即可，不需要 miuix 组件层。
+ */
+@Composable
+fun LxSectionTitle(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
+    Text(
+        text = text,
+        modifier = modifier.padding(start = 16.dp, top = 18.dp, bottom = 4.dp),
+        fontSize = 13.sp,
+        fontWeight = FontWeight.Medium,
+        color = MiuixTheme.colorScheme.primary,
+    )
+}
 
 /**
  * Stable preference row used by the app instead of the fixed-height Miuix

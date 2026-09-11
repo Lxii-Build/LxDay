@@ -39,7 +39,7 @@ import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Contacts
 import com.linxi.diary.ui.components.LxIcon as Icon
-import top.yukonga.miuix.kmp.basic.SmallTitle
+import com.linxi.diary.ui.components.LxSectionTitle
 import com.linxi.diary.ui.components.LxText as Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
@@ -236,7 +236,7 @@ private fun ProfileEditContent(
             }
         }
         item {
-            SmallTitle("名称")
+            LxSectionTitle("名称")
             LxSurface(Modifier.fillMaxWidth(), tone = LxSurfaceTone.Inset) {
                 Column(Modifier.padding(16.dp)) {
                     TextField(value = nickname, onValueChange = onNickname, label = "名称", singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -244,7 +244,7 @@ private fun ProfileEditContent(
             }
         }
         item {
-            SmallTitle("性别")
+            LxSectionTitle("性别")
             LxSurface(Modifier.fillMaxWidth(), tone = LxSurfaceTone.Inset) {
                 Row(
                     Modifier.fillMaxWidth().padding(16.dp),
@@ -257,7 +257,7 @@ private fun ProfileEditContent(
             }
         }
         item {
-            SmallTitle("简介")
+            LxSectionTitle("简介")
             LxSurface(Modifier.fillMaxWidth(), tone = LxSurfaceTone.Inset) {
                 Column(Modifier.padding(16.dp)) {
                     TextField(value = signature, onValueChange = onSignature, label = "一句话介绍自己", modifier = Modifier.fillMaxWidth())
@@ -265,7 +265,7 @@ private fun ProfileEditContent(
             }
         }
         item {
-            SmallTitle("生日")
+            LxSectionTitle("生日")
             LxSurface(Modifier.fillMaxWidth(), tone = LxSurfaceTone.Inset) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     StepperRow("年", year, 1900, 2100, onYear)
@@ -276,7 +276,7 @@ private fun ProfileEditContent(
         }
         if (showAnniversary) {
             item {
-                SmallTitle("纪念日")
+                LxSectionTitle("纪念日")
                 LxSurface(Modifier.fillMaxWidth(), tone = LxSurfaceTone.Inset) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(

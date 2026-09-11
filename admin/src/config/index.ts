@@ -72,12 +72,19 @@ const appConfig: SystemConfig = {
       img: configImages.themeStyles.system
     }
   ],
-  // 菜单布局列表
+  // 菜单布局列表。
+  //
+  // 本项目为扁平路由（每个页面都是独立一级路由，无目录/子菜单层级），
+  // 因此只保留不依赖层级的两种布局：
+  //   - Left：左侧竖向菜单；
+  //   - Top：顶栏横向菜单。
+  // 「Mixed（混合）」与「Dual Column（双列）」都要求「一级目录 + 二级子菜单」的两层
+  // 菜单数据，在扁平路由下左侧栏会渲染成空列表 —— 即用户反馈的「后台界面/侧边栏消失」。
+  // 与其让用户选到一个必然坏掉的布局，不如直接不提供（存量已选中的坏值会在
+  // store/modules/setting.ts 的 migrateMenuType 里自动回退到 Left）。
   menuLayoutList: [
     { name: 'Left', value: MenuTypeEnum.LEFT, img: configImages.menuLayouts.vertical },
-    { name: 'Top', value: MenuTypeEnum.TOP, img: configImages.menuLayouts.horizontal },
-    { name: 'Mixed', value: MenuTypeEnum.TOP_LEFT, img: configImages.menuLayouts.mixed },
-    { name: 'Dual Column', value: MenuTypeEnum.DUAL_MENU, img: configImages.menuLayouts.dualColumn }
+    { name: 'Top', value: MenuTypeEnum.TOP, img: configImages.menuLayouts.horizontal }
   ],
   // 菜单主题列表
   themeList: [

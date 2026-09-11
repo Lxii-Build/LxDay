@@ -36,9 +36,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -173,6 +175,22 @@ fun RowScope.FloatingBottomBarItem(
     )
 }
 
+/**
+ * Bottom bar surface mode.
+ *
+ * 这里区分「**有动画**」和「**用 RenderEffect 采样**」两个此前被绑死在一起的概念。
+ *
+ * - [Liquid]：完整液态玻璃。需要 `Backdrop` + `drawBackdrop`，会创建 RenderEffect
+ *   图层。视觉最好，但在部分 Android 15/16 GPU 驱动上会让相邻文本出现
+ *   ghosting / 白色矩形（仓库里多处注释都记录过这个坑）。
+ * - [Miuix]：**默认**。保留全部不依赖离屏图层的动画（选中胶囊的弹簧位移、
+ *   拖拽时的缩放开合、按压高光/内凹阴影、选中项文字缩放），只是用
+ *   `graphicsLayer` + 静态渐变模拟玻璃观感，**完全不创建 RenderEffect**，
+ *   因此从机制上不可能触发 ghosting。
+ * - [Opaque]：无动画的纯色兜底，仅在调用方明确要求时使用。
+ */
+enum class FloatingBarSurfaceMode { Liquid, Miuix, Opaque }
+
 @Composable
 fun FloatingBottomBar(
     modifier: Modifier = Modifier,
@@ -180,6 +198,19 @@ fun FloatingBottomBar(
     onSelected: (index: Int) -> Unit,
     backdrop: Backdrop?,
     tabsCount: Int,
+    /**
+     * 渲染模式。默认 [FloatingBarSurfaceMode.Miuix]：**动画全开、离屏图层全关**。
+     *
+     * 此前这里是一个 `isBlurEnabled: Boolean`，默认 true，而 [LinxiApp] 调用点
+     * 显式传了 false —— 于是 `activeBackdrop` 变 null，不仅玻璃模糊没了，
+     * 连下面这些**根本不需要 RenderEffect** 的动画也一并被跳过：
+     *   · 选中胶囊的弹簧位移（`dampedDragAnimation.value` 驱动的 translationX）；
+     *   · 拖拽/切换时的缩放开合（`dampedDragAnimation.scaleX/scaleY`）；
+     *   · 按压高光与内凹阴影（`interactiveHighlight` / `innerShadow`）；
+     *   · 选中项文字/图标的放大（`LocalFloatingBottomBarTabScale`）。
+     * 结果整条底栏只剩一个静态的浅蓝椭圆，这就是管理员说的「动画被阉割」。
+     */
+    surfaceMode: FloatingBarSurfaceMode = FloatingBarSurfaceMode.Miuix,
     isBlurEnabled: Boolean = true,
     content: @Composable RowScope.() -> Unit
 ) {
@@ -188,14 +219,24 @@ fun FloatingBottomBar(
     val accentColor = MiuixTheme.colorScheme.primary
     val tabContentColor = MiuixTheme.colorScheme.onSurface
     val surfaceContainer = MiuixTheme.colorScheme.surfaceContainer
-    val containerColor = if (isBlurEnabled) surfaceContainer.copy(0.4f) else surfaceContainer
 
-    // Do not allocate or attach a RenderEffect backdrop when the stable opaque
-    // mode is selected.  On affected Android 15/16 GPU paths merely keeping a
-    // live backdrop around was enough to produce ghosted text/white rectangles
-    // in neighbouring composables.
-    val activeBackdrop = if (isBlurEnabled) backdrop else null
-    val tabsBackdrop = if (activeBackdrop != null) rememberLayerBackdrop() else null
+    // isBlurEnabled 保留是为了兼容旧调用点（语义 =「允许液态玻璃」）；
+    // 真正决定是否创建 RenderEffect 图层的是 liquidMode。
+    val liquidMode = surfaceMode == FloatingBarSurfaceMode.Liquid && isBlurEnabled
+    val opaqueMode = surfaceMode == FloatingBarSurfaceMode.Opaque
+    val containerColor = if (liquidMode) surfaceContainer.copy(0.4f) else surfaceContainer
+
+    // Do not allocate or attach a RenderEffect backdrop unless the caller
+    // explicitly opted into the liquid path.  On affected Android 15/16 GPU
+    // paths merely keeping a live backdrop around was enough to produce
+    // ghosted text/white rectangles in neighbouring composables.
+    val activeBackdrop = if (liquidMode) backdrop else null
+    // rememberLayerBackdrop() 是 @Composable，必须在条件**外部**无副作用地求值，
+    // 否则一旦 activeBackdrop 从 null 变成非 null（或反过来），Compose 的
+    // slot table 里会多/少一个 composable 调用，重组直接抛
+    // 「Unbalanced composition」。这里无条件只调用一次，真正使用时再判空。
+    val tabsBackdrop = rememberLayerBackdrop()
+        .takeIf { activeBackdrop != null }
     val density = LocalDensity.current
     val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
     val animationScope = rememberCoroutineScope()
@@ -395,6 +436,33 @@ fun FloatingBottomBar(
                     content = content
                 )
             }
+        } else if (!opaqueMode) {
+            // Miuix 模式下的选中项高亮层。
+            //
+            // Liquid 分支靠第二层 `.alpha(0f)` + `layerBackdrop` 把「选中色文字」
+            // 叠加在胶囊上。这条路径必然创建图层，所以这里改用**纯 alpha 叠色**：
+            // 同一个 content() 再画一遍，用 accentColor 着色并以 alpha 0→1
+            // 淡入到胶囊范围内，视觉等价、机制上零图层。
+            CompositionLocalProvider(
+                // 选中项文字缩放：这条动画同样不依赖 RenderEffect，此前一并被跳过。
+                LocalFloatingBottomBarTabScale provides {
+                    lerp(1f, 1.2f, dampedDragAnimation.pressProgress)
+                },
+                LocalContentColor provides accentColor,
+            ) {
+                Row(
+                    Modifier
+                        .clearAndSetSemantics {}
+                        .fillMaxHeight()
+                        // 用 graphicsLayer 的 alpha 做淡入，而不是 Modifier.alpha()：
+                        // 两者都不创建离屏层，但 graphicsLayer 能保证与下方胶囊
+                        // 的位移共用同一个变换坐标系。
+                        .graphicsLayer { alpha = dampedDragAnimation.pressProgress }
+                        .padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    content = content
+                )
+            }
         }
 
         if (tabWidthPx > 0f) {
@@ -448,7 +516,8 @@ fun FloatingBottomBar(
                         .height(56.dp)
                         .width(tabWidthDp)
                 )
-            } else {
+            } else if (opaqueMode) {
+                // 纯色兜底：连位移动画都不要，仅用于排障对比。
                 Box(
                     Modifier
                         .padding(horizontal = 4.dp)
@@ -456,9 +525,67 @@ fun FloatingBottomBar(
                             val progressOffset = dampedDragAnimation.value * tabWidthPx
                             translationX = if (isLtr) progressOffset + panelOffset else -progressOffset + panelOffset
                         }
-                        .then(dampedDragAnimation.modifier)
                         .clip(pillShape)
                         .background(accentColor.copy(alpha = 0.15f), pillShape)
+                        .height(56.dp)
+                        .width(tabWidthDp)
+                )
+            } else {
+                // ★ Miuix 模式：三条「被阉割」的动画在这里全部恢复 ★
+                //
+                // 关键点是这套动画**根本不依赖 RenderEffect**：
+                //   · 位移 —— `dampedDragAnimation.value` 是纯 Animatable + 弹簧；
+                //   · 缩放 —— `dampedDragAnimation.scaleX/scaleY` 同样是 Animatable；
+                //   · 高光 —— 用 drawBehind 的品牌色微光 + 白色渐变表达，
+                //     不走 InteractiveHighlight（理由见下方 modifier 链上的注释）。
+                // 此前它们被跳过，唯一原因就是旧代码把整个 else 分支写成了静态 background。
+                // 现在改为在真实节点上用 graphicsLayer / drawBehind 表达，
+                // 不创建任何离屏层，因此不会引发 ghosting。
+                Box(
+                    Modifier
+                        .padding(horizontal = 4.dp)
+                        .graphicsLayer {
+                            val progressOffset = dampedDragAnimation.value * tabWidthPx
+                            translationX = if (isLtr) progressOffset + panelOffset else -progressOffset + panelOffset
+                            // 缩放回弹：`DampedDragAnimation` 的 scaleX/scaleY，
+                            // 视觉流速减法与 Liquid 分支保持同一套公式。
+                            scaleX = dampedDragAnimation.scaleX
+                            scaleY = dampedDragAnimation.scaleY
+                            val velocity = dampedDragAnimation.velocity / 10f
+                            scaleX /= 1f - (velocity * 0.75f).fastCoerceIn(-0.2f, 0.2f)
+                            scaleY *= 1f - (velocity * 0.25f).fastCoerceIn(-0.2f, 0.2f)
+                        }
+                        // 拖拽手势：`dampedDragAnimation.modifier` 里就带着 press()/release()，
+                        // 所以「按住 → 胶囊放大、松开 → 弹回」在无 RenderEffect 时依然成立。
+                        .then(dampedDragAnimation.modifier)
+                        // ★ 这里刻意不挂 `interactiveHighlight.modifier` ★
+                        //
+                        // InteractiveHighlight 的光斑由它自己的 gestureModifier 驱动，
+                        // 而 gestureModifier 只在 Liquid 分支的指示器 Box 上挂载；
+                        // Miuix 分支不挂它，pressProgress 就恒为 0，光斑永远不会绘制。
+                        // 且它的 drawWithContent 排在 clip/background **之前**（绘制链
+                        // 外层），就算 progress > 0，光斑也会被后面的背景整块盖住。
+                        // 所以 Miuix 模式的「按压高光」改由下方 drawBehind 里的
+                        // 品牌色微光承担：同样随 pressProgress 弹簧淡入淡出，
+                        // 且绘制顺序正确（画在背景之上）、零额外图层。
+                        .clip(pillShape)
+                        .background(accentColor.copy(alpha = lerp(0.15f, 0.26f, dampedDragAnimation.pressProgress)), pillShape)
+                        // 静态渐变代替玻璃采样：让胶囊本身有「受光」的立体感。
+                        // Brush 按节点自身尺寸绘制，只往当前 canvas 多画一笔，
+                        // 不创建图层、不接管 content 绘制。
+                        .drawBehind {
+                            drawRect(
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.White.copy(alpha = 0.22f),
+                                        Color.White.copy(alpha = 0.02f),
+                                    ),
+                                ),
+                            )
+                            // 按压时再叠一层品牌色微光，作为「高光」在无 RenderEffect
+                            // 路径下的替代：视觉上有回应，机制上零图层。
+                            drawRect(color = accentColor.copy(alpha = 0.10f * dampedDragAnimation.pressProgress))
+                        }
                         .height(56.dp)
                         .width(tabWidthDp)
                 )
