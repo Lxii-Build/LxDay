@@ -4,6 +4,9 @@ import android.content.Context
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
+// onPlayerCommandRequest 的返回值常量定义在 SessionResult 上（Player 上没有
+// RESULT_SUCCESS —— 编译期即报 Unresolved reference，CI 已验证过一次）。
+import androidx.media3.session.SessionResult
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -206,14 +209,9 @@ object NeteasePlaybackManager {
             override fun seekToNext() {
                 skipToNext()
             }
-
-            override fun seekToPreviousWindow() {
-                skipToPrevious()
-            }
-
-            override fun seekToNextWindow() {
-                skipToNext()
-            }
+            // 注：seekToPreviousWindow/seekToNextWindow 两个方法在 media3 1.10
+            // 的 Player 接口里已随 WINDOW 命令一起移除（只剩 deprecated 常量），
+            // 不能也不需要 override —— 框架内不会再把命令路由到它们。
         }
         mediaSession = MediaSession.Builder(appContext, sessionPlayer)
             .setCallback(object : MediaSession.Callback {
@@ -246,7 +244,7 @@ object NeteasePlaybackManager {
                     Player.COMMAND_SEEK_TO_PREVIOUS,
                     Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
                     Player.COMMAND_SEEK_TO_NEXT_WINDOW,
-                    Player.COMMAND_SEEK_TO_NEXT -> Player.RESULT_SUCCESS
+                    Player.COMMAND_SEEK_TO_NEXT -> SessionResult.RESULT_SUCCESS
 
                     else -> super.onPlayerCommandRequest(session, controller, playerCommand)
                 }
