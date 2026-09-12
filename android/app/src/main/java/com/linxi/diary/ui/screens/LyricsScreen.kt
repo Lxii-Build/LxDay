@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.linxi.diary.data.ListenSessionController
 import com.linxi.diary.data.NeteaseClient
 import com.linxi.diary.data.NeteaseLyricLine
 import com.linxi.diary.data.NeteaseLyrics
@@ -358,9 +359,11 @@ fun LyricsScreen(track: NeteaseTrack, onBack: () -> Unit) {
                     index = index,
                     onClick = {
                         // 点击跳转：seek 到该行时间轴，并闪一下按压反馈。
-                        NeteasePlaybackManager.seekTo(
-                            (line.timeMs - (lyrics?.offsetMs ?: 0L)).coerceAtLeast(0L),
-                        )
+                        // 一起听会话活跃时把这次跳转也广播进房间（网易云式），
+                        // 对方立即跟随；无会话时 routeSeek 是空操作。
+                        val seekTarget = (line.timeMs - (lyrics?.offsetMs ?: 0L)).coerceAtLeast(0L)
+                        NeteasePlaybackManager.seekTo(seekTarget)
+                        ListenSessionController.routeSeek(seekTarget)
                         flashIndex = index
                     },
                 )

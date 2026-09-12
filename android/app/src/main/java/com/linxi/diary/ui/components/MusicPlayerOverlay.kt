@@ -49,6 +49,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.linxi.diary.data.ListenSessionController
 import com.linxi.diary.data.NeteasePlaybackManager
 import com.linxi.diary.data.NeteasePlaybackState
 import com.linxi.diary.data.NeteaseRepeatMode
@@ -344,7 +345,14 @@ private fun FullPlaybackSheet(
             progress = progress,
             durationMs = duration,
             onScrubStart = { scrubbing = true },
-            onScrubEnd = { scrubbing = false },
+            // 松手 = 一次拖动的终点：把最终位置广播进一起听房间（网易云式
+            // 「我拖进度，对方立即跟」）。拖动过程中的连续 onSeek 只更新
+            // 本地播放器，不会打进房间（否则一次拖动会洪泛几十条命令）；
+            // 没有一起听会话时 routeSeek 直接返回 false，零开销。
+            onScrubEnd = {
+                scrubbing = false
+                ListenSessionController.routeSeek(NeteasePlaybackManager.stateFlow.value.positionMs)
+            },
             onSeek = { position -> NeteasePlaybackManager.seekTo(position) },
         )
         Spacer(Modifier.height(6.dp))

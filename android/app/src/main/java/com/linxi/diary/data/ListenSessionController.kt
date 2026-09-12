@@ -169,11 +169,36 @@ object ListenSessionController {
         else reconnect(state.value.roomId, generation)
     }
 
-    /** Send a user intent and only apply the returned authoritative room state. */
+    /**
+     * Send a user intent and only apply the returned authoritative room state.
+     *
+     * ★ 信令通道选择（0830 同步体验对标网易云）★
+     *
+     * 控制命令优先走 WebSocket 上行：服务端 serveWS 收到后走与 REST 完全
+     * 相同的 applyControl（同一份校验/落库/广播逻辑），然后 room_state_updated
+     * 广播给**全房间（含发起者）**。发起者经由广播回环拿到权威状态——
+     * 延迟从「REST 请求往返」降到「一个 WS 帧」，播放/暂停/切歌/拖进度
+     * 跟手度与网易云一起听同级。
+     *
+     * WS 未连接或发送失败时降级回 REST（行为与旧版完全一致）。
+     * WS 路径的失败反馈：服务端对被拒命令会单发 {type:"error"}，
+     * 由 onMessage 里的 error 分支呈现，不会静默吞掉。
+     */
     fun control(action: JSONObject, successMessage: String? = null) {
         val roomId = state.value.roomId
         if (roomId.isBlank() || !canControl(state.value)) return
         val runGeneration = generation
+        val webSocket = socket
+        if (state.value.connected && webSocket != null) {
+            val sent = runCatching { webSocket.send(action.toString()) }.getOrDefault(false)
+            if (sent) {
+                // 与 REST 路径不同：没有同步响应体。权威状态由服务端广播
+                // 回环送达；这里只复位 loading，绝不本地乐观改 room ——
+                // 双写必然和广播竞争，revision 单调性会把它挡掉反而更乱。
+                successMessage?.let { message -> update { it.copy(info = message) } }
+                return
+            }
+        }
         val requestSequence = ++controlSequence
         scope.launch {
             controlMutex.withLock {
@@ -200,6 +225,29 @@ object ListenSessionController {
                 }
             }
         }
+    }
+
+    /**
+     * 把一次「用户主动 seek」同步进一起听房间（网易云式拖进度体验）。
+     *
+     * 调用时机由 UI 决定：进度条**松手时**调用一次（拖动过程中的连续
+     * onSeek 只更新本地播放器，不进房间——否则一次拖动会打出几十条命令）。
+     * 对方收到 seek 命令立即对齐，而不是等 5 秒心跳；无控制权的成员
+     * （canControl=false）不发命令，本地位置会在下一拍被房主心跳拉回，
+     * 与网易云「无权成员拖动无效」的行为一致。
+     *
+     * @return true 表示已路由进房间；false 表示当前没有活跃音频房间或无控制权
+     */
+    fun routeSeek(positionMs: Long): Boolean {
+        if (!hasActiveAudioRoom()) return false
+        if (!canControl(state.value)) return false
+        control(
+            JSONObject().apply {
+                put("action", "seek")
+                put("position_ms", positionMs.coerceAtLeast(0L))
+            },
+        )
+        return true
     }
 
     /** Publish a URL/timeline for Together Watching through the same
@@ -403,6 +451,13 @@ object ListenSessionController {
                         val event = JSONObject(text)
                         if (event.optString("type") == "room_closed") {
                             clearInternal("一起听房间已关闭")
+                        } else if (event.optString("type") == "error") {
+                            // WS 上行命令被服务端拒绝（口令失效/成员无控制权/
+                            // revision 冲突等）。控制信令改走 WS 后这是唯一的
+                            // 失败反馈通道，不能像旧版那样静默吞掉。
+                            update {
+                                it.copy(error = event.optString("message").ifBlank { "播放操作未被接受" })
+                            }
                         } else {
                             event.optJSONObject("room")?.let {
                                 applyRoom(ListenRoomSnapshot.fromJson(it), runGeneration)
@@ -468,7 +523,10 @@ object ListenSessionController {
         if (syncJob?.isActive == true) return
         syncJob = scope.launch {
             while (isActive && runGeneration == generation && sessionToken != null) {
-                delay(if (state.value.role == "host") 5_000L else 30_000L)
+                // host 5s 心跳 → 服务端广播 → 双方即时跟随；member 的定时拉取
+                // 只是 WS 断线后的兜底（WS 正常时广播本来就是即时推送的），
+                // 30s 太慢：断线期间网易云式的体验意味着最多十几秒就该恢复。
+                delay(if (state.value.role == "host") 5_000L else 12_000L)
                 val snapshot = state.value.room ?: continue
                 val local = NeteasePlaybackManager.refreshProgress()
                 if (state.value.role == "host" && !snapshot.state.isWatch && local.track?.id == snapshot.state.songId) {
@@ -480,17 +538,21 @@ object ListenSessionController {
                         if (latest == null || latest.state.revision != snapshot.state.revision ||
                             latest.state.songId != local.track?.id
                         ) return@withLock
-                        runCatching {
-                            ApiClient.controlListenRoom(
-                                snapshot.roomId,
-                                JSONObject().apply {
-                                    put("action", "heartbeat")
-                                    put("playing", local.playing)
-                                    put("position_ms", local.positionMs)
-                                },
-                            )
-                        }.onSuccess { response -> applyResponse(response, runGeneration) }
-                            .onFailure { update { it.copy(connected = false) } }
+                        // 心跳同样优先走 WS：服务端 applyControl 后广播回环，
+                        // 全房间的 revision 由广播更新，无需 REST 响应体。
+                        val heartbeat = JSONObject().apply {
+                            put("action", "heartbeat")
+                            put("playing", local.playing)
+                            put("position_ms", local.positionMs)
+                        }
+                        val webSocket = socket
+                        val sentOverWs = state.value.connected && webSocket != null &&
+                            runCatching { webSocket.send(heartbeat.toString()) }.getOrDefault(false)
+                        if (!sentOverWs) {
+                            runCatching { ApiClient.controlListenRoom(snapshot.roomId, heartbeat) }
+                                .onSuccess { response -> applyResponse(response, runGeneration) }
+                                .onFailure { update { it.copy(connected = false) } }
+                        }
                     }
                 } else {
                     runCatching { ApiClient.listenRoomState(snapshot.roomId) }
@@ -541,8 +603,21 @@ object ListenSessionController {
                         autoplay = remoteState.playing,
                     )
                 } else {
-                    if (kotlin.math.abs(local.positionMs - remoteState.positionMs) > 2_000L) {
-                        NeteasePlaybackManager.seekTo(remoteState.positionMs)
+                    // ★ 拖动防拽回（0830，网易云式同步的另一半）★
+                    //
+                    // 用户正在拖进度条/刚拖完的 3 秒窗口内，远程快照不再把
+                    // 本地进度强行拉回对方位置——否则拖动手势会被 5 秒一次的
+                    // host 心跳快照打断，永远拖不到目标位置。窗口结束后如有
+                    // 偏差会照常对齐，不影响正常跟随。
+                    val recentlySeekedByUser =
+                        System.currentTimeMillis() - NeteasePlaybackManager.lastUserSeekAtMs < 3_000L
+                    if (kotlin.math.abs(local.positionMs - remoteState.positionMs) > 2_000L &&
+                        !recentlySeekedByUser
+                    ) {
+                        // 远程对齐是程序化 seek，必须走 seekToLocal：它不点亮
+                        // lastUserSeekAtMs，否则对方的 seek 会让本端也错误地
+                        // 进入防拽回窗口。
+                        NeteasePlaybackManager.seekToLocal(remoteState.positionMs)
                     }
                     if (remoteState.playing && !local.playing) NeteasePlaybackManager.resumeLocal()
                     if (!remoteState.playing && local.playing) NeteasePlaybackManager.pauseLocal()

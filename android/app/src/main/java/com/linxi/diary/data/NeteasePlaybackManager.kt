@@ -605,10 +605,22 @@ object NeteasePlaybackManager {
         )
     }
 
+    /** 最近一次「用户主动 seek」（拖进度条/点歌词）的时间戳。
+     *
+     *  一起听用它实现网易云式「拖动防拽回」：拖动进行中/刚拖完的短窗口里，
+     *  远程快照不再把进度强行拉回对方位置——否则手指还没离开进度条就被
+     *  5 秒一次的 host 心跳拽回去，拖动根本没法完成。远程自动对齐走
+     *  [seekToLocal]，不会点亮这个时间戳。 */
+    @Volatile
+    var lastUserSeekAtMs: Long = 0L
+        private set
+
     fun seekTo(positionMs: Long) {
         // Seeking is emitted repeatedly while the full-player scrubber is
-        // dragged.  Keep it local here; Together's heartbeat publishes the
-        // settled position without flooding the control endpoint.
+        // dragged.  Keep it local here; the settled position is published by
+        // ListenSessionController.routeSeek when the gesture ends (网易云式：
+        // 拖动全程本地跟手，松手才广播一次最终位置，不洪泛控制端点).
+        lastUserSeekAtMs = System.currentTimeMillis()
         seekToLocal(positionMs)
     }
 
